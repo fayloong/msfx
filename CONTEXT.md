@@ -4,35 +4,27 @@
 
 ### 核心实体
 
-- **上传任务 (Upload Task)**：待上传到码上放心平台的出入库单据。包含日期、单号、往来单位、追溯码列表、任务状态。来源可能是 cron 定时从 SQL Server 抓取，也可能是用户在 Web 端手动创建。
+- **上传任务 (Upload Task)**：待上传到码上放心平台的出入库单据。包含日期、单号、往来单位、追溯码列表、任务状态。来源可能是 cron 定时从 SQL Server 抓取，也可能是用户在 Web 端手动创建。存储在 SQLite `upload_tasks` 表。
 
-- **单据 (Bill)**：ERP 系统中的出入库单。类型包括：采购入库(102)、退货入库(103)、销售出库(201)、采购退出(202)。在 SQL Server 中以 `djbh` 作为唯一标识。
+- **上传日志 (Upload Log)**：每次 API 调用的结果记录。与上传任务通过 `task_id` 关联。成功/失败状态、API 返回内容、往来单位、追溯码。存储在 SQLite `upload_logs` 表，同时写入 JSONL 文件永久保存。
 
-- **追溯码 (Trace Code)**：药品电子监管码，字符串类型。一个单据对应多个追溯码，以英文逗号分隔拼接为长文本。API 限制单次上传最多 3500 个追溯码，超出时自动拆分单号。
+- **单据 (Bill)**：ERP 系统中的出入库单。类型包括：采购入库(102)、退货入库(103)、销售出库(201)、采购退出(202)。在 SQL Server 中以 `djbh` 作为唯一标识。`djbh` 前 3 位标识单据类型（XSO/XST/JHG/JHO）。
 
-- **往来单位 (Partner Enterprise)**：单据的对方企业（供应商或客户）。具有 `ent_name`（企业名称）、`ent_id`（阿里健康企业 ID）、`ref_ent_id`（企业编码）属性。首次遇到的往来单位通过 API 在线查询并缓存到本地 `ent_list` 表。
+- **追溯码 (Trace Code)**：药品电子监管码，字符串类型。一个单据对应多个追溯码，以英文逗号分隔拼接为长文本。API 限制单次上传最多 3500 个追溯码，超出时自动拆分为 `单号_1, 单号_2...`。
+
+- **往来单位 (Partner Enterprise)**：单据的对方企业（供应商或客户）。具有 `ent_name`（企业名称）、`ent_id`（阿里健康企业 ID）、`ref_ent_id`（企业编码）属性。首次遇到的往来单位通过 API 在线查询并缓存到本地 SQLite `ent_list` 表。
 
 - **单号 (Bill Code)**：单据编号，如 `JHGWMS00061116`。前 3 位标识单据类型（XSO/XST/JHG/JHO）。拆分时衍生为 `单号_1, 单号_2...`。
 
 ### 核心流程
 
-- **定时上传 (Cron Upload)**：每天 20:00 触发，执行 `config/sql.php` 查询 SQL Server → 获取当天单据数据 → 按单号拼装追溯码 → 拆分超 3500 的单号 → 调码上放心 API → 结果写入 JSONL + SQLite。
+- **定时上传 (Cron Upload)**：每天执行 `scripts/cron_upload.php` → TaskFetcher 查询 SQL Server → 按单号拼装追溯码 → 拆分超 3500 的单号 → UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速）→ LogWriter 写 JSONL + SQLite。总耗时约 6-7 分钟（530 条单据）。
 
-- **手动上传 (Manual Upload)**：用户在 Web 端填写/导入单据信息 → 写入本地 SQLite 任务表 → 立即同步触发上传（与 cron 共用上传函数）。
+- **手动上传 (Manual Upload)**：用户在 Web 端填写/导入单据信息 → 写入本地 SQLite 任务表 → 立即同步触发上传（与 cron 共用 UploadService）。
+
+- **Web 管理**：Bootstrap 5 单页应用风格，左侧可折叠菜单，AJAX 交互。管理上传任务（查看/编辑/删除/重传/批量操作）、浏览上传日志（已上传/失败记录）、手动新增单据。
 
 - **重传 (Retransmit)**：对失败任务重新发起上传调用。区分网络超时（重试最多 3 次，间隔 30s）和 API 业务错误（不重试，直接标记失败）。
-
-### 日志链
-
-```
-码上放心 API 响应
-    ↓ 实时写入
-  JSONL 文件 (永久保存，logs/api_YYYY-MM-DD.jsonl)
-    ↓ 异步同步
-  SQLite (查询用，保留 3 个月)
-    ↓ 定时清理
-  删除 3 个月前的 SQLite 记录
-```
 
 ### 任务状态机
 
@@ -48,8 +40,42 @@
 - **任务失败**：API 返回错误或重试耗尽
 - **部分上传成功**：拆分后的子任务部分成功部分失败
 
+状态颜色标签：等待上传(灰)、上传中(蓝)、已上传(绿)、任务失败(红)、部分上传成功(黄)。
+
+### 日志链
+
+```
+码上放心 API 响应
+    ↓ 实时写入
+  JSONL 文件（永久保存，logs/api_YYYY-MM-DD.jsonl）
+    ↓ 同步写入
+  SQLite upload_logs（查询用，保留 3 个月）
+    ↓ 定时清理（scripts/cleanup_logs.php）
+  删除 3 个月前的 SQLite 记录
+```
+
 ### 外部系统
 
-- **SQL Server (192.168.2.82)**：ERP 数据库，`hyyy` 库，`skwms_new` 库。cron 定时查询源。
-- **码上放心 API (gw.api.taobao.com)**：阿里健康药品追溯平台，通过 TOP SDK 调用。
-- **SQLite (本地)**：`data/msfx.db`，存储上传日志和手动创建的任务。
+- **SQL Server (192.168.2.133)**：ERP 数据库，`hyyy_zyscm` 库 + `skwms_new` 库。cron 定时查询源。通过 `TaskFetcher` 访问。
+- **码上放心 API (gw.api.taobao.com)**：阿里健康药品追溯平台，通过 TOP SDK 调用。凭据配置在 `config/.env`（APPKEY_HYYY / SECRETKEY_HYYY / ENTID_HYYY / REFENTID_HYYY）。
+- **SQLite (本地 data/msfx.db)**：存放上传任务、上传日志、往来单位缓存。Web 查询和写入选 SQLite，cron 写入 SQLite。
+
+### 系统架构
+
+```
+浏览器 (192.168.2.189:8188)
+    ↓ Nginx → PHP-FPM 127.0.0.1:9008
+    ↓ public/index.php (page 参数路由)
+    ↓
+Web 视图 (src/views/)     AJAX API (src/api/)
+    ↓                        ↓
+Database (SQLite)      UploadService (API调用)
+                           ↓
+                       TaskFetcher (SQL Server)
+                           ↓
+                       码上放心 API
+```
+
+### 认证
+
+单用户登录，密码 bcrypt 哈希存储在 `config/.env`（ADMIN_PASSWORD_HASH）。session 认证，所有非公开页面需登录。登录页无菜单，登录后进入仪表盘。
