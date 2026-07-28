@@ -45,7 +45,7 @@ layout('失败记录', 'failed');
                         <th>关联任务ID</th>
                         <th>状态</th>
                         <th>API 返回详情</th>
-                        <th width="140">操作</th>
+                        <th width="160">操作</th>
                     </tr>
                 </thead>
                 <tbody id="tbody"></tbody>
@@ -87,7 +87,8 @@ layout('失败记录', 'failed');
 <script>
 (function() {
     let page = 1;
-    let selected = new Set();
+    let selectedLogIds = new Set();   // upload_logs.id (for delete)
+    let selectedTaskIds = new Set();  // upload_tasks.id (for retry — only non-zero)
     let confirmCb = null;
 
     async function load() {
@@ -108,30 +109,44 @@ layout('失败记录', 'failed');
         if (!data.data || !data.data.length) {
             tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
-            tbody.innerHTML = data.data.map(r => `
+            tbody.innerHTML = data.data.map(r => {
+                const logId = r.id;
+                const taskId = parseInt(r.task_id) || 0;
+                const hasTask = taskId > 0;
+                return `
                 <tr>
-                    <td><input type="checkbox" class="form-check-input row-cb" data-id="${r.id}" ${selected.has(r.id)?'checked':''}></td>
+                    <td><input type="checkbox" class="form-check-input row-cb"
+                        data-log-id="${logId}" data-task-id="${taskId}"
+                        ${selectedLogIds.has(logId) ? 'checked' : ''}></td>
                     <td class="text-nowrap">${esc(r.created_at)}</td>
                     <td><code>${esc(r.djbh)}</code></td>
-                    <td>${r.task_id || '-'}</td>
+                    <td>${hasTask ? taskId : '-'}</td>
                     <td><span class="badge bg-danger">失败</span></td>
                     <td><button class="btn btn-sm btn-outline-info btn-detail" data-r="${esc(r.response||'')}">查看详情</button></td>
                     <td class="text-nowrap">
-                        <button class="btn btn-sm btn-outline-danger btn-del" data-id="${r.id}">删除</button>
-                        <button class="btn btn-sm btn-outline-warning btn-retry" data-id="${r.id}" data-djbh="${esc(r.djbh)}">重传</button>
+                        <button class="btn btn-sm btn-outline-danger btn-del" data-log-id="${logId}">删除</button>
+                        <button class="btn btn-sm btn-outline-warning btn-retry" data-task-id="${taskId}" ${hasTask ? '' : 'disabled'}>重传</button>
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
 
             tbody.querySelectorAll('.btn-detail').forEach(b => b.addEventListener('click', function() {
                 let t = this.dataset.r; try { t = JSON.stringify(JSON.parse(t), null, 2); } catch(e) {}
                 document.getElementById('detail-content').textContent = t;
                 new bootstrap.Modal(document.getElementById('detailModal')).show();
             }));
-            tbody.querySelectorAll('.btn-del').forEach(b => b.addEventListener('click', () => deleteOne(b.dataset.id)));
-            tbody.querySelectorAll('.btn-retry').forEach(b => b.addEventListener('click', () => retryOne(b.dataset.id, b.dataset.djbh)));
+            tbody.querySelectorAll('.btn-del').forEach(b => b.addEventListener('click', () => deleteOne(parseInt(b.dataset.logId))));
+            tbody.querySelectorAll('.btn-retry').forEach(b => b.addEventListener('click', () => retryOne(parseInt(b.dataset.taskId))));
             tbody.querySelectorAll('.row-cb').forEach(cb => cb.addEventListener('change', function() {
-                this.checked ? selected.add(parseInt(this.dataset.id)) : selected.delete(parseInt(this.dataset.id));
+                const logId = parseInt(this.dataset.logId);
+                const taskId = parseInt(this.dataset.taskId) || 0;
+                if (this.checked) {
+                    selectedLogIds.add(logId);
+                    if (taskId > 0) selectedTaskIds.add(taskId);
+                } else {
+                    selectedLogIds.delete(logId);
+                    selectedTaskIds.delete(taskId);
+                }
                 updateBtns();
             }));
         }
@@ -152,11 +167,17 @@ layout('失败记录', 'failed');
         }
     }
 
-    function deleteOne(id) { showConfirm('确定要删除该失败记录吗？', async () => { await fetch('index.php?page=api&action=tasks&id='+id, {method:'DELETE'}); load(); }); }
+    async function deleteOne(logId) {
+        showConfirm('确定要删除该失败记录吗？', async () => {
+            await fetch('index.php?page=api&action=logs_delete&id=' + logId);
+            selectedLogIds.delete(logId);
+            load();
+        });
+    }
 
-    async function retryOne(id, djbh) {
+    async function retryOne(taskId) {
         try {
-            const resp = await fetch('index.php?page=api&action=tasks_retry', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:id}) });
+            const resp = await fetch('index.php?page=api&action=tasks_retry', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id: taskId}) });
             const r = await resp.json();
             alert(r.success ? '重传完成' : '重传失败: ' + (r.error||''));
             load();
@@ -166,25 +187,41 @@ layout('失败记录', 'failed');
     function showConfirm(msg, cb) { document.getElementById('confirm-msg').textContent = msg; confirmCb = cb; new bootstrap.Modal(document.getElementById('confirmModal')).show(); }
 
     function updateBtns() {
-        document.getElementById('btn-batch-delete').disabled = selected.size === 0;
-        document.getElementById('btn-batch-retry').disabled = selected.size === 0;
+        document.getElementById('btn-batch-delete').disabled = selectedLogIds.size === 0;
+        document.getElementById('btn-batch-retry').disabled = selectedTaskIds.size === 0;
     }
 
     function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
     document.getElementById('btn-refresh').addEventListener('click', () => load());
     document.getElementById('select-all').addEventListener('change', function() {
-        document.querySelectorAll('.row-cb').forEach(cb => { cb.checked = this.checked; this.checked ? selected.add(parseInt(cb.dataset.id)) : selected.delete(parseInt(cb.dataset.id)); });
+        document.querySelectorAll('.row-cb').forEach(cb => {
+            cb.checked = this.checked;
+            const logId = parseInt(cb.dataset.logId);
+            const taskId = parseInt(cb.dataset.taskId) || 0;
+            if (this.checked) {
+                selectedLogIds.add(logId);
+                if (taskId > 0) selectedTaskIds.add(taskId);
+            } else {
+                selectedLogIds.delete(logId);
+                selectedTaskIds.delete(taskId);
+            }
+        });
         updateBtns();
     });
     document.getElementById('btn-confirm').addEventListener('click', async () => { if (confirmCb) await confirmCb(); bootstrap.Modal.getInstance(document.getElementById('confirmModal')).hide(); });
-    document.getElementById('btn-batch-delete').addEventListener('click', () => showConfirm('确定要删除选中的 '+selected.size+' 条记录吗？', async () => {
-        await fetch('index.php?page=api&action=tasks_batch_delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids:Array.from(selected)}) });
-        selected.clear(); load();
+    document.getElementById('btn-batch-delete').addEventListener('click', () => showConfirm('确定要删除选中的 ' + selectedLogIds.size + ' 条失败记录吗？', async () => {
+        await fetch('index.php?page=api&action=logs_batch_delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids: Array.from(selectedLogIds)}) });
+        selectedLogIds.clear();
+        selectedTaskIds.clear();
+        load();
     }));
-    document.getElementById('btn-batch-retry').addEventListener('click', () => showConfirm('确定要重传选中的 '+selected.size+' 条记录吗？', async () => {
-        await fetch('index.php?page=api&action=tasks_batch_retry', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids:Array.from(selected)}) });
-        selected.clear(); load();
+    document.getElementById('btn-batch-retry').addEventListener('click', () => showConfirm('确定要重传选中的 ' + selectedTaskIds.size + ' 条关联任务吗？', async () => {
+        const ids = Array.from(selectedTaskIds);
+        await fetch('index.php?page=api&action=tasks_batch_retry', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids: ids}) });
+        selectedLogIds.clear();
+        selectedTaskIds.clear();
+        load();
     }));
 
     ['search','date-from','date-to','djbh'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });

@@ -94,6 +94,8 @@ class UploadService
                         'success' => false,
                         'response' => $response,
                         'task_id' => $bill['task_id'] ?? 0,
+                        'ent_name' => $bill['ent_name'] ?? '',
+                        'trace_codes' => $traceCodes,
                     ]);
                     return ['success' => false, 'response' => $response];
                 }
@@ -119,6 +121,8 @@ class UploadService
                     'success' => $result['success'],
                     'response' => $response,
                     'task_id' => $bill['task_id'] ?? 0,
+                    'ent_name' => $bill['ent_name'] ?? '',
+                    'trace_codes' => $traceCodes,
                 ]);
 
                 if ($result['success']) {
@@ -143,6 +147,8 @@ class UploadService
                         'success' => false,
                         'response' => $response,
                         'task_id' => $bill['task_id'] ?? 0,
+                        'ent_name' => $bill['ent_name'] ?? '',
+                        'trace_codes' => $traceCodes,
                     ]);
                     return ['success' => false, 'response' => $response];
                 }

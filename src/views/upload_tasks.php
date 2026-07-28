@@ -224,10 +224,9 @@ layout('上传任务', 'upload-tasks');
 
     async function openEdit(id) {
         try {
-            const resp = await fetch('index.php?page=api&action=tasks&page_num=1');
-            const data = await resp.json();
-            const task = (data.data || []).find(t => t.id == id);
-            if (!task) { alert('未找到该任务'); return; }
+            const resp = await fetch('index.php?page=api&action=tasks&id=' + id);
+            const task = await resp.json();
+            if (task.error) { alert('未找到该任务'); return; }
             document.getElementById('edit-id').value = task.id;
             document.getElementById('edit-rq').value = task.rq;
             document.getElementById('edit-djbh').value = task.djbh;

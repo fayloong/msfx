@@ -29,10 +29,16 @@ try {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id INTEGER,
         djbh TEXT NOT NULL,
+        ent_name TEXT DEFAULT '',
+        trace_codes TEXT DEFAULT '',
         success INTEGER DEFAULT 0,
         response TEXT,
         created_at TEXT DEFAULT (datetime('now','localtime'))
     )");
+
+    // 兼容旧表结构：缺少 ent_name / trace_codes 列时自动补上
+    try { $db->exec("ALTER TABLE upload_logs ADD COLUMN ent_name TEXT DEFAULT ''"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_logs ADD COLUMN trace_codes TEXT DEFAULT ''"); } catch (\Exception $e) {}
 
     // 往来单位缓存表
     $db->exec("CREATE TABLE IF NOT EXISTS ent_list (

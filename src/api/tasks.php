@@ -25,6 +25,18 @@ if ($method === 'POST' && !empty($_POST['_method'])) {
 }
 
 if ($method === 'GET') {
+    // 按 ID 获取单条记录
+    if (!empty($_GET['id'])) {
+        $task = $db->queryOne("SELECT * FROM upload_tasks WHERE id = ?", [$_GET['id']]);
+        if (!$task) {
+            http_response_code(404);
+            echo json_encode(['error' => '任务不存在'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        echo json_encode($task, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     // 列表查询
     $page = max(1, intval($_GET['page_num'] ?? 1));
     $perPage = 20;

@@ -14,7 +14,7 @@ class LogWriter
     /**
      * 写入上传日志到 JSONL + SQLite。
      *
-     * @param array{djbh: string, success: bool, response: string, task_id?: int} $entry
+     * @param array{djbh: string, success: bool, response: string, task_id?: int, ent_name?: string, trace_codes?: string} $entry
      */
     public function write(array $entry): void
     {
@@ -27,6 +27,12 @@ class LogWriter
         if (isset($entry['task_id'])) {
             $record['task_id'] = $entry['task_id'];
         }
+        if (!empty($entry['ent_name'])) {
+            $record['ent_name'] = $entry['ent_name'];
+        }
+        if (!empty($entry['trace_codes'])) {
+            $record['trace_codes'] = $entry['trace_codes'];
+        }
 
         // 写入 JSONL 文件
         $jsonlFile = $this->logDir . '/api_' . date('Y-m-d') . '.jsonl';
@@ -36,10 +42,12 @@ class LogWriter
         // 写入 SQLite
         $db = Database::getInstance();
         $db->execute(
-            "INSERT INTO upload_logs (task_id, djbh, success, response, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO upload_logs (task_id, djbh, ent_name, trace_codes, success, response, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
                 $entry['task_id'] ?? 0,
                 $entry['djbh'],
+                $entry['ent_name'] ?? '',
+                $entry['trace_codes'] ?? '',
                 $entry['success'] ? 1 : 0,
                 $entry['response'] ?? '',
                 date('Y-m-d H:i:s'),

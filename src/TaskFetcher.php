@@ -25,7 +25,7 @@ class TaskFetcher
      */
     public function fetchBills(?string $date = null): array
     {
-        $date = $date ?? date('Y-m-d');
+        $date = $this->validateDate($date ?? date('Y-m-d'));
 
         $sql = $this->buildQuery($date);
         $results = $this->db->executeBatch($sql);
@@ -70,11 +70,19 @@ class TaskFetcher
      */
     public function countPending(?string $date = null): int
     {
-        $date = $date ?? date('Y-m-d');
+        $date = $this->validateDate($date ?? date('Y-m-d'));
         $sql = $this->buildCountQuery($date);
         $results = $this->db->executeBatch($sql);
         $rows = end($results);
         return is_array($rows) ? count($rows) : 0;
+    }
+
+    private function validateDate(string $date): string
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            throw new \InvalidArgumentException("日期格式无效: {$date}，需要 YYYY-MM-DD");
+        }
+        return $date;
     }
 
     private function buildQuery(string $date): string
