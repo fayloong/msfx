@@ -40,6 +40,7 @@ layout('已上传', 'uploaded');
                         <th>时间</th>
                         <th>单号</th>
                         <th>往来单位</th>
+                        <th>追溯码</th>
                         <th>关联任务ID</th>
                         <th>状态</th>
                         <th>API 返回详情</th>
@@ -72,20 +73,25 @@ layout('已上传', 'uploaded');
             const data = await resp.json();
             render(data);
         } catch (e) {
-            document.getElementById('tbody').innerHTML = '<tr><td colspan="6" class="text-center py-5 text-danger">加载失败</td></tr>';
+            document.getElementById('tbody').innerHTML = '<tr><td colspan="7" class="text-center py-5 text-danger">加载失败</td></tr>';
         }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => `
                 <tr>
                     <td class="text-nowrap">${esc(r.created_at)}</td>
                     <td><code>${esc(r.djbh)}</code></td>
                     <td>${esc(r.ent_name) || '-'}</td>
+                    <td>
+                        ${r.trace_codes
+                            ? '<button class="btn btn-sm btn-outline-secondary btn-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>'
+                            : '<span class="text-muted">-</span>'}
+                    </td>
                     <td>${r.task_id || '-'}</td>
                     <td><span class="badge bg-success">成功</span></td>
                     <td>
@@ -94,6 +100,14 @@ layout('已上传', 'uploaded');
                 </tr>
             `).join('');
 
+            tbody.querySelectorAll('.btn-trace').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const codes = btn.dataset.trace.split(',');
+                    document.getElementById('trace-count').textContent = '共 ' + codes.length + ' 个追溯码';
+                    document.getElementById('trace-content').textContent = btn.dataset.trace;
+                    new bootstrap.Modal(document.getElementById('traceModal')).show();
+                });
+            });
             tbody.querySelectorAll('.btn-detail').forEach(btn => {
                 btn.addEventListener('click', () => {
                     let respText = btn.dataset.response;
@@ -132,6 +146,22 @@ layout('已上传', 'uploaded');
     load();
 })();
 </script>
+
+<!-- 追溯码弹窗 -->
+<div class="modal fade" id="traceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">追溯码</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small" id="trace-count"></p>
+                <div class="bg-light p-3 rounded" style="max-height:400px;overflow:auto;word-break:break-all;font-size:0.85rem" id="trace-content"></div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- 详情弹窗 -->
 <div class="modal fade" id="detailModal" tabindex="-1">

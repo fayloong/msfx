@@ -42,6 +42,8 @@ layout('失败记录', 'failed');
                         <th width="40"><input type="checkbox" class="form-check-input" id="select-all"></th>
                         <th>时间</th>
                         <th>单号</th>
+                        <th>往来单位</th>
+                        <th>追溯码</th>
                         <th>关联任务ID</th>
                         <th>状态</th>
                         <th>API 返回详情</th>
@@ -53,6 +55,22 @@ layout('失败记录', 'failed');
         </div>
     </div>
     <div class="card-footer bg-transparent" id="pagination"></div>
+</div>
+
+<!-- 追溯码弹窗 -->
+<div class="modal fade" id="traceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">追溯码</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small" id="trace-count"></p>
+                <div class="bg-light p-3 rounded" style="max-height:400px;overflow:auto;word-break:break-all;font-size:0.85rem" id="trace-content"></div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- 详情弹窗 -->
@@ -101,13 +119,13 @@ layout('失败记录', 'failed');
             const resp = await fetch('index.php?page=api&action=failed&' + params);
             const data = await resp.json();
             render(data);
-        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="7" class="text-center py-5 text-danger">加载失败</td></tr>'; }
+        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="text-center py-5 text-danger">加载失败</td></tr>'; }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => {
                 const logId = r.id;
@@ -120,6 +138,12 @@ layout('失败记录', 'failed');
                         ${selectedLogIds.has(logId) ? 'checked' : ''}></td>
                     <td class="text-nowrap">${esc(r.created_at)}</td>
                     <td><code>${esc(r.djbh)}</code></td>
+                    <td>${esc(r.ent_name) || '-'}</td>
+                    <td>
+                        ${r.trace_codes
+                            ? '<button class="btn btn-sm btn-outline-secondary btn-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>'
+                            : '<span class="text-muted">-</span>'}
+                    </td>
                     <td>${hasTask ? taskId : '-'}</td>
                     <td><span class="badge bg-danger">失败</span></td>
                     <td><button class="btn btn-sm btn-outline-info btn-detail" data-r="${esc(r.response||'')}">查看详情</button></td>
@@ -130,6 +154,12 @@ layout('失败记录', 'failed');
                 </tr>
             `}).join('');
 
+            tbody.querySelectorAll('.btn-trace').forEach(b => b.addEventListener('click', function() {
+                const codes = this.dataset.trace.split(',');
+                document.getElementById('trace-count').textContent = '共 ' + codes.length + ' 个追溯码';
+                document.getElementById('trace-content').textContent = this.dataset.trace;
+                new bootstrap.Modal(document.getElementById('traceModal')).show();
+            }));
             tbody.querySelectorAll('.btn-detail').forEach(b => b.addEventListener('click', function() {
                 let t = this.dataset.r; try { t = JSON.stringify(JSON.parse(t), null, 2); } catch(e) {}
                 document.getElementById('detail-content').textContent = t;
