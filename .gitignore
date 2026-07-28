@@ -1,0 +1,7 @@
+/vendor/
+/data/*.db
+/data/*.db-*
+/logs/*.jsonl
+/logs/upload.lock
+/config/.env
+.DS_Store
