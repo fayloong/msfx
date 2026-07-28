@@ -39,6 +39,7 @@ layout('已上传', 'uploaded');
                     <tr>
                         <th>时间</th>
                         <th>单号</th>
+                        <th>往来单位</th>
                         <th>关联任务ID</th>
                         <th>状态</th>
                         <th>API 返回详情</th>
@@ -71,19 +72,20 @@ layout('已上传', 'uploaded');
             const data = await resp.json();
             render(data);
         } catch (e) {
-            document.getElementById('tbody').innerHTML = '<tr><td colspan="5" class="text-center py-5 text-danger">加载失败</td></tr>';
+            document.getElementById('tbody').innerHTML = '<tr><td colspan="6" class="text-center py-5 text-danger">加载失败</td></tr>';
         }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => `
                 <tr>
                     <td class="text-nowrap">${esc(r.created_at)}</td>
                     <td><code>${esc(r.djbh)}</code></td>
+                    <td>${esc(r.ent_name) || '-'}</td>
                     <td>${r.task_id || '-'}</td>
                     <td><span class="badge bg-success">成功</span></td>
                     <td>

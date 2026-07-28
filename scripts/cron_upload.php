@@ -7,6 +7,15 @@
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+// CLI 环境下 db.php 不在 include_path，提供桩函数
+if (!function_exists('info_log')) {
+    function info_log(string $title, string $msg = '', string $level = 'INFO', array $data = []): void {
+        $ts = date('Y-m-d H:i:s');
+        $ctx = $data ? ' ' . json_encode($data, JSON_UNESCAPED_UNICODE) : '';
+        fwrite(STDERR, "[{$ts}] [{$level}] {$title}{$msg}{$ctx}\n");
+    }
+}
+
 use App\Config;
 use App\TaskFetcher;
 use App\UploadService;
