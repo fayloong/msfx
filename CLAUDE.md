@@ -20,7 +20,7 @@ root/
 │   ├── Config.php                # .env 配置加载
 │   ├── Database.php              # SQLite 数据库封装（单例）
 │   ├── Auth.php                  # 单用户 session 认证
-│   ├── ApiClient.php             # 封装 TopClient，区分网络/业务错误
+│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索），区分网络/业务错误
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取待上传单据
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
@@ -54,6 +54,7 @@ root/
 │   └── index.php                 # Web 单入口（page 参数分发路由）
 ├── scripts/
 │   ├── cron_upload.php           # cron 定时上传入口
+│   ├── check_bill_status.php     # 批量查询单据上传状态
 │   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志
 │   └── init_db.php               # 初始化 SQLite 数据库及表结构
 ├── data/
@@ -83,10 +84,16 @@ root/
 ## 核心数据流
 
 ### 定时上传（cron_upload.php）
-SQL Server `skwms_new.dbo` 查询当天单据 → 按 `djbh` 聚合追溯码 → 查 SQLite `ent_list` 缓存 → 缓存未命中调码上放心 API 获取 `ent_id` → 超过 3500 追溯码自动拆分为 `单号_1, 单号_2...` → 调 `AlibabaAlihealthDrugKytUploadinoutbillRequest` API → 结果写入 JSONL + SQLite `upload_logs` → 重试 3 次（仅网络错误，间隔 30s）→ API 间隔 0.33s → flock 文件锁防并发
+SQL Server `skwms_new.dbo` 查询当天单据 → 按 `djbh` 聚合追溯码 → 写入 SQLite `upload_tasks`（source=cron, status=上传中）→ 查 SQLite `ent_list` 缓存 → 缓存未命中调码上放心 API 获取 `ent_id` → 超过 3500 追溯码自动拆分为 `单号_1, 单号_2...` → 调 `AlibabaAlihealthDrugKytUploadinoutbillRequest` API → 结果写入 JSONL + SQLite `upload_logs`（关联 task_id）→ 更新 `upload_tasks` 状态 → 重试 3 次（仅网络错误，间隔 30s）→ API 间隔 0.33s → flock 文件锁防并发
+
+### 批量查询上传状态（check_bill_status.php）
+SQL Server `skwms_new.dbo` 查询当天单据 → 逐个调 `AlibabaAlihealthDrugKytSearchbillDetailRequest` API → `result.msg_code == 'FAIL_BIZ_NO_PAT_INFO'` 为未上传 → 已上传的写入 `upload_logs`（success=1）→ 未上传的写入 `upload_tasks`（source=batch_check, status=任务失败）+ `upload_logs`（success=0, 关联 task_id）→ API 间隔 0.5s
 
 ### 手动上传（Web 端）
-用户填写/导入单据 → 写入 SQLite `upload_tasks`（source=manual, status=等待上传） → 立即调用 UploadService 上传 → 结果实时反馈
+
+**在线新增**：选择单据类型（下拉菜单，必选）→ 填写日期/单号/往来单位 → 粘贴追溯码（一行一个，JS 自动转逗号分隔）→ 写入 SQLite → 立即上传 → 结果实时反馈
+
+**xlsx 导入**：xlsx 列: 日期 | 单号 | 单据类型 | 往来单位名称 | 追溯码。同单号多行自动合并为一个任务（取第一个非空的日期/单据类型/往来单位，追溯码拼接）。也支持传统的一行一个单据格式。
 
 ### 日志链
 ```
@@ -112,7 +119,7 @@ SQL Server `skwms_new.dbo` 查询当天单据 → 按 `djbh` 聚合追溯码 →
 | ent_name | TEXT | 往来单位名称 |
 | trace_codes | TEXT | 追溯码（逗号分隔） |
 | status | TEXT | 等待上传/上传中/已上传/任务失败/部分上传成功 |
-| source | TEXT | cron/manual |
+| source | TEXT | cron/manual/batch_check |
 | resp | TEXT | API 返回内容 |
 | created_at | TEXT | |
 | updated_at | TEXT | |
@@ -144,6 +151,7 @@ SQL Server `skwms_new.dbo` 查询当天单据 → 按 `djbh` 聚合追溯码 →
 - **PHP-FPM**: 池名 `mashangfangxin`，监听 `127.0.0.1:9008`
 - **防火墙**: firewalld 需开放 `8188/tcp`（`firewall-cmd --add-port=8188/tcp --permanent`）
 - **SELinux**: `data/` 和 `logs/` 需设 `httpd_sys_rw_content_t` 上下文
+- **文件权限**: `data/msfx.db` 和 `logs/` 及内容必须属主为 `nginx:nginx`（PHP-FPM 运行用户），否则 Web 端将报 "readonly database" 错误导致空响应
 
 ## 关键依赖
 
@@ -163,6 +171,12 @@ php /usr/share/nginx/mashangfangxin/scripts/cron_upload.php
 # 定时上传（指定日期）
 php /usr/share/nginx/mashangfangxin/scripts/cron_upload.php 2026-07-28
 
+# 批量查询单据上传状态（当天）
+php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php
+
+# 批量查询单据上传状态（指定日期）
+php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php 2026-07-28
+
 # 清理超过 3 个月的 SQLite 日志
 php /usr/share/nginx/mashangfangxin/scripts/cleanup_logs.php
 
@@ -175,7 +189,10 @@ http://192.168.2.189:8188
 
 ## 业务编码映射
 
-- 单据类型：`XSO`=201 销售出库, `XST`=103 退货入库, `JHG`=102 采购入库, `JHO`=202 采购退出
+- 单据类型（入库 1xx）：`102`=采购入库, `103`=退货入库, `104`=调拨入库, `107`=供应入库, `108`=召回入库, `110`=赠品入库, `111`=盘盈入库, `112`=报废入库, `113`=其他入库
+- 单据类型（出库 2xx）：`201`=销售出库, `202`=退货出库, `203`=调拨出库, `204`=返工出库, `205`=销毁出库, `206`=抽检出库, `207`=直调出库, `209`=供应出库, `211`=召回出库, `212`=赠品出库, `214`=盘亏出库, `215`=损坏出库, `216`=报废出库, `217`=其他出库, `237`=直调退货
+- 单据号前缀与类型映射（cron 使用，兼容旧格式）：`XSO`→201, `XST`→103, `JHG`→102, `JHO`→202
+- UploadService 支持直接传 3 位数字类型码，也兼容旧的字母前缀（自动查 `$billTypeMap`）
 - 药品类型：`3`=普药（非89开头追溯码）, `2`=特药（89开头追溯码）
 - 客户端类型：上传接口必须填 `"2"`
 - 追溯码拆分阈值：单次最多 3500 个，超出自动拆分为 `单号_1, 单号_2...`

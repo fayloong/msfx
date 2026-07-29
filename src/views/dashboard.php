@@ -14,13 +14,13 @@ $today = date('Y-m-d');
 $totalToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(created_at) = ?", [$today])['cnt'] ?? 0;
 
 // 今日成功数
-$successToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(created_at) = ? AND success = 1", [$today])['cnt'] ?? 0;
+$successToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(created_at) = ? AND response_status IN ('上传成功', '单据重复')", [$today])['cnt'] ?? 0;
 
 // 今日失败数
-$failedToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(created_at) = ? AND success = 0", [$today])['cnt'] ?? 0;
+$failedToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(created_at) = ? AND (request_status = '请求失败' OR response_status NOT IN ('上传成功', '单据重复'))", [$today])['cnt'] ?? 0;
 
 // 待处理数 — 从 upload_tasks 表中查
-$pendingCount = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_tasks WHERE status IN ('等待上传','上传中')")['cnt'] ?? 0;
+$pendingCount = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_tasks WHERE task_status = '等待上传'")['cnt'] ?? 0;
 
 layout('首页仪表盘', 'dashboard');
 ?>
@@ -107,8 +107,9 @@ layout('首页仪表盘', 'dashboard');
                             <?php
                             $logs = $db->query("SELECT * FROM upload_logs WHERE date(created_at) = ? ORDER BY id DESC LIMIT 10", [$today]);
                             foreach ($logs as $log):
-                                $badge = $log['success'] ? 'bg-success' : 'bg-danger';
-                                $label = $log['success'] ? '成功' : '失败';
+                                $isSuccess = in_array(($log['response_status'] ?? ''), ['上传成功', '单据重复']);
+                                $badge = $isSuccess ? 'bg-success' : 'bg-danger';
+                                $label = $isSuccess ? '成功' : '失败';
                             ?>
                             <tr>
                                 <td class="text-nowrap"><?= htmlspecialchars($log['created_at']) ?></td>

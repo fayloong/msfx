@@ -38,8 +38,13 @@ if (!$task) {
     exit;
 }
 
-// 更新状态为上传中
-$db->execute("UPDATE upload_tasks SET status = '上传中', updated_at = datetime('now','localtime') WHERE id = ?", [$id]);
+// NDJSON 流式输出
+header('Content-Type: application/x-ndjson; charset=utf-8');
+header('X-Accel-Buffering: no');
+header('Cache-Control: no-cache');
+ini_set('output_buffering', 'off');
+while (ob_get_level()) { ob_end_clean(); }
+ob_implicit_flush(true);
 
 try {
     $uploadService = new UploadService();
@@ -50,11 +55,18 @@ try {
         'ent_name' => $task['ent_name'],
         'sn' => $task['trace_codes'] ?? '',
         'task_id' => (int)$task['id'],
-    ]]);
+    ]], function (array $progress) {
+        echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
+        flush();
+    });
 
-    echo json_encode(['success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE);
-} catch (\Exception $e) {
-    $db->execute("UPDATE upload_tasks SET status = '任务失败', updated_at = datetime('now','localtime') WHERE id = ?", [$id]);
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['_final' => true, 'success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE) . "\n";
+} catch (\Throwable $e) {
+    // 尝试恢复状态，忽略数据库错误
+    try {
+        $db->execute("UPDATE upload_tasks SET task_status = '等待上传', request_status = NULL, response_status = NULL, updated_at = datetime('now','localtime') WHERE id = ?", [$id]);
+    } catch (\Throwable $dbEx) {
+        // 忽略
+    }
+    echo json_encode(['_final' => true, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE) . "\n";
 }

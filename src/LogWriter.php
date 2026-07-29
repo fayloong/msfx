@@ -14,14 +14,15 @@ class LogWriter
     /**
      * 写入上传日志到 JSONL + SQLite。
      *
-     * @param array{djbh: string, success: bool, response: string, task_id?: int, ent_name?: string, trace_codes?: string} $entry
+     * @param array{djbh: string, request_status: string, response_status: ?string, response: string, task_id?: int, ent_name?: string, trace_codes?: string} $entry
      */
     public function write(array $entry): void
     {
         $record = [
             'timestamp' => date('Y-m-d H:i:s'),
             'djbh' => $entry['djbh'],
-            'success' => $entry['success'],
+            'request_status' => $entry['request_status'],
+            'response_status' => $entry['response_status'],
             'response' => $entry['response'] ?? '',
         ];
         if (isset($entry['task_id'])) {
@@ -42,13 +43,14 @@ class LogWriter
         // 写入 SQLite
         $db = Database::getInstance();
         $db->execute(
-            "INSERT INTO upload_logs (task_id, djbh, ent_name, trace_codes, success, response, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO upload_logs (task_id, djbh, ent_name, trace_codes, request_status, response_status, response, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 $entry['task_id'] ?? 0,
                 $entry['djbh'],
                 $entry['ent_name'] ?? '',
                 $entry['trace_codes'] ?? '',
-                $entry['success'] ? 1 : 0,
+                $entry['request_status'],
+                $entry['response_status'] ?? null,
                 $entry['response'] ?? '',
                 date('Y-m-d H:i:s'),
             ]

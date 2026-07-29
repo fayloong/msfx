@@ -98,4 +98,27 @@ class ApiClient
 
         return null;
     }
+
+    /**
+     * 查询单据在平台的详情。
+     *
+     * @return array{found: bool, response: mixed, error: string}
+     */
+    public function searchBillDetail(string $billCode): array
+    {
+        $req = new \AlibabaAlihealthDrugKytSearchbillDetailRequest;
+        $req->setBillCode($billCode);
+        $req->setRefEntId(Config::get('REFENTID_HYYY'));
+
+        $result = $this->execute($req);
+
+        if (!$result['success']) {
+            return ['found' => false, 'response' => $result['data'], 'error' => $result['error']];
+        }
+
+        $respArray = json_decode(json_encode($result['data'], JSON_UNESCAPED_UNICODE), true);
+        $found = !(isset($respArray['result']['msg_code']) && $respArray['result']['msg_code'] === 'FAIL_BIZ_NO_PAT_INFO');
+
+        return ['found' => $found, 'response' => $respArray, 'error' => ''];
+    }
 }

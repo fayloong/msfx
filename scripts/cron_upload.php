@@ -17,6 +17,7 @@ if (!function_exists('info_log')) {
 }
 
 use App\Config;
+use App\Database;
 use App\TaskFetcher;
 use App\UploadService;
 
@@ -39,7 +40,42 @@ try {
 
     echo "[cron_upload] 拉取到 " . count($bills) . " 条单据\n";
 
-    // 2. 执行上传
+    // 2. 过滤已成功上传的单据，写入 upload_tasks 表（使失败记录可重传）
+    $db = Database::getInstance();
+    $now = date('Y-m-d H:i:s');
+    $newBills = [];
+    $skipCount = 0;
+    foreach ($bills as $bill) {
+        $already = $db->queryOne(
+            "SELECT id FROM upload_tasks WHERE djbh = ? AND task_status = '已处理' AND response_status = '上传成功'",
+            [$bill['djbh']]
+        );
+        if ($already) {
+            $skipCount++;
+            echo "[cron_upload] {$bill['djbh']} 已上传过，跳过\n";
+            continue;
+        }
+        $db->execute(
+            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, task_status, source, created_at, updated_at) VALUES (?, ?, ?, ?, '等待上传', 'cron', ?, ?)",
+            [$bill['rq'], $bill['djbh'], $bill['ent_name'], $bill['sn'], $now, $now]
+        );
+        $bill['task_id'] = (int)$db->lastInsertId();
+        $newBills[] = $bill;
+    }
+    $bills = $newBills;
+
+    if ($skipCount > 0) {
+        echo "[cron_upload] 跳过 {$skipCount} 条已上传单据\n";
+    }
+
+    if (empty($bills)) {
+        echo "[cron_upload] 所有单据均已上传，无需处理\n";
+        exit(0);
+    }
+
+    echo "[cron_upload] 待上传 " . count($bills) . " 条单据\n";
+
+    // 3. 执行上传
     $uploadService = new UploadService();
     $result = $uploadService->upload($bills);
 

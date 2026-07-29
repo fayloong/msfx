@@ -89,11 +89,11 @@ layout('已上传', 'uploaded');
                     <td>${esc(r.ent_name) || '-'}</td>
                     <td>
                         ${r.trace_codes
-                            ? '<button class="btn btn-sm btn-outline-secondary btn-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>'
+                            ? `<button class="btn btn-sm btn-outline-secondary btn-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>`
                             : '<span class="text-muted">-</span>'}
                     </td>
                     <td>${r.task_id || '-'}</td>
-                    <td><span class="badge bg-success">成功</span></td>
+                    <td><span class="badge bg-success">${esc(r.response_status || '成功')}</span></td>
                     <td>
                         <button class="btn btn-sm btn-outline-info btn-detail" data-response="${esc(r.response || '')}">查看详情</button>
                     </td>
@@ -137,6 +137,21 @@ layout('已上传', 'uploaded');
 
     function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.btn-copy-trace')) return;
+        const text = document.getElementById('trace-content').textContent.replace(/,/g, '\n');
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        ta.style.top = '0';
+        document.querySelector('#traceModal .modal-body').appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        alert('已复制到剪贴板');
+    });
     document.getElementById('btn-refresh').addEventListener('click', () => { page=1; load(); });
     ['search','date-from','date-to','djbh'].forEach(id => {
         let t;
@@ -158,6 +173,9 @@ layout('已上传', 'uploaded');
             <div class="modal-body">
                 <p class="text-muted small" id="trace-count"></p>
                 <div class="bg-light p-3 rounded" style="max-height:400px;overflow:auto;word-break:break-all;font-size:0.85rem" id="trace-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary btn-copy-trace">复制</button>
             </div>
         </div>
     </div>

@@ -18,13 +18,13 @@ $page = max(1, intval($_GET['page_num'] ?? 1));
 $perPage = 20;
 $offset = ($page - 1) * $perPage;
 
-$where = ["success = 1"];
+$where = ["response_status IN ('上传成功', '单据重复')"];
 $params = [];
 
 if (!empty($_GET['search'])) {
     $search = '%' . $_GET['search'] . '%';
-    $where[] = "(djbh LIKE ? OR response LIKE ?)";
-    $params = array_merge($params, [$search, $search]);
+    $where[] = "(djbh LIKE ? OR ent_name LIKE ? OR trace_codes LIKE ? OR request_status LIKE ? OR response_status LIKE ? OR response LIKE ?)";
+    $params = array_merge($params, [$search, $search, $search, $search, $search, $search]);
 }
 
 if (!empty($_GET['date_from'])) {

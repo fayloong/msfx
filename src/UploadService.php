@@ -31,9 +31,10 @@ class UploadService
      * 上传单据列表（cron 和 Web 共用）。
      *
      * @param array<int, array{type?: string, rq: string, djbh: string, ent_name: string, sn: string, task_id?: int}> $bills
+     * @param callable|null $onProgress 进度回调 function(array $progress): void
      * @return array{total: int, success: int, failed: int}
      */
-    public function upload(array $bills): array
+    public function upload(array $bills, ?callable $onProgress = null): array
     {
         $lock = $this->acquireLock();
         if (!$lock) {
@@ -41,13 +42,13 @@ class UploadService
         }
 
         try {
-            return $this->doUpload($bills);
+            return $this->doUpload($bills, $onProgress);
         } finally {
             $this->releaseLock($lock);
         }
     }
 
-    private function doUpload(array $bills): array
+    private function doUpload(array $bills, ?callable $onProgress = null): array
     {
         $total = count($bills);
         $success = 0;
@@ -67,7 +68,18 @@ class UploadService
 
                 // 更新 upload_tasks 状态
                 if (!empty($bill['task_id'])) {
-                    $this->updateTaskStatus($bill['task_id'], $result['success'] ? '已上传' : '任务失败', $result['response']);
+                    $this->updateTaskStatus($bill['task_id'], '已处理', $result['request_status'], $result['response_status'], $result['response']);
+                }
+
+                if ($onProgress) {
+                    $onProgress([
+                        'djbh' => $subBillCode,
+                        'ent_name' => $bill['ent_name'] ?? '',
+                        'success' => $result['success'],
+                        'request_status' => $result['request_status'],
+                        'response_status' => $result['response_status'],
+                        'response' => $result['response'],
+                    ]);
                 }
 
                 usleep(self::API_INTERVAL_US);
@@ -82,7 +94,11 @@ class UploadService
      */
     private function uploadSingle(string $billCode, array $bill, string $traceCodes): array
     {
-        $billType = self::$billTypeMap[$bill['type']] ?? '201';
+        $billType = $bill['type'] ?? '201';
+        // 支持数字类型码（如 "102"）直接使用，也兼容旧的字母前缀（如 "JHG"）
+        if (!preg_match('/^\d{3}$/', $billType)) {
+            $billType = self::$billTypeMap[$billType] ?? '201';
+        }
 
         for ($attempt = 0; $attempt < self::MAX_RETRIES; $attempt++) {
             try {
@@ -91,13 +107,14 @@ class UploadService
                     $response = json_encode(['error' => '无法获取往来单位ent_id: ' . $bill['ent_name']], JSON_UNESCAPED_UNICODE);
                     $this->logWriter->write([
                         'djbh' => $billCode,
-                        'success' => false,
+                        'request_status' => '请求失败',
+                        'response_status' => '往来单位缺失',
                         'response' => $response,
                         'task_id' => $bill['task_id'] ?? 0,
                         'ent_name' => $bill['ent_name'] ?? '',
                         'trace_codes' => $traceCodes,
                     ]);
-                    return ['success' => false, 'response' => $response];
+                    return ['success' => false, 'response' => $response, 'request_status' => '请求失败', 'response_status' => '往来单位缺失'];
                 }
 
                 $req = new \AlibabaAlihealthDrugKytUploadinoutbillRequest;
@@ -116,9 +133,13 @@ class UploadService
                 $result = $this->apiClient->execute($req);
                 $response = json_encode($result, JSON_UNESCAPED_UNICODE);
 
+                $requestStatus = $result['is_network_error'] ? '请求失败' : '请求成功';
+                $responseStatus = $this->resolveResponseStatus($result);
+
                 $this->logWriter->write([
                     'djbh' => $billCode,
-                    'success' => $result['success'],
+                    'request_status' => $requestStatus,
+                    'response_status' => $responseStatus,
                     'response' => $response,
                     'task_id' => $bill['task_id'] ?? 0,
                     'ent_name' => $bill['ent_name'] ?? '',
@@ -126,12 +147,12 @@ class UploadService
                 ]);
 
                 if ($result['success']) {
-                    return ['success' => true, 'response' => $response];
+                    return ['success' => true, 'response' => $response, 'request_status' => $requestStatus, 'response_status' => $responseStatus];
                 }
 
                 // 业务错误不重试
                 if (!$result['is_network_error']) {
-                    return ['success' => false, 'response' => $response];
+                    return ['success' => false, 'response' => $response, 'request_status' => $requestStatus, 'response_status' => $responseStatus];
                 }
 
                 // 网络错误，等待后重试
@@ -144,19 +165,20 @@ class UploadService
                     $response = json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
                     $this->logWriter->write([
                         'djbh' => $billCode,
-                        'success' => false,
+                        'request_status' => '请求失败',
+                        'response_status' => null,
                         'response' => $response,
                         'task_id' => $bill['task_id'] ?? 0,
                         'ent_name' => $bill['ent_name'] ?? '',
                         'trace_codes' => $traceCodes,
                     ]);
-                    return ['success' => false, 'response' => $response];
+                    return ['success' => false, 'response' => $response, 'request_status' => '请求失败', 'response_status' => null];
                 }
                 sleep(self::RETRY_INTERVAL_SEC);
             }
         }
 
-        return ['success' => false, 'response' => 'Max retries exceeded'];
+        return ['success' => false, 'response' => 'Max retries exceeded', 'request_status' => '请求失败', 'response_status' => null];
     }
 
     /**
@@ -208,34 +230,72 @@ class UploadService
     {
         $ownEntId = Config::get('ENTID_HYYY');
 
-        switch ($billType) {
-            case '201': // 销售出库
-                $req->setToUserId($entId);
-                $req->setDisEntId($ownEntId);
-                $req->setFromUserId($ownEntId);
-                break;
-            case '102': // 采购入库
-                $req->setToUserId($ownEntId);
-                $req->setFromUserId($entId);
-                break;
-            case '103': // 销售退回
-                $req->setToUserId($ownEntId);
-                $req->setFromUserId($entId);
-                break;
-            case '202': // 采购退出
-                $req->setToUserId($entId);
-                $req->setFromUserId($ownEntId);
-                break;
+        if ($billType === '201') {
+            // 销售出库：需额外设置 disEntId
+            $req->setToUserId($entId);
+            $req->setDisEntId($ownEntId);
+            $req->setFromUserId($ownEntId);
+        } elseif (str_starts_with($billType, '1')) {
+            // 入库类（1xx）：toUserId=自己, fromUserId=对方
+            $req->setToUserId($ownEntId);
+            $req->setFromUserId($entId);
+        } else {
+            // 出库类（2xx）：toUserId=对方, fromUserId=自己
+            $req->setToUserId($entId);
+            $req->setFromUserId($ownEntId);
         }
     }
 
-    private function updateTaskStatus(int $taskId, string $status, string $resp): void
+    private function updateTaskStatus(int $taskId, string $taskStatus, string $requestStatus, ?string $responseStatus, string $resp): void
     {
         $db = Database::getInstance();
         $db->execute(
-            "UPDATE upload_tasks SET status = ?, resp = ?, updated_at = datetime('now','localtime') WHERE id = ?",
-            [$status, $resp, $taskId]
+            "UPDATE upload_tasks SET task_status = ?, request_status = ?, response_status = ?, resp = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+            [$taskStatus, $requestStatus, $responseStatus, $resp, $taskId]
         );
+    }
+
+    /**
+     * 从 API 返回结果解析响应状态。
+     */
+    private function resolveResponseStatus(array $result): ?string
+    {
+        if ($result['is_network_error']) {
+            return null;
+        }
+
+        $data = $result['data'];
+        if ($data === null) {
+            return '未确定';
+        }
+
+        if (is_object($data)) {
+            $data = json_decode(json_encode($data), true);
+        }
+
+        $inner = $data['result'] ?? [];
+        if (empty($inner)) {
+            // 部分响应（如重复单据）msg_code/msg_info 直接在 data 层级
+            $inner = $data;
+        }
+        $msgCode = $inner['msg_code'] ?? '';
+        $msgInfo = $inner['msg_info'] ?? '';
+        $responseSuccess = $inner['response_success'] ?? '';
+
+        if ($msgCode === 'SUCCESS' && $responseSuccess === 'true') {
+            return '上传成功';
+        }
+        if (strpos($msgInfo, '该单据号已存在') !== false) {
+            return '单据重复';
+        }
+        if ($msgCode === 'FAIL_BIZ_NO_PAT_INFO') {
+            return '信息不存在';
+        }
+        if ($msgCode === 'FAIL') {
+            return '上传失败';
+        }
+
+        return '未确定';
     }
 
     private function acquireLock()

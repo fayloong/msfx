@@ -1,6 +1,5 @@
 $<?php
 include_once "top_sdk\TopSdk.php";
-include_once "db.php";
 
 $list = [
 

@@ -20,23 +20,38 @@ $sheet = $spreadsheet->getActiveSheet();
 // 设置表头
 $sheet->setCellValue('A1', '日期');
 $sheet->setCellValue('B1', '单号');
-$sheet->setCellValue('C1', '往来单位名称');
-$sheet->setCellValue('D1', '追溯码');
+$sheet->setCellValue('C1', '单据类型');
+$sheet->setCellValue('D1', '往来单位名称');
+$sheet->setCellValue('E1', '追溯码');
 
 // 加粗表头
-$sheet->getStyle('A1:D1')->getFont()->setBold(true);
+$sheet->getStyle('A1:E1')->getFont()->setBold(true);
 
 // 设置列宽
 $sheet->getColumnDimension('A')->setWidth(14);
 $sheet->getColumnDimension('B')->setWidth(24);
-$sheet->getColumnDimension('C')->setWidth(20);
-$sheet->getColumnDimension('D')->setWidth(40);
+$sheet->getColumnDimension('C')->setWidth(14);
+$sheet->getColumnDimension('D')->setWidth(20);
+$sheet->getColumnDimension('E')->setWidth(40);
 
-// 示例行
+// 示例数据
 $sheet->setCellValue('A2', date('Y-m-d'));
 $sheet->setCellValue('B2', 'JHGWMS00060001');
-$sheet->setCellValue('C2', '示例单位');
-$sheet->setCellValue('D2', '追溯码1,追溯码2,追溯码3');
+$sheet->setCellValue('C2', '102');
+$sheet->setCellValue('D2', '示例单位');
+$sheet->setCellValue('E2', '追溯码1');
+
+$sheet->setCellValue('A3', date('Y-m-d'));
+$sheet->setCellValue('B3', 'JHGWMS00060001');
+$sheet->setCellValue('C3', '102');
+$sheet->setCellValue('D3', '示例单位');
+$sheet->setCellValue('E3', '追溯码2');
+
+$sheet->setCellValue('A4', date('Y-m-d'));
+$sheet->setCellValue('B4', 'JHGWMS00060001');
+$sheet->setCellValue('C4', '102');
+$sheet->setCellValue('D4', '示例单位');
+$sheet->setCellValue('E4', '追溯码3');
 
 // 输出
 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

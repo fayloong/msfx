@@ -69,6 +69,9 @@ layout('失败记录', 'failed');
                 <p class="text-muted small" id="trace-count"></p>
                 <div class="bg-light p-3 rounded" style="max-height:400px;overflow:auto;word-break:break-all;font-size:0.85rem" id="trace-content"></div>
             </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary btn-copy-trace">复制</button>
+            </div>
         </div>
     </div>
 </div>
@@ -88,6 +91,41 @@ layout('失败记录', 'failed');
     </div>
 </div>
 
+
+<!-- 编辑弹窗 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h5 class="modal-title">编辑上传任务</h5>
+				<button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+			</div>
+			<div class="modal-body">
+				<input type="hidden" id="edit-id">
+				<div class="mb-3">
+					<label class="form-label">日期</label>
+					<input type="date" class="form-control" id="edit-rq">
+				</div>
+				<div class="mb-3">
+					<label class="form-label">单号</label>
+					<input type="text" class="form-control" id="edit-djbh">
+				</div>
+				<div class="mb-3">
+					<label class="form-label">往来单位</label>
+					<input type="text" class="form-control" id="edit-ent-name">
+				</div>
+				<div class="mb-3">
+					<label class="form-label">追溯码</label>
+					<textarea class="form-control" id="edit-trace-codes" rows="3"></textarea>
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+				<button type="button" class="btn btn-primary" id="btn-save-edit">保存</button>
+			</div>
+		</div>
+	</div>
+</div>
 <!-- 确认弹窗 -->
 <div class="modal fade" id="confirmModal" tabindex="-1">
     <div class="modal-dialog modal-sm">
@@ -141,13 +179,14 @@ layout('失败记录', 'failed');
                     <td>${esc(r.ent_name) || '-'}</td>
                     <td>
                         ${r.trace_codes
-                            ? '<button class="btn btn-sm btn-outline-secondary btn-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>'
+                            ? `<button class="btn btn-sm btn-outline-secondary btn-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>`
                             : '<span class="text-muted">-</span>'}
                     </td>
                     <td>${hasTask ? taskId : '-'}</td>
-                    <td><span class="badge bg-danger">失败</span></td>
+                    <td><span class="badge ${r.request_status === '请求失败' ? 'bg-danger' : 'bg-warning text-dark'}">${esc(r.request_status === '请求失败' ? (r.request_status) : (r.response_status || '失败'))}</span></td>
                     <td><button class="btn btn-sm btn-outline-info btn-detail" data-r="${esc(r.response||'')}">查看详情</button></td>
                     <td class="text-nowrap">
+                        <button class="btn btn-sm btn-outline-primary btn-edit" data-task-id="${taskId}" ${hasTask ? '' : 'disabled'}>编辑</button>
                         <button class="btn btn-sm btn-outline-danger btn-del" data-log-id="${logId}">删除</button>
                         <button class="btn btn-sm btn-outline-warning btn-retry" data-task-id="${taskId}" ${hasTask ? '' : 'disabled'}>重传</button>
                     </td>
@@ -165,6 +204,7 @@ layout('失败记录', 'failed');
                 document.getElementById('detail-content').textContent = t;
                 new bootstrap.Modal(document.getElementById('detailModal')).show();
             }));
+            tbody.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', () => openEdit(parseInt(b.dataset.taskId))));
             tbody.querySelectorAll('.btn-del').forEach(b => b.addEventListener('click', () => deleteOne(parseInt(b.dataset.logId))));
             tbody.querySelectorAll('.btn-retry').forEach(b => b.addEventListener('click', () => retryOne(parseInt(b.dataset.taskId))));
             tbody.querySelectorAll('.row-cb').forEach(cb => cb.addEventListener('change', function() {
@@ -214,6 +254,46 @@ layout('失败记录', 'failed');
         } catch(e) { alert('重传失败: '+e.message); }
     }
 
+    async function openEdit(taskId) {
+        try {
+            const resp = await fetch('index.php?page=api&action=tasks&id=' + taskId);
+            const task = await resp.json();
+            if (task.error) { alert('未找到该任务'); return; }
+            document.getElementById('edit-id').value = task.id;
+            document.getElementById('edit-rq').value = task.rq;
+            document.getElementById('edit-djbh').value = task.djbh;
+            document.getElementById('edit-ent-name').value = task.ent_name;
+            document.getElementById('edit-trace-codes').value = task.trace_codes || '';
+            new bootstrap.Modal(document.getElementById('editModal')).show();
+        } catch (e) {
+            alert('加载失败: ' + e.message);
+        }
+    }
+
+    async function saveEdit() {
+        const body = JSON.stringify({
+            id: document.getElementById('edit-id').value,
+            rq: document.getElementById('edit-rq').value,
+            djbh: document.getElementById('edit-djbh').value,
+            ent_name: document.getElementById('edit-ent-name').value,
+            trace_codes: document.getElementById('edit-trace-codes').value,
+        });
+        try {
+            const resp = await fetch('index.php?page=api&action=tasks', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: body,
+            });
+            const result = await resp.json();
+            if (result.success) {
+                bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+                load();
+            }
+        } catch (e) {
+            alert('保存失败: ' + e.message);
+        }
+    }
+
     function showConfirm(msg, cb) { document.getElementById('confirm-msg').textContent = msg; confirmCb = cb; new bootstrap.Modal(document.getElementById('confirmModal')).show(); }
 
     function updateBtns() {
@@ -240,6 +320,21 @@ layout('失败记录', 'failed');
         updateBtns();
     });
     document.getElementById('btn-confirm').addEventListener('click', async () => { if (confirmCb) await confirmCb(); bootstrap.Modal.getInstance(document.getElementById('confirmModal')).hide(); });
+    document.getElementById('btn-save-edit').addEventListener('click', saveEdit);
+    document.querySelector('.btn-copy-trace').addEventListener('click', () => {
+        const text = document.getElementById('trace-content').textContent.replace(/,/g, '\n');
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        ta.style.top = '0';
+        document.querySelector('#traceModal .modal-body').appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        alert('已复制到剪贴板');
+    });
     document.getElementById('btn-batch-delete').addEventListener('click', () => showConfirm('确定要删除选中的 ' + selectedLogIds.size + ' 条失败记录吗？', async () => {
         await fetch('index.php?page=api&action=logs_batch_delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids: Array.from(selectedLogIds)}) });
         selectedLogIds.clear();

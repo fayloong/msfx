@@ -34,12 +34,20 @@ $placeholders = implode(',', array_fill(0, count($ids), '?'));
 $tasks = $db->query("SELECT * FROM upload_tasks WHERE id IN ({$placeholders})", $ids);
 
 if (empty($tasks)) {
-    echo json_encode(['success' => true, 'result' => ['total' => 0, 'success' => 0, 'failed' => 0]], JSON_UNESCAPED_UNICODE);
+    header('Content-Type: application/x-ndjson; charset=utf-8');
+    header('X-Accel-Buffering: no');
+    header('Cache-Control: no-cache');
+    echo json_encode(['_final' => true, 'success' => true, 'result' => ['total' => 0, 'success' => 0, 'failed' => 0]], JSON_UNESCAPED_UNICODE) . "\n";
     exit;
 }
 
-// 批量更新为上传中
-$db->execute("UPDATE upload_tasks SET status = '上传中', updated_at = datetime('now','localtime') WHERE id IN ({$placeholders})", $ids);
+// NDJSON 流式输出
+header('Content-Type: application/x-ndjson; charset=utf-8');
+header('X-Accel-Buffering: no');
+header('Cache-Control: no-cache');
+ini_set('output_buffering', 'off');
+while (ob_get_level()) { ob_end_clean(); }
+ob_implicit_flush(true);
 
 try {
     $bills = array_map(function ($t) {
@@ -54,10 +62,12 @@ try {
     }, $tasks);
 
     $uploadService = new UploadService();
-    $result = $uploadService->upload($bills);
+    $result = $uploadService->upload($bills, function (array $progress) {
+        echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
+        flush();
+    });
 
-    echo json_encode(['success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE);
-} catch (\Exception $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['_final' => true, 'success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE) . "\n";
+} catch (\Throwable $e) {
+    echo json_encode(['_final' => true, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE) . "\n";
 }

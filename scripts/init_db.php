@@ -17,8 +17,10 @@ try {
         djbh TEXT NOT NULL,
         ent_name TEXT NOT NULL,
         trace_codes TEXT,
-        status TEXT DEFAULT '等待上传',
+        task_status TEXT DEFAULT '等待上传',
         source TEXT DEFAULT 'cron',
+        request_status TEXT DEFAULT NULL,
+        response_status TEXT DEFAULT NULL,
         resp TEXT,
         created_at TEXT DEFAULT (datetime('now','localtime')),
         updated_at TEXT DEFAULT (datetime('now','localtime'))
@@ -31,14 +33,20 @@ try {
         djbh TEXT NOT NULL,
         ent_name TEXT DEFAULT '',
         trace_codes TEXT DEFAULT '',
-        success INTEGER DEFAULT 0,
+        request_status TEXT DEFAULT NULL,
+        response_status TEXT DEFAULT NULL,
         response TEXT,
         created_at TEXT DEFAULT (datetime('now','localtime'))
     )");
 
-    // 兼容旧表结构：缺少 ent_name / trace_codes 列时自动补上
+    // 兼容旧表结构：缺少列时自动补上
     try { $db->exec("ALTER TABLE upload_logs ADD COLUMN ent_name TEXT DEFAULT ''"); } catch (\Exception $e) {}
     try { $db->exec("ALTER TABLE upload_logs ADD COLUMN trace_codes TEXT DEFAULT ''"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_logs ADD COLUMN request_status TEXT DEFAULT NULL"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_logs ADD COLUMN response_status TEXT DEFAULT NULL"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN task_status TEXT DEFAULT '等待上传'"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN request_status TEXT DEFAULT NULL"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN response_status TEXT DEFAULT NULL"); } catch (\Exception $e) {}
 
     // 往来单位缓存表
     $db->exec("CREATE TABLE IF NOT EXISTS ent_list (
@@ -50,10 +58,12 @@ try {
     )");
 
     // 索引
-    $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_tasks_status ON upload_tasks(status)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_tasks_task_status ON upload_tasks(task_status)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_tasks_request_status ON upload_tasks(request_status)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_tasks_djbh ON upload_tasks(djbh)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_tasks_rq ON upload_tasks(rq)");
-    $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_logs_success ON upload_logs(success)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_logs_request_status ON upload_logs(request_status)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_logs_response_status ON upload_logs(response_status)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_logs_created ON upload_logs(created_at)");
     $db->exec("CREATE INDEX IF NOT EXISTS idx_upload_logs_djbh ON upload_logs(djbh)");
 

@@ -48,14 +48,21 @@ if ($method === 'GET') {
     // 搜索
     if (!empty($_GET['search'])) {
         $search = '%' . $_GET['search'] . '%';
-        $where[] = "(djbh LIKE ? OR ent_name LIKE ? OR trace_codes LIKE ?)";
-        $params = array_merge($params, [$search, $search, $search]);
+        $where[] = "(djbh LIKE ? OR ent_name LIKE ? OR trace_codes LIKE ? OR task_status LIKE ? OR request_status LIKE ? OR response_status LIKE ?)";
+        $params = array_merge($params, [$search, $search, $search, $search, $search, $search]);
     }
 
-    // 状态筛选
-    if (!empty($_GET['status'])) {
-        $where[] = "status = ?";
-        $params[] = $_GET['status'];
+    // 任务状态筛选（默认只显示等待上传的任务）
+    if (!empty($_GET['task_status'])) {
+        $where[] = "task_status = ?";
+        $params[] = $_GET['task_status'];
+    } else {
+        $where[] = "task_status = '等待上传'";
+    }
+    // 响应状态筛选
+    if (!empty($_GET['response_status'])) {
+        $where[] = "response_status = ?";
+        $params[] = $_GET['response_status'];
     }
 
     // 日期范围
