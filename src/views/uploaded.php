@@ -8,9 +8,21 @@ layout('已上传', 'uploaded');
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body">
         <div class="row g-2 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label small text-muted">搜索</label>
-                <input type="text" class="form-control" id="search" placeholder="单号 / 返回内容...">
+            <div class="col-md-2">
+                <label class="form-label small text-muted">单号</label>
+                <input type="text" class="form-control" id="djbh" placeholder="单号筛选">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">往来单位</label>
+                <input type="text" class="form-control" id="ent-name" placeholder="往来单位筛选">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">响应状态</label>
+                <select class="form-select" id="response-status">
+                    <option value="">全部</option>
+                    <option value="上传成功">上传成功</option>
+                    <option value="单据重复">单据重复</option>
+                </select>
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted">日期从</label>
@@ -19,10 +31,6 @@ layout('已上传', 'uploaded');
             <div class="col-md-2">
                 <label class="form-label small text-muted">日期到</label>
                 <input type="date" class="form-control" id="date-to">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted">单号</label>
-                <input type="text" class="form-control" id="djbh" placeholder="单号筛选">
             </div>
             <div class="col-md-2 d-flex align-items-end">
                 <button class="btn btn-outline-secondary" id="btn-refresh">刷新</button>
@@ -59,14 +67,16 @@ layout('已上传', 'uploaded');
 
     async function load() {
         const params = new URLSearchParams({page_num: page});
-        const s = document.getElementById('search').value.trim();
+        const d = document.getElementById('djbh').value.trim();
+        const en = document.getElementById('ent-name').value.trim();
+        const rs = document.getElementById('response-status').value;
         const df = document.getElementById('date-from').value;
         const dt = document.getElementById('date-to').value;
-        const d = document.getElementById('djbh').value.trim();
-        if (s) params.set('search', s);
+        if (d) params.set('djbh', d);
+        if (en) params.set('ent_name', en);
+        if (rs) params.set('response_status', rs);
         if (df) params.set('date_from', df);
         if (dt) params.set('date_to', dt);
-        if (d) params.set('djbh', d);
 
         try {
             const resp = await fetch('index.php?page=api&action=uploaded&' + params);
@@ -153,7 +163,7 @@ layout('已上传', 'uploaded');
         alert('已复制到剪贴板');
     });
     document.getElementById('btn-refresh').addEventListener('click', () => { page=1; load(); });
-    ['search','date-from','date-to','djbh'].forEach(id => {
+    ['djbh','ent-name','response-status','date-from','date-to'].forEach(id => {
         let t;
         document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { page=1; load(); }, 400); });
         document.getElementById(id).addEventListener('change', () => { page=1; load(); });

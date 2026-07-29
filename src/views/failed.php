@@ -8,9 +8,24 @@ layout('失败记录', 'failed');
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body">
         <div class="row g-2 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label small text-muted">搜索</label>
-                <input type="text" class="form-control" id="search" placeholder="单号 / 返回内容...">
+            <div class="col-md-2">
+                <label class="form-label small text-muted">单号</label>
+                <input type="text" class="form-control" id="djbh" placeholder="单号筛选">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">往来单位</label>
+                <input type="text" class="form-control" id="ent-name" placeholder="往来单位筛选">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">响应状态</label>
+                <select class="form-select" id="response-status">
+                    <option value="">全部</option>
+                    <option value="上传失败">上传失败</option>
+                    <option value="信息不存在">信息不存在</option>
+                    <option value="往来单位缺失">往来单位缺失</option>
+                    <option value="未确定">未确定</option>
+                    <option value="请求失败">请求失败</option>
+                </select>
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted">日期从</label>
@@ -19,10 +34,6 @@ layout('失败记录', 'failed');
             <div class="col-md-2">
                 <label class="form-label small text-muted">日期到</label>
                 <input type="date" class="form-control" id="date-to">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted">单号</label>
-                <input type="text" class="form-control" id="djbh" placeholder="单号筛选">
             </div>
             <div class="col-md-2 d-flex gap-2 align-items-end">
                 <button class="btn btn-outline-secondary" id="btn-refresh">刷新</button>
@@ -149,9 +160,12 @@ layout('失败记录', 'failed');
 
     async function load() {
         const params = new URLSearchParams({page_num: page});
-        ['search','date-from','date-to','djbh'].forEach(id => {
+        ['djbh','ent-name','response-status','date-from','date-to'].forEach(id => {
             const v = document.getElementById(id).value.trim();
-            if (v) params.set(id === 'date-from' ? 'date_from' : id === 'date-to' ? 'date_to' : id, v);
+            if (v) {
+                const paramName = id === 'ent-name' ? 'ent_name' : id === 'response-status' ? 'response_status' : id === 'date-from' ? 'date_from' : id === 'date-to' ? 'date_to' : id;
+                params.set(paramName, v);
+            }
         });
         try {
             const resp = await fetch('index.php?page=api&action=failed&' + params);
@@ -349,7 +363,7 @@ layout('失败记录', 'failed');
         load();
     }));
 
-    ['search','date-from','date-to','djbh'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
+    ['djbh','ent-name','response-status','date-from','date-to'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
     load();
 })();
 </script>

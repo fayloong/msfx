@@ -52,12 +52,10 @@ if ($method === 'GET') {
         $params = array_merge($params, [$search, $search, $search, $search, $search, $search]);
     }
 
-    // 任务状态筛选（默认只显示等待上传的任务）
+    // 任务状态筛选
     if (!empty($_GET['task_status'])) {
         $where[] = "task_status = ?";
         $params[] = $_GET['task_status'];
-    } else {
-        $where[] = "task_status = '等待上传'";
     }
     // 响应状态筛选
     if (!empty($_GET['response_status'])) {
@@ -79,6 +77,11 @@ if ($method === 'GET') {
     if (!empty($_GET['djbh'])) {
         $where[] = "djbh LIKE ?";
         $params[] = '%' . $_GET['djbh'] . '%';
+    }
+    // 往来单位筛选
+    if (!empty($_GET['ent_name'])) {
+        $where[] = "ent_name LIKE ?";
+        $params[] = '%' . $_GET['ent_name'] . '%';
     }
 
     $whereClause = empty($where) ? '' : 'WHERE ' . implode(' AND ', $where);

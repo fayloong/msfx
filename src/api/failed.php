@@ -39,6 +39,18 @@ if (!empty($_GET['djbh'])) {
     $where[] = "djbh LIKE ?";
     $params[] = '%' . $_GET['djbh'] . '%';
 }
+if (!empty($_GET['ent_name'])) {
+    $where[] = "ent_name LIKE ?";
+    $params[] = '%' . $_GET['ent_name'] . '%';
+}
+if (!empty($_GET['response_status'])) {
+    if ($_GET['response_status'] === '请求失败') {
+        $where[] = "request_status = '请求失败'";
+    } else {
+        $where[] = "response_status = ?";
+        $params[] = $_GET['response_status'];
+    }
+}
 
 $whereClause = 'WHERE ' . implode(' AND ', $where);
 

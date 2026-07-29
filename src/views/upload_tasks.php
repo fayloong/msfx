@@ -9,16 +9,20 @@ layout('上传任务', 'upload-tasks');
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body">
         <div class="row g-2 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label small text-muted">全局搜索</label>
-                <input type="text" class="form-control" id="global-search" placeholder="单号 / 往来单位 / 追溯码...">
+            <div class="col-md-2">
+                <label class="form-label small text-muted">单号</label>
+                <input type="text" class="form-control" id="filter-djbh" placeholder="单号筛选">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">往来单位</label>
+                <input type="text" class="form-control" id="filter-ent-name" placeholder="往来单位筛选">
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted">任务状态</label>
                 <select class="form-select" id="filter-task-status">
-                    <option value="">全部</option>
-                    <option value="等待上传">等待上传</option>
+                    <option value="等待上传" selected>等待上传</option>
                     <option value="已处理">已处理</option>
+                    <option value="">全部</option>
                 </select>
             </div>
             <div class="col-md-2">
@@ -41,7 +45,9 @@ layout('上传任务', 'upload-tasks');
                 <label class="form-label small text-muted">日期到</label>
                 <input type="date" class="form-control" id="filter-date-to">
             </div>
-            <div class="col-md-2 d-flex gap-2 align-items-end">
+        </div>
+        <div class="row g-2 mt-2">
+            <div class="col-md-2 d-flex gap-2">
                 <button class="btn btn-outline-secondary" id="btn-refresh" title="刷新">
                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
                 </button>
@@ -189,12 +195,14 @@ layout('上传任务', 'upload-tasks');
 
     function getFilters() {
         const params = new URLSearchParams();
-        const search = document.getElementById('global-search').value.trim();
+        const djbh = document.getElementById('filter-djbh').value.trim();
+        const entName = document.getElementById('filter-ent-name').value.trim();
         const taskStatus = document.getElementById('filter-task-status').value;
         const responseStatus = document.getElementById('filter-response-status').value;
         const dateFrom = document.getElementById('filter-date-from').value;
         const dateTo = document.getElementById('filter-date-to').value;
-        if (search) params.set('search', search);
+        if (djbh) params.set('djbh', djbh);
+        if (entName) params.set('ent_name', entName);
         if (taskStatus) params.set('task_status', taskStatus);
         if (responseStatus) params.set('response_status', responseStatus);
         if (dateFrom) params.set('date_from', dateFrom);
@@ -454,7 +462,7 @@ layout('上传任务', 'upload-tasks');
 
     // 筛选实时搜索（防抖）
     let searchTimeout;
-    ['global-search', 'filter-task-status', 'filter-response-status', 'filter-date-from', 'filter-date-to'].forEach(id => {
+    ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status', 'filter-date-from', 'filter-date-to'].forEach(id => {
         document.getElementById(id).addEventListener('input', () => {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => { currentPage = 1; loadData(); }, 400);
