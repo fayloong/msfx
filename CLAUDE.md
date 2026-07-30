@@ -51,11 +51,13 @@ root/
 │   ├── .env                      # 数据库连接 + API 凭证 + 管理员密码
 │   └── sql.php                   # SQL Server 原始查询（参考用）
 ├── public/
-│   └── index.php                 # Web 单入口（page 参数分发路由）
+│   ├── index.php                 # Web 单入口（page 参数分发路由）
+│   └── favicon.svg               # SVG 网站图标
 ├── scripts/
 │   ├── cron_upload.php           # cron 定时上传入口
 │   ├── check_bill_status.php     # 批量查询单据上传状态
 │   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志
+│   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列）
 │   └── init_db.php               # 初始化 SQLite 数据库及表结构
 ├── data/
 │   └── msfx.db                   # SQLite 本地数据库（3 张表 + 索引）
@@ -80,6 +82,8 @@ root/
 | `api` | `api/{action}.php` | AJAX API 端点 |
 
 所有页面（除 login 和 api）需要登录。API 端点内部自行处理认证。
+
+三个数据页面（upload-tasks / uploaded / failed）均支持筛选：单号、往来单位、状态、**单据日期**（`rq`）、**任务创建时间**（`created_at`）。日期筛选使用 flatpickr 范围选择器，一个输入框同时选起止日期，默认当月 1 号至当天。分页最多显示 10 个页码，超出用省略号。
 
 ## 核心数据流
 
@@ -114,15 +118,17 @@ SQL Server `skwms_new.dbo` 查询当天单据 → 逐个调 `AlibabaAlihealthDru
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | INTEGER PK | |
-| rq | TEXT | 单据日期 |
+| rq | TEXT | 单据日期（来自 SQL Server） |
 | djbh | TEXT | 单号 |
 | ent_name | TEXT | 往来单位名称 |
 | trace_codes | TEXT | 追溯码（逗号分隔） |
-| status | TEXT | 等待上传/上传中/已上传/任务失败/部分上传成功 |
+| task_status | TEXT | 等待上传/已处理（上传完成后统一标记） |
 | source | TEXT | cron/manual/batch_check |
+| request_status | TEXT | 请求成功/请求失败 |
+| response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定 |
 | resp | TEXT | API 返回内容 |
-| created_at | TEXT | |
-| updated_at | TEXT | |
+| created_at | TEXT | 任务创建时间（写入 SQLite 的时间） |
+| updated_at | TEXT | 最后更新时间 |
 
 ### upload_logs（上传日志）
 | 字段 | 类型 | 说明 |
@@ -132,9 +138,11 @@ SQL Server `skwms_new.dbo` 查询当天单据 → 逐个调 `AlibabaAlihealthDru
 | djbh | TEXT | 单号 |
 | ent_name | TEXT | 往来单位名称 |
 | trace_codes | TEXT | 追溯码 |
-| success | INTEGER | 1=成功, 0=失败 |
+| rq | TEXT | 单据日期（回填自 upload_tasks 或 SQL Server） |
+| request_status | TEXT | 请求成功/请求失败 |
+| response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定 |
 | response | TEXT | API 返回内容 |
-| created_at | TEXT | |
+| created_at | TEXT | 任务创建时间（API 调用时间） |
 
 ### ent_list（往来单位缓存）
 | 字段 | 类型 | 说明 |
@@ -156,6 +164,7 @@ SQL Server `skwms_new.dbo` 查询当天单据 → 逐个调 `AlibabaAlihealthDru
 ## 关键依赖
 
 - Composer 依赖：`phpoffice/phpspreadsheet`（xlsx 导入/导出）
+- 前端 CDN：Bootstrap 5.3.3 + Bootstrap Icons 1.11.3 + flatpickr 4.6.9（日期范围选择器 + 中文 locale）
 - `db.php`（不在仓库内，位于 Web PHP include_path），提供 `info_log()`、`hht()` 等函数
   - CLI 环境下 `db.php` 不可用，`cron_upload.php` 内部定义了 `info_log()` 桩函数输出到 stderr
 - `src/SqlSrvHelper.php` 通过 composer `classmap` 自动加载（非 namespace 类）
@@ -179,6 +188,9 @@ php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php 2026-07-28
 
 # 清理超过 3 个月的 SQLite 日志
 php /usr/share/nginx/mashangfangxin/scripts/cleanup_logs.php
+
+# 回填 upload_logs 的单据日期（首次部署后执行一次即可）
+php /usr/share/nginx/mashangfangxin/scripts/backfill_rq.php
 
 # 初始化/迁移 SQLite 数据库
 php /usr/share/nginx/mashangfangxin/scripts/init_db.php
