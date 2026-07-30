@@ -119,6 +119,40 @@ layout('失败记录', 'failed');
 					<input type="date" class="form-control" id="edit-rq">
 				</div>
 				<div class="mb-3">
+					<label class="form-label">单据类型</label>
+					<select class="form-select" id="edit-bill-type">
+						<option value="">-- 请选择 --</option>
+						<optgroup label="入库">
+							<option value="102">102, 采购入库</option>
+							<option value="103">103, 退货入库</option>
+							<option value="104">104, 调拨入库</option>
+							<option value="107">107, 供应入库</option>
+							<option value="108">108, 召回入库</option>
+							<option value="110">110, 赠品入库</option>
+							<option value="111">111, 盘盈入库</option>
+							<option value="112">112, 报废入库</option>
+							<option value="113">113, 其他入库</option>
+						</optgroup>
+						<optgroup label="出库">
+							<option value="201">201, 销售出库</option>
+							<option value="202">202, 退货出库</option>
+							<option value="203">203, 调拨出库</option>
+							<option value="204">204, 返工出库</option>
+							<option value="205">205, 销毁出库</option>
+							<option value="206">206, 抽检出库</option>
+							<option value="207">207, 直调出库</option>
+							<option value="209">209, 供应出库</option>
+							<option value="211">211, 召回出库</option>
+							<option value="212">212, 赠品出库</option>
+							<option value="214">214, 盘亏出库</option>
+							<option value="215">215, 损坏出库</option>
+							<option value="216">216, 报废出库</option>
+							<option value="217">217, 其他出库</option>
+							<option value="237">237, 直调退货</option>
+						</optgroup>
+					</select>
+				</div>
+				<div class="mb-3">
 					<label class="form-label">单号</label>
 					<input type="text" class="form-control" id="edit-djbh">
 				</div>
@@ -331,6 +365,7 @@ layout('失败记录', 'failed');
             document.getElementById('edit-djbh').value = task.djbh;
             document.getElementById('edit-ent-name').value = task.ent_name;
             document.getElementById('edit-trace-codes').value = task.trace_codes || '';
+            document.getElementById('edit-bill-type').value = task.bill_type || '';
             new bootstrap.Modal(document.getElementById('editModal')).show();
         } catch (e) {
             alert('加载失败: ' + e.message);
@@ -344,6 +379,7 @@ layout('失败记录', 'failed');
             djbh: document.getElementById('edit-djbh').value,
             ent_name: document.getElementById('edit-ent-name').value,
             trace_codes: document.getElementById('edit-trace-codes').value,
+            bill_type: document.getElementById('edit-bill-type').value,
         });
         try {
             const resp = await fetch('index.php?page=api&action=tasks', {

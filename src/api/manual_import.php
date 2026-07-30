@@ -162,8 +162,8 @@ try {
 
         // 写入 upload_tasks
         $db->execute(
-            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, task_status, source, created_at, updated_at) VALUES (?, ?, ?, ?, '等待上传', 'manual', datetime('now','localtime'), datetime('now','localtime'))",
-            [$group['rq'], $djbh, $group['ent_name'], $allCodes]
+            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'manual', datetime('now','localtime'), datetime('now','localtime'))",
+            [$group['rq'], $djbh, $group['ent_name'], $allCodes, $group['bill_type']]
         );
         $taskId = $db->lastInsertId();
 

@@ -48,6 +48,7 @@ try {
     try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN task_status TEXT DEFAULT '等待上传'"); } catch (\Exception $e) {}
     try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN request_status TEXT DEFAULT NULL"); } catch (\Exception $e) {}
     try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN response_status TEXT DEFAULT NULL"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN bill_type TEXT DEFAULT ''"); } catch (\Exception $e) {}
 
     // 往来单位缓存表
     $db->exec("CREATE TABLE IF NOT EXISTS ent_list (

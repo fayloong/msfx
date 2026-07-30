@@ -126,12 +126,13 @@ if ($method === 'PUT') {
     }
 
     $db->execute(
-        "UPDATE upload_tasks SET rq = ?, djbh = ?, ent_name = ?, trace_codes = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+        "UPDATE upload_tasks SET rq = ?, djbh = ?, ent_name = ?, trace_codes = ?, bill_type = ?, updated_at = datetime('now','localtime') WHERE id = ?",
         [
             $input['rq'] ?? '',
             $input['djbh'] ?? '',
             $input['ent_name'] ?? '',
             $input['trace_codes'] ?? '',
+            $input['bill_type'] ?? '',
             $input['id'],
         ]
     );

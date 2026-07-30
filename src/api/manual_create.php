@@ -57,8 +57,8 @@ $db = Database::getInstance();
 
 // 写入 upload_tasks
 $db->execute(
-    "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, task_status, source, created_at, updated_at) VALUES (?, ?, ?, ?, '等待上传', 'manual', datetime('now','localtime'), datetime('now','localtime'))",
-    [$rq, $djbh, $entName, $traceCodes]
+    "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'manual', datetime('now','localtime'), datetime('now','localtime'))",
+    [$rq, $djbh, $entName, $traceCodes, $billType]
 );
 $taskId = $db->lastInsertId();
 
