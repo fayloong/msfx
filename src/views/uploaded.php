@@ -25,25 +25,15 @@ layout('已上传', 'uploaded');
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">任务创建时间从</label>
-                <input type="date" class="form-control" id="date-from">
+                <label class="form-label small text-muted">任务创建时间</label>
+                <input type="text" class="form-control" id="created-range" placeholder="选择日期范围" readonly>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">任务创建时间到</label>
-                <input type="date" class="form-control" id="date-to">
+                <label class="form-label small text-muted">单据日期</label>
+                <input type="text" class="form-control" id="rq-range" placeholder="选择日期范围" readonly>
             </div>
             <div class="col-md-2 d-flex align-items-end">
                 <button class="btn btn-outline-secondary" id="btn-refresh">刷新</button>
-            </div>
-        </div>
-        <div class="row g-2 mt-2">
-            <div class="col-md-2">
-                <label class="form-label small text-muted">单据日期从</label>
-                <input type="date" class="form-control" id="rq-from">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted">单据日期到</label>
-                <input type="date" class="form-control" id="rq-to">
             </div>
         </div>
     </div>
@@ -75,6 +65,29 @@ layout('已上传', 'uploaded');
 <script>
 (function() {
     let page = 1;
+    const today = new Date();
+    const monthFirst = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const fpCreated = flatpickr("#created-range", {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        locale: "zh",
+        defaultDate: [monthFirst, today],
+    });
+
+    const fpRq = flatpickr("#rq-range", {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        locale: "zh",
+    });
+
+    function readRange(fp) {
+        const d = fp.selectedDates;
+        if (d.length === 2) {
+            return [fp.formatDate(d[0], 'Y-m-d'), fp.formatDate(d[1], 'Y-m-d')];
+        }
+        return ['', ''];
+    }
 
     function getPageNumbers(current, total, max) {
         if (total <= max) return Array.from({length: total}, (_, i) => i + 1);
@@ -96,10 +109,8 @@ layout('已上传', 'uploaded');
         const d = document.getElementById('djbh').value.trim();
         const en = document.getElementById('ent-name').value.trim();
         const rs = document.getElementById('response-status').value;
-        const df = document.getElementById('date-from').value;
-        const dt = document.getElementById('date-to').value;
-        const rf = document.getElementById('rq-from').value;
-        const rt = document.getElementById('rq-to').value;
+        const [df, dt] = readRange(fpCreated);
+        const [rf, rt] = readRange(fpRq);
         if (d) params.set('djbh', d);
         if (en) params.set('ent_name', en);
         if (rs) params.set('response_status', rs);
@@ -198,11 +209,13 @@ layout('已上传', 'uploaded');
         alert('已复制到剪贴板');
     });
     document.getElementById('btn-refresh').addEventListener('click', () => { page=1; load(); });
-    ['djbh','ent-name','response-status','date-from','date-to','rq-from','rq-to'].forEach(id => {
+    ['djbh','ent-name','response-status'].forEach(id => {
         let t;
         document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { page=1; load(); }, 400); });
         document.getElementById(id).addEventListener('change', () => { page=1; load(); });
     });
+    fpCreated.config.onChange.push(() => { page=1; load(); });
+    fpRq.config.onChange.push(() => { page=1; load(); });
     load();
 })();
 </script>

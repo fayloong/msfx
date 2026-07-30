@@ -17,7 +17,7 @@ layout('上传任务', 'upload-tasks');
                 <label class="form-label small text-muted">往来单位</label>
                 <input type="text" class="form-control" id="filter-ent-name" placeholder="往来单位筛选">
             </div>
-            <div class="col-md-2">
+            <div class="col-md-1">
                 <label class="form-label small text-muted">任务状态</label>
                 <select class="form-select" id="filter-task-status">
                     <option value="等待上传" selected>等待上传</option>
@@ -25,7 +25,7 @@ layout('上传任务', 'upload-tasks');
                     <option value="">全部</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-1">
                 <label class="form-label small text-muted">响应状态</label>
                 <select class="form-select" id="filter-response-status">
                     <option value="">全部</option>
@@ -38,22 +38,12 @@ layout('上传任务', 'upload-tasks');
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">单据日期从</label>
-                <input type="date" class="form-control" id="filter-date-from">
+                <label class="form-label small text-muted">单据日期</label>
+                <input type="text" class="form-control" id="filter-rq-range" placeholder="选择日期范围" readonly>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">单据日期到</label>
-                <input type="date" class="form-control" id="filter-date-to">
-            </div>
-        </div>
-        <div class="row g-2 mt-2">
-            <div class="col-md-2">
-                <label class="form-label small text-muted">任务创建时间从</label>
-                <input type="date" class="form-control" id="filter-created-from">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted">任务创建时间到</label>
-                <input type="date" class="form-control" id="filter-created-to">
+                <label class="form-label small text-muted">任务创建时间</label>
+                <input type="text" class="form-control" id="filter-created-range" placeholder="选择日期范围" readonly>
             </div>
             <div class="col-md-2 d-flex gap-2 align-items-end">
                 <button class="btn btn-outline-secondary" id="btn-refresh" title="刷新">
@@ -187,6 +177,30 @@ layout('上传任务', 'upload-tasks');
 (function() {
     let currentPage = 1;
     let selectedIds = new Set();
+
+    const today = new Date();
+    const monthFirst = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const fpRq = flatpickr("#filter-rq-range", {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        locale: "zh",
+        defaultDate: [monthFirst, today],
+    });
+
+    const fpCreated = flatpickr("#filter-created-range", {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        locale: "zh",
+    });
+
+    function readRange(fp) {
+        const d = fp.selectedDates;
+        if (d.length === 2) {
+            return [fp.formatDate(d[0], 'Y-m-d'), fp.formatDate(d[1], 'Y-m-d')];
+        }
+        return ['', ''];
+    }
     let confirmCallback = null;
 
     const taskStatusBadges = {
@@ -208,10 +222,8 @@ layout('上传任务', 'upload-tasks');
         const entName = document.getElementById('filter-ent-name').value.trim();
         const taskStatus = document.getElementById('filter-task-status').value;
         const responseStatus = document.getElementById('filter-response-status').value;
-        const dateFrom = document.getElementById('filter-date-from').value;
-        const dateTo = document.getElementById('filter-date-to').value;
-        const createdFrom = document.getElementById('filter-created-from').value;
-        const createdTo = document.getElementById('filter-created-to').value;
+        const [dateFrom, dateTo] = readRange(fpRq);
+        const [createdFrom, createdTo] = readRange(fpCreated);
         if (djbh) params.set('djbh', djbh);
         if (entName) params.set('ent_name', entName);
         if (taskStatus) params.set('task_status', taskStatus);
@@ -495,13 +507,15 @@ layout('上传任务', 'upload-tasks');
 
     // 筛选实时搜索（防抖）
     let searchTimeout;
-    ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status', 'filter-date-from', 'filter-date-to', 'filter-created-from', 'filter-created-to'].forEach(id => {
+    ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status'].forEach(id => {
         document.getElementById(id).addEventListener('input', () => {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => { currentPage = 1; loadData(); }, 400);
         });
         document.getElementById(id).addEventListener('change', () => { currentPage = 1; loadData(); });
     });
+    fpRq.config.onChange.push(() => { currentPage = 1; loadData(); });
+    fpCreated.config.onChange.push(() => { currentPage = 1; loadData(); });
 
     // 初始加载
     loadData();

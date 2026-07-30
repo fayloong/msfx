@@ -28,27 +28,17 @@ layout('失败记录', 'failed');
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">任务创建时间从</label>
-                <input type="date" class="form-control" id="date-from">
+                <label class="form-label small text-muted">任务创建时间</label>
+                <input type="text" class="form-control" id="created-range" placeholder="选择日期范围" readonly>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">任务创建时间到</label>
-                <input type="date" class="form-control" id="date-to">
+                <label class="form-label small text-muted">单据日期</label>
+                <input type="text" class="form-control" id="rq-range" placeholder="选择日期范围" readonly>
             </div>
             <div class="col-md-2 d-flex gap-2 align-items-end">
                 <button class="btn btn-outline-secondary" id="btn-refresh">刷新</button>
                 <button class="btn btn-danger btn-sm" id="btn-batch-delete" disabled>批量删除</button>
                 <button class="btn btn-warning btn-sm" id="btn-batch-retry" disabled>批量重传</button>
-            </div>
-        </div>
-        <div class="row g-2 mt-2">
-            <div class="col-md-2">
-                <label class="form-label small text-muted">单据日期从</label>
-                <input type="date" class="form-control" id="rq-from">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted">单据日期到</label>
-                <input type="date" class="form-control" id="rq-to">
             </div>
         </div>
     </div>
@@ -165,6 +155,29 @@ layout('失败记录', 'failed');
 <script>
 (function() {
     let page = 1;
+    const today = new Date();
+    const monthFirst = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const fpCreated = flatpickr("#created-range", {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        locale: "zh",
+        defaultDate: [monthFirst, today],
+    });
+
+    const fpRq = flatpickr("#rq-range", {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        locale: "zh",
+    });
+
+    function readRange(fp) {
+        const d = fp.selectedDates;
+        if (d.length === 2) {
+            return [fp.formatDate(d[0], 'Y-m-d'), fp.formatDate(d[1], 'Y-m-d')];
+        }
+        return ['', ''];
+    }
 
     function getPageNumbers(current, total, max) {
         if (total <= max) return Array.from({length: total}, (_, i) => i + 1);
@@ -187,13 +200,19 @@ layout('失败记录', 'failed');
 
     async function load() {
         const params = new URLSearchParams({page_num: page});
-        ['djbh','ent-name','response-status','date-from','date-to','rq-from','rq-to'].forEach(id => {
+        ['djbh','ent-name','response-status'].forEach(id => {
             const v = document.getElementById(id).value.trim();
             if (v) {
-                const paramName = id === 'ent-name' ? 'ent_name' : id === 'response-status' ? 'response_status' : id === 'date-from' ? 'date_from' : id === 'date-to' ? 'date_to' : id === 'rq-from' ? 'rq_from' : id === 'rq-to' ? 'rq_to' : id;
+                const paramName = id === 'ent-name' ? 'ent_name' : id === 'response-status' ? 'response_status' : id;
                 params.set(paramName, v);
             }
         });
+        const [df, dt] = readRange(fpCreated);
+        const [rf, rt] = readRange(fpRq);
+        if (df) params.set('date_from', df);
+        if (dt) params.set('date_to', dt);
+        if (rf) params.set('rq_from', rf);
+        if (rt) params.set('rq_to', rt);
         try {
             const resp = await fetch('index.php?page=api&action=failed&' + params);
             const data = await resp.json();
@@ -397,7 +416,9 @@ layout('失败记录', 'failed');
         load();
     }));
 
-    ['djbh','ent-name','response-status','date-from','date-to','rq-from','rq-to'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
+    ['djbh','ent-name','response-status'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
+    fpCreated.config.onChange.push(() => { page=1; load(); });
+    fpRq.config.onChange.push(() => { page=1; load(); });
     load();
 })();
 </script>
