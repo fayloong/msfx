@@ -113,6 +113,7 @@ class UploadService
                         'task_id' => $bill['task_id'] ?? 0,
                         'ent_name' => $bill['ent_name'] ?? '',
                         'trace_codes' => $traceCodes,
+                        'rq' => $bill['rq'] ?? '',
                     ]);
                     return ['success' => false, 'response' => $response, 'request_status' => '请求失败', 'response_status' => '往来单位缺失'];
                 }
@@ -144,6 +145,7 @@ class UploadService
                     'task_id' => $bill['task_id'] ?? 0,
                     'ent_name' => $bill['ent_name'] ?? '',
                     'trace_codes' => $traceCodes,
+                    'rq' => $bill['rq'] ?? '',
                 ]);
 
                 if ($result['success']) {
@@ -171,6 +173,7 @@ class UploadService
                         'task_id' => $bill['task_id'] ?? 0,
                         'ent_name' => $bill['ent_name'] ?? '',
                         'trace_codes' => $traceCodes,
+                        'rq' => $bill['rq'] ?? '',
                     ]);
                     return ['success' => false, 'response' => $response, 'request_status' => '请求失败', 'response_status' => null];
                 }

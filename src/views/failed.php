@@ -51,11 +51,12 @@ layout('失败记录', 'failed');
                 <thead class="table-light">
                     <tr>
                         <th width="40"><input type="checkbox" class="form-check-input" id="select-all"></th>
-                        <th>时间</th>
+                        <th>单据日期</th>
                         <th>单号</th>
                         <th>往来单位</th>
                         <th>追溯码</th>
                         <th>关联任务ID</th>
+                        <th>任务创建时间</th>
                         <th>状态</th>
                         <th>API 返回详情</th>
                         <th width="160">操作</th>
@@ -154,6 +155,22 @@ layout('失败记录', 'failed');
 <script>
 (function() {
     let page = 1;
+
+    function getPageNumbers(current, total, max) {
+        if (total <= max) return Array.from({length: total}, (_, i) => i + 1);
+        const half = Math.floor(max / 2);
+        let start = Math.max(2, current - half);
+        let end = Math.min(total - 1, current + half);
+        if (current <= half + 1) { end = Math.min(total - 1, max - 1); }
+        if (current >= total - half) { start = Math.max(2, total - max + 2); }
+        const pages = [1];
+        if (start > 2) pages.push('...');
+        for (let i = start; i <= end; i++) pages.push(i);
+        if (end < total - 1) pages.push('...');
+        pages.push(total);
+        return pages;
+    }
+
     let selectedLogIds = new Set();   // upload_logs.id (for delete)
     let selectedTaskIds = new Set();  // upload_tasks.id (for retry — only non-zero)
     let confirmCb = null;
@@ -171,13 +188,13 @@ layout('失败记录', 'failed');
             const resp = await fetch('index.php?page=api&action=failed&' + params);
             const data = await resp.json();
             render(data);
-        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="text-center py-5 text-danger">加载失败</td></tr>'; }
+        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="10" class="text-center py-5 text-danger">加载失败</td></tr>'; }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => {
                 const logId = r.id;
@@ -188,7 +205,7 @@ layout('失败记录', 'failed');
                     <td><input type="checkbox" class="form-check-input row-cb"
                         data-log-id="${logId}" data-task-id="${taskId}"
                         ${selectedLogIds.has(logId) ? 'checked' : ''}></td>
-                    <td class="text-nowrap">${esc(r.created_at)}</td>
+                    <td class="text-nowrap">${esc(r.rq || '-')}</td>
                     <td><code>${esc(r.djbh)}</code></td>
                     <td>${esc(r.ent_name) || '-'}</td>
                     <td>
@@ -197,6 +214,7 @@ layout('失败记录', 'failed');
                             : '<span class="text-muted">-</span>'}
                     </td>
                     <td>${hasTask ? taskId : '-'}</td>
+                    <td class="text-nowrap">${esc(r.created_at)}</td>
                     <td><span class="badge ${r.request_status === '请求失败' ? 'bg-danger' : 'bg-warning text-dark'}">${esc(r.request_status === '请求失败' ? (r.request_status) : (r.response_status || '失败'))}</span></td>
                     <td><button class="btn btn-sm btn-outline-info btn-detail" data-r="${esc(r.response||'')}">查看详情</button></td>
                     <td class="text-nowrap">
@@ -243,7 +261,13 @@ layout('失败记录', 'failed');
         } else {
             let h = '<nav><ul class="pagination pagination-sm justify-content-center mb-0">';
             h += `<li class="page-item ${data.page<=1?'disabled':''}"><a class="page-link" href="#" data-p="${data.page-1}">&laquo;</a></li>`;
-            for (let i=1; i<=data.total_pages; i++) h += `<li class="page-item ${i===data.page?'active':''}"><a class="page-link" href="#" data-p="${i}">${i}</a></li>`;
+            getPageNumbers(data.page, data.total_pages, 10).forEach(p => {
+                if (p === '...') {
+                    h += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                } else {
+                    h += `<li class="page-item ${p===data.page?'active':''}"><a class="page-link" href="#" data-p="${p}">${p}</a></li>`;
+                }
+            });
             h += `<li class="page-item ${data.page>=data.total_pages?'disabled':''}"><a class="page-link" href="#" data-p="${data.page+1}">&raquo;</a></li>`;
             h += '</ul></nav>';
             p.innerHTML = h;

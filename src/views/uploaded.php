@@ -45,11 +45,12 @@ layout('已上传', 'uploaded');
             <table class="table table-hover mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th>时间</th>
+                        <th>单据日期</th>
                         <th>单号</th>
                         <th>往来单位</th>
                         <th>追溯码</th>
                         <th>关联任务ID</th>
+                        <th>任务创建时间</th>
                         <th>状态</th>
                         <th>API 返回详情</th>
                     </tr>
@@ -64,6 +65,21 @@ layout('已上传', 'uploaded');
 <script>
 (function() {
     let page = 1;
+
+    function getPageNumbers(current, total, max) {
+        if (total <= max) return Array.from({length: total}, (_, i) => i + 1);
+        const half = Math.floor(max / 2);
+        let start = Math.max(2, current - half);
+        let end = Math.min(total - 1, current + half);
+        if (current <= half + 1) { end = Math.min(total - 1, max - 1); }
+        if (current >= total - half) { start = Math.max(2, total - max + 2); }
+        const pages = [1];
+        if (start > 2) pages.push('...');
+        for (let i = start; i <= end; i++) pages.push(i);
+        if (end < total - 1) pages.push('...');
+        pages.push(total);
+        return pages;
+    }
 
     async function load() {
         const params = new URLSearchParams({page_num: page});
@@ -83,18 +99,18 @@ layout('已上传', 'uploaded');
             const data = await resp.json();
             render(data);
         } catch (e) {
-            document.getElementById('tbody').innerHTML = '<tr><td colspan="7" class="text-center py-5 text-danger">加载失败</td></tr>';
+            document.getElementById('tbody').innerHTML = '<tr><td colspan="8" class="text-center py-5 text-danger">加载失败</td></tr>';
         }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => `
                 <tr>
-                    <td class="text-nowrap">${esc(r.created_at)}</td>
+                    <td class="text-nowrap">${esc(r.rq || '-')}</td>
                     <td><code>${esc(r.djbh)}</code></td>
                     <td>${esc(r.ent_name) || '-'}</td>
                     <td>
@@ -103,6 +119,7 @@ layout('已上传', 'uploaded');
                             : '<span class="text-muted">-</span>'}
                     </td>
                     <td>${r.task_id || '-'}</td>
+                    <td class="text-nowrap">${esc(r.created_at)}</td>
                     <td><span class="badge bg-success">${esc(r.response_status || '成功')}</span></td>
                     <td>
                         <button class="btn btn-sm btn-outline-info btn-detail" data-response="${esc(r.response || '')}">查看详情</button>
@@ -135,9 +152,13 @@ layout('已上传', 'uploaded');
         } else {
             let html = '<nav><ul class="pagination pagination-sm justify-content-center mb-0">';
             html += `<li class="page-item ${data.page<=1?'disabled':''}"><a class="page-link" href="#" data-p="${data.page-1}">&laquo;</a></li>`;
-            for (let i=1; i<=data.total_pages; i++) {
-                html += `<li class="page-item ${i===data.page?'active':''}"><a class="page-link" href="#" data-p="${i}">${i}</a></li>`;
-            }
+            getPageNumbers(data.page, data.total_pages, 10).forEach(p => {
+                if (p === '...') {
+                    html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                } else {
+                    html += `<li class="page-item ${p===data.page?'active':''}"><a class="page-link" href="#" data-p="${p}">${p}</a></li>`;
+                }
+            });
             html += `<li class="page-item ${data.page>=data.total_pages?'disabled':''}"><a class="page-link" href="#" data-p="${data.page+1}">&raquo;</a></li>`;
             html += '</ul></nav>';
             pager.innerHTML = html;

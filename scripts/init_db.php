@@ -42,6 +42,7 @@ try {
     // 兼容旧表结构：缺少列时自动补上
     try { $db->exec("ALTER TABLE upload_logs ADD COLUMN ent_name TEXT DEFAULT ''"); } catch (\Exception $e) {}
     try { $db->exec("ALTER TABLE upload_logs ADD COLUMN trace_codes TEXT DEFAULT ''"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_logs ADD COLUMN rq TEXT DEFAULT ''"); } catch (\Exception $e) {}
     try { $db->exec("ALTER TABLE upload_logs ADD COLUMN request_status TEXT DEFAULT NULL"); } catch (\Exception $e) {}
     try { $db->exec("ALTER TABLE upload_logs ADD COLUMN response_status TEXT DEFAULT NULL"); } catch (\Exception $e) {}
     try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN task_status TEXT DEFAULT '等待上传'"); } catch (\Exception $e) {}

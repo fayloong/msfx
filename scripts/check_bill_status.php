@@ -84,6 +84,7 @@ try {
                     'response' => $responseJson,
                     'ent_name' => $bill['ent_name'],
                     'trace_codes' => $bill['sn'],
+                    'rq' => $bill['rq'],
                 ]);
                 echo "[{$n}/{$total}] {$djbh} → 已上传\n";
             } else {
@@ -109,6 +110,7 @@ try {
                         'response' => $responseJson,
                         'ent_name' => $bill['ent_name'],
                         'trace_codes' => $bill['sn'],
+                        'rq' => $bill['rq'],
                     ]);
                 }
 
@@ -123,6 +125,7 @@ try {
                 'response' => json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE),
                 'ent_name' => $bill['ent_name'],
                 'trace_codes' => $bill['sn'],
+                'rq' => $bill['rq'],
             ]);
             echo "[{$n}/{$total}] {$djbh} → 查询异常: " . $e->getMessage() . "\n";
         }

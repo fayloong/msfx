@@ -66,16 +66,17 @@ layout('上传任务', 'upload-tasks');
                 <thead class="table-light">
                     <tr>
                         <th width="40"><input type="checkbox" class="form-check-input" id="select-all"></th>
-                        <th width="100">日期</th>
+                        <th width="100">单据日期</th>
                         <th>单号</th>
                         <th>往来单位</th>
                         <th>追溯码</th>
+                        <th width="170">任务创建时间</th>
                         <th width="150">状态</th>
                         <th width="120">操作</th>
                     </tr>
                 </thead>
                 <tbody id="tasks-tbody">
-                    <tr><td colspan="7" class="text-center py-5 text-muted">加载中...</td></tr>
+                    <tr><td colspan="8" class="text-center py-5 text-muted">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -220,14 +221,14 @@ layout('上传任务', 'upload-tasks');
             renderPagination(data);
         } catch (e) {
             document.getElementById('tasks-tbody').innerHTML =
-                '<tr><td colspan="7" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
+                '<tr><td colspan="8" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
         }
     }
 
     function renderTable(rows) {
         const tbody = document.getElementById('tasks-tbody');
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-5 text-muted">暂无数据</td></tr>';
             return;
         }
         tbody.innerHTML = rows.map(r => `
@@ -241,6 +242,7 @@ layout('上传任务', 'upload-tasks');
                         ? `<button class="btn btn-sm btn-outline-secondary btn-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>`
                         : '<span class="text-muted">-</span>'}
                 </td>
+                <td class="text-nowrap">${esc(r.created_at || '-')}</td>
                 <td>
                     <span class="badge ${taskStatusBadges[r.task_status] || 'bg-secondary'}">${esc(r.task_status || '-')}</span>
                     ${r.response_status ? `<span class="badge ${responseStatusBadges[r.response_status] || 'bg-secondary'} ms-1">${esc(r.response_status)}</span>` : ''}
@@ -275,6 +277,21 @@ layout('上传任务', 'upload-tasks');
         updateBatchButtons();
     }
 
+    function getPageNumbers(current, total, max) {
+        if (total <= max) return Array.from({length: total}, (_, i) => i + 1);
+        const half = Math.floor(max / 2);
+        let start = Math.max(2, current - half);
+        let end = Math.min(total - 1, current + half);
+        if (current <= half + 1) { end = Math.min(total - 1, max - 1); }
+        if (current >= total - half) { start = Math.max(2, total - max + 2); }
+        const pages = [1];
+        if (start > 2) pages.push('...');
+        for (let i = start; i <= end; i++) pages.push(i);
+        if (end < total - 1) pages.push('...');
+        pages.push(total);
+        return pages;
+    }
+
     function renderPagination(data) {
         const container = document.getElementById('pagination-container');
         if (!data.total_pages || data.total_pages <= 1) {
@@ -283,9 +300,13 @@ layout('上传任务', 'upload-tasks');
         }
         let html = '<nav><ul class="pagination pagination-sm justify-content-center mb-0">';
         html += `<li class="page-item ${data.page <= 1 ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${data.page - 1}">&laquo;</a></li>`;
-        for (let i = 1; i <= data.total_pages; i++) {
-            html += `<li class="page-item ${i === data.page ? 'active' : ''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
-        }
+        getPageNumbers(data.page, data.total_pages, 10).forEach(p => {
+            if (p === '...') {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            } else {
+                html += `<li class="page-item ${p === data.page ? 'active' : ''}"><a class="page-link" href="#" data-page="${p}">${p}</a></li>`;
+            }
+        });
         html += `<li class="page-item ${data.page >= data.total_pages ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${data.page + 1}">&raquo;</a></li>`;
         html += '</ul><div class="text-center text-muted small mt-1">共 ' + data.total + ' 条，第 ' + data.page + '/' + data.total_pages + ' 页</div></nav>';
         container.innerHTML = html;
