@@ -63,7 +63,7 @@ if ($method === 'GET') {
         $params[] = $_GET['response_status'];
     }
 
-    // 日期范围
+    // 单据日期范围
     if (!empty($_GET['date_from'])) {
         $where[] = "rq >= ?";
         $params[] = $_GET['date_from'];
@@ -71,6 +71,16 @@ if ($method === 'GET') {
     if (!empty($_GET['date_to'])) {
         $where[] = "rq <= ?";
         $params[] = $_GET['date_to'];
+    }
+
+    // 任务创建时间范围
+    if (!empty($_GET['created_from'])) {
+        $where[] = "date(created_at) >= ?";
+        $params[] = $_GET['created_from'];
+    }
+    if (!empty($_GET['created_to'])) {
+        $where[] = "date(created_at) <= ?";
+        $params[] = $_GET['created_to'];
     }
 
     // 单号筛选

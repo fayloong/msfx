@@ -35,6 +35,14 @@ if (!empty($_GET['date_to'])) {
     $where[] = "date(created_at) <= ?";
     $params[] = $_GET['date_to'];
 }
+if (!empty($_GET['rq_from'])) {
+    $where[] = "rq >= ?";
+    $params[] = $_GET['rq_from'];
+}
+if (!empty($_GET['rq_to'])) {
+    $where[] = "rq <= ?";
+    $params[] = $_GET['rq_to'];
+}
 if (!empty($_GET['djbh'])) {
     $where[] = "djbh LIKE ?";
     $params[] = '%' . $_GET['djbh'] . '%';

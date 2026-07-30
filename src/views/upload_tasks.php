@@ -38,16 +38,24 @@ layout('上传任务', 'upload-tasks');
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">日期从</label>
+                <label class="form-label small text-muted">单据日期从</label>
                 <input type="date" class="form-control" id="filter-date-from">
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">日期到</label>
+                <label class="form-label small text-muted">单据日期到</label>
                 <input type="date" class="form-control" id="filter-date-to">
             </div>
         </div>
         <div class="row g-2 mt-2">
-            <div class="col-md-2 d-flex gap-2">
+            <div class="col-md-2">
+                <label class="form-label small text-muted">任务创建时间从</label>
+                <input type="date" class="form-control" id="filter-created-from">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">任务创建时间到</label>
+                <input type="date" class="form-control" id="filter-created-to">
+            </div>
+            <div class="col-md-2 d-flex gap-2 align-items-end">
                 <button class="btn btn-outline-secondary" id="btn-refresh" title="刷新">
                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
                 </button>
@@ -202,12 +210,16 @@ layout('上传任务', 'upload-tasks');
         const responseStatus = document.getElementById('filter-response-status').value;
         const dateFrom = document.getElementById('filter-date-from').value;
         const dateTo = document.getElementById('filter-date-to').value;
+        const createdFrom = document.getElementById('filter-created-from').value;
+        const createdTo = document.getElementById('filter-created-to').value;
         if (djbh) params.set('djbh', djbh);
         if (entName) params.set('ent_name', entName);
         if (taskStatus) params.set('task_status', taskStatus);
         if (responseStatus) params.set('response_status', responseStatus);
         if (dateFrom) params.set('date_from', dateFrom);
         if (dateTo) params.set('date_to', dateTo);
+        if (createdFrom) params.set('created_from', createdFrom);
+        if (createdTo) params.set('created_to', createdTo);
         params.set('page_num', currentPage);
         return params;
     }
@@ -483,7 +495,7 @@ layout('上传任务', 'upload-tasks');
 
     // 筛选实时搜索（防抖）
     let searchTimeout;
-    ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status', 'filter-date-from', 'filter-date-to'].forEach(id => {
+    ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status', 'filter-date-from', 'filter-date-to', 'filter-created-from', 'filter-created-to'].forEach(id => {
         document.getElementById(id).addEventListener('input', () => {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => { currentPage = 1; loadData(); }, 400);

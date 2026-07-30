@@ -25,15 +25,25 @@ layout('已上传', 'uploaded');
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">日期从</label>
+                <label class="form-label small text-muted">任务创建时间从</label>
                 <input type="date" class="form-control" id="date-from">
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">日期到</label>
+                <label class="form-label small text-muted">任务创建时间到</label>
                 <input type="date" class="form-control" id="date-to">
             </div>
             <div class="col-md-2 d-flex align-items-end">
                 <button class="btn btn-outline-secondary" id="btn-refresh">刷新</button>
+            </div>
+        </div>
+        <div class="row g-2 mt-2">
+            <div class="col-md-2">
+                <label class="form-label small text-muted">单据日期从</label>
+                <input type="date" class="form-control" id="rq-from">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">单据日期到</label>
+                <input type="date" class="form-control" id="rq-to">
             </div>
         </div>
     </div>
@@ -88,11 +98,15 @@ layout('已上传', 'uploaded');
         const rs = document.getElementById('response-status').value;
         const df = document.getElementById('date-from').value;
         const dt = document.getElementById('date-to').value;
+        const rf = document.getElementById('rq-from').value;
+        const rt = document.getElementById('rq-to').value;
         if (d) params.set('djbh', d);
         if (en) params.set('ent_name', en);
         if (rs) params.set('response_status', rs);
         if (df) params.set('date_from', df);
         if (dt) params.set('date_to', dt);
+        if (rf) params.set('rq_from', rf);
+        if (rt) params.set('rq_to', rt);
 
         try {
             const resp = await fetch('index.php?page=api&action=uploaded&' + params);
@@ -184,7 +198,7 @@ layout('已上传', 'uploaded');
         alert('已复制到剪贴板');
     });
     document.getElementById('btn-refresh').addEventListener('click', () => { page=1; load(); });
-    ['djbh','ent-name','response-status','date-from','date-to'].forEach(id => {
+    ['djbh','ent-name','response-status','date-from','date-to','rq-from','rq-to'].forEach(id => {
         let t;
         document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { page=1; load(); }, 400); });
         document.getElementById(id).addEventListener('change', () => { page=1; load(); });

@@ -28,17 +28,27 @@ layout('失败记录', 'failed');
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">日期从</label>
+                <label class="form-label small text-muted">任务创建时间从</label>
                 <input type="date" class="form-control" id="date-from">
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted">日期到</label>
+                <label class="form-label small text-muted">任务创建时间到</label>
                 <input type="date" class="form-control" id="date-to">
             </div>
             <div class="col-md-2 d-flex gap-2 align-items-end">
                 <button class="btn btn-outline-secondary" id="btn-refresh">刷新</button>
                 <button class="btn btn-danger btn-sm" id="btn-batch-delete" disabled>批量删除</button>
                 <button class="btn btn-warning btn-sm" id="btn-batch-retry" disabled>批量重传</button>
+            </div>
+        </div>
+        <div class="row g-2 mt-2">
+            <div class="col-md-2">
+                <label class="form-label small text-muted">单据日期从</label>
+                <input type="date" class="form-control" id="rq-from">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">单据日期到</label>
+                <input type="date" class="form-control" id="rq-to">
             </div>
         </div>
     </div>
@@ -177,10 +187,10 @@ layout('失败记录', 'failed');
 
     async function load() {
         const params = new URLSearchParams({page_num: page});
-        ['djbh','ent-name','response-status','date-from','date-to'].forEach(id => {
+        ['djbh','ent-name','response-status','date-from','date-to','rq-from','rq-to'].forEach(id => {
             const v = document.getElementById(id).value.trim();
             if (v) {
-                const paramName = id === 'ent-name' ? 'ent_name' : id === 'response-status' ? 'response_status' : id === 'date-from' ? 'date_from' : id === 'date-to' ? 'date_to' : id;
+                const paramName = id === 'ent-name' ? 'ent_name' : id === 'response-status' ? 'response_status' : id === 'date-from' ? 'date_from' : id === 'date-to' ? 'date_to' : id === 'rq-from' ? 'rq_from' : id === 'rq-to' ? 'rq_to' : id;
                 params.set(paramName, v);
             }
         });
@@ -387,7 +397,7 @@ layout('失败记录', 'failed');
         load();
     }));
 
-    ['djbh','ent-name','response-status','date-from','date-to'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
+    ['djbh','ent-name','response-status','date-from','date-to','rq-from','rq-to'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
     load();
 })();
 </script>
