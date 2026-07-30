@@ -31,11 +31,11 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($title) ?> — 码上放心</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.9/dist/flatpickr.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.9/dist/flatpickr.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.9/dist/l10n/zh.js"></script>
+    <link href="/assets/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/assets/css/bootstrap-icons.css" rel="stylesheet">
+    <link href="/assets/css/flatpickr.min.css" rel="stylesheet">
+    <script src="/assets/js/flatpickr.min.js"></script>
+    <script src="/assets/js/zh.js"></script>
     <style>
         :root {
             --sidebar-width: 240px;
@@ -135,7 +135,7 @@ function layoutEnd(): void {
 <div class="modal fade" id="globalModal" tabindex="-1">
     <div class="modal-dialog"><div class="modal-content" id="globalModalContent"></div></div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/assets/js/bootstrap.bundle.min.js"></script>
 <script>
 document.getElementById('toggle-sidebar').addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('collapsed');
