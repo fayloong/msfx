@@ -33,6 +33,8 @@ try {
         djbh TEXT NOT NULL,
         ent_name TEXT DEFAULT '',
         trace_codes TEXT DEFAULT '',
+        rq TEXT DEFAULT '',
+        source TEXT DEFAULT '',
         request_status TEXT DEFAULT NULL,
         response_status TEXT DEFAULT NULL,
         response TEXT,
