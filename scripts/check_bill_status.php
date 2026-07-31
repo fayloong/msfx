@@ -3,10 +3,9 @@
  * 批量查询单据上传状态
  * 用法: php scripts/check_bill_status.php [日期 Y-m-d]
  *
- * 从三个来源合并单据列表，逐个调用码上放心查询 API：
- *   1. SQL Server 当天单据（日期参数过滤）
- *   2. upload_tasks 中 task_status='等待上传' 的记录
- *   3. upload_logs 中 success=0 的记录
+ * 从两个来源合并单据列表，逐个调用码上放心查询 API：
+ *   1. upload_tasks 中 task_status='等待上传' 的记录
+ *   2. upload_logs 中 success=0 的记录
  *
  * 合并后按 djbh 去重，根据查询结果和来源执行不同处理策略。
  */
@@ -26,8 +25,6 @@ use App\ApiClient;
 use App\Config;
 use App\Database;
 use App\LogWriter;
-use App\TaskFetcher;
-
 Config::load();
 
 $date = $argv[1] ?? date('Y-m-d');
@@ -38,26 +35,7 @@ try {
     $db = Database::getInstance();
     $allRecords = [];
 
-    // ── 来源 1: SQL Server ──
-    echo "[check_bill_status] 正在从 SQL Server 拉取单据...\n";
-    $fetcher = new TaskFetcher();
-    $bills = $fetcher->fetchBills($date);
-
-    if (!empty($bills)) {
-        foreach ($bills as $bill) {
-            $allRecords[] = [
-                'djbh' => $bill['djbh'],
-                'ent_name' => $bill['ent_name'],
-                'trace_codes' => $bill['sn'],
-                'rq' => $bill['rq'],
-                'source' => 'sqlserver',
-            ];
-        }
-    }
-    $sqlServerCount = count($bills);
-    echo "[check_bill_status] SQL Server 拉取到 {$sqlServerCount} 条单据\n";
-
-    // ── 来源 2: upload_tasks（等待上传） ──
+    // ── 来源 1: upload_tasks（等待上传） ──
     echo "[check_bill_status] 正在从 upload_tasks 拉取等待上传的记录...\n";
     $tasks = $db->query(
         "SELECT id AS task_id, djbh, ent_name, trace_codes, rq FROM upload_tasks WHERE task_status = '等待上传'"
@@ -77,7 +55,7 @@ try {
     $taskCount = count($tasks);
     echo "[check_bill_status] upload_tasks 拉取到 {$taskCount} 条记录\n";
 
-    // ── 来源 3: upload_logs（失败记录） ──
+    // ── 来源 2: upload_logs（失败记录） ──
     echo "[check_bill_status] 正在从 upload_logs 拉取失败记录...\n";
     $logs = $db->query(
         "SELECT id AS log_id, task_id, djbh, ent_name, trace_codes, rq FROM upload_logs WHERE (response_status IS NULL OR response_status != '上传成功')"
@@ -109,7 +87,7 @@ try {
     $allRecords = null; // 释放内存
 
     $totalAfterMerge = count($merged);
-    echo "[check_bill_status] 合并去重后共 {$totalAfterMerge} 条单据（SQL Server: {$sqlServerCount}, upload_tasks: {$taskCount}, upload_logs: {$logCount}）\n";
+    echo "[check_bill_status] 合并去重后共 {$totalAfterMerge} 条单据（upload_tasks: {$taskCount}, upload_logs: {$logCount}）\n";
 
     if (empty($merged)) {
         echo "[check_bill_status] 没有需要查询的单据\n";
@@ -155,18 +133,6 @@ try {
                 $foundCount++;
 
                 switch ($source) {
-                    case 'sqlserver':
-                        $logWriter->write([
-                            'djbh' => $djbh,
-                            'request_status' => '请求成功',
-                            'response_status' => '上传成功',
-                            'response' => $responseJson,
-                            'ent_name' => $rec['ent_name'],
-                            'trace_codes' => $rec['trace_codes'],
-                            'rq' => $rec['rq'],
-                        ]);
-                        break;
-
                     case 'upload_tasks':
                         $db->execute(
                             "UPDATE upload_tasks SET task_status = '已处理', request_status = '请求成功', response_status = '上传成功', updated_at = ? WHERE id = ?",
@@ -218,31 +184,6 @@ try {
                 $notFoundCount++;
 
                 switch ($source) {
-                    case 'sqlserver':
-                        // 检查是否已有 batch_check 任务（避免重复创建）
-                        $existing = $db->queryOne(
-                            "SELECT id FROM upload_tasks WHERE djbh = ? AND source = 'batch_check' AND response_status = '信息不存在'",
-                            [$djbh]
-                        );
-                        if (!$existing) {
-                            $db->execute(
-                                "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, task_status, request_status, response_status, source, resp, created_at, updated_at) VALUES (?, ?, ?, ?, '等待上传', '请求成功', '信息不存在', 'batch_check', ?, ?, ?)",
-                                [$rec['rq'], $djbh, $rec['ent_name'], $rec['trace_codes'], $responseJson, $now, $now]
-                            );
-                            $taskId = (int)$db->lastInsertId();
-                            $logWriter->write([
-                                'task_id' => $taskId,
-                                'djbh' => $djbh,
-                                'request_status' => '请求成功',
-                                'response_status' => '信息不存在',
-                                'response' => $responseJson,
-                                'ent_name' => $rec['ent_name'],
-                                'trace_codes' => $rec['trace_codes'],
-                                'rq' => $rec['rq'],
-                            ]);
-                        }
-                        break;
-
                     case 'upload_tasks':
                         $db->execute(
                             "UPDATE upload_tasks SET updated_at = ? WHERE id = ?",
@@ -264,17 +205,6 @@ try {
             // ── API 异常 ──
             $errorCount++;
 
-            if ($source === 'sqlserver') {
-                $logWriter->write([
-                    'djbh' => $djbh,
-                    'request_status' => '请求失败',
-                    'response_status' => null,
-                    'response' => json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE),
-                    'ent_name' => $rec['ent_name'],
-                    'trace_codes' => $rec['trace_codes'],
-                    'rq' => $rec['rq'],
-                ]);
-            }
             // upload_tasks / upload_logs 来源: 跳过，不修改
 
             echo "[{$n}/{$total}] {$djbh} → 查询异常: " . $e->getMessage() . "\n";
