@@ -44,15 +44,21 @@ try {
     // 2. 去重 + 写入 upload_tasks
     $db = Database::getInstance();
     $now = date('Y-m-d H:i:s');
+
+    // 批量查询已存在的 djbh，构建查找集合
+    $djbhs = array_column($bills, 'djbh');
+    $placeholders = implode(',', array_fill(0, count($djbhs), '?'));
+    $existing = $db->query(
+        "SELECT djbh FROM upload_tasks WHERE djbh IN ({$placeholders})",
+        $djbhs
+    );
+    $existingSet = array_flip(array_column($existing, 'djbh'));
+
     $insertCount = 0;
     $skipCount = 0;
 
     foreach ($bills as $bill) {
-        $already = $db->queryOne(
-            "SELECT id FROM upload_tasks WHERE djbh = ?",
-            [$bill['djbh']]
-        );
-        if ($already) {
+        if (isset($existingSet[$bill['djbh']])) {
             $skipCount++;
             continue;
         }
