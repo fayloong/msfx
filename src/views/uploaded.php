@@ -78,13 +78,14 @@ layout('上传成功', 'uploaded');
 (function() {
     let page = 1;
     const today = new Date();
-    const monthFirst = new Date(today.getFullYear(), today.getMonth(), 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(today.getDate() - 6);
 
     const fpCreated = flatpickr("#created-range", {
         mode: "range",
         dateFormat: "Y-m-d",
         locale: "zh",
-        defaultDate: [monthFirst, today],
+        defaultDate: [weekAgo, today],
     });
 
     const fpRq = flatpickr("#rq-range", {

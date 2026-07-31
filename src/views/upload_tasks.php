@@ -225,13 +225,14 @@ layout('上传任务', 'upload-tasks');
     let selectedIds = new Set();
 
     const today = new Date();
-    const monthFirst = new Date(today.getFullYear(), today.getMonth(), 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(today.getDate() - 6);
 
     const fpRq = flatpickr("#filter-rq-range", {
         mode: "range",
         dateFormat: "Y-m-d",
         locale: "zh",
-        defaultDate: [monthFirst, today],
+        defaultDate: [weekAgo, today],
     });
 
     const fpCreated = flatpickr("#filter-created-range", {
