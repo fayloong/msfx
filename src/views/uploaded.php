@@ -51,6 +51,7 @@ layout('已上传', 'uploaded');
                         <th>追溯码</th>
                         <th>关联任务ID</th>
                         <th>任务创建时间</th>
+                        <th>最后更新时间</th>
                         <th>状态</th>
                         <th>API 返回详情</th>
                     </tr>
@@ -124,14 +125,14 @@ layout('已上传', 'uploaded');
             const data = await resp.json();
             render(data);
         } catch (e) {
-            document.getElementById('tbody').innerHTML = '<tr><td colspan="8" class="text-center py-5 text-danger">加载失败</td></tr>';
+            document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="text-center py-5 text-danger">加载失败</td></tr>';
         }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => `
                 <tr>
@@ -145,6 +146,7 @@ layout('已上传', 'uploaded');
                     </td>
                     <td>${r.task_id || '-'}</td>
                     <td class="text-nowrap">${esc(r.created_at)}</td>
+                    <td class="text-nowrap">${esc(r.updated_at || '-')}</td>
                     <td><span class="badge bg-success">${esc(r.response_status || '成功')}</span></td>
                     <td>
                         <button class="btn btn-sm btn-outline-info btn-detail" data-response="${esc(r.response || '')}">查看详情</button>

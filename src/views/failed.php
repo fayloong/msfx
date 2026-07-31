@@ -57,6 +57,7 @@ layout('失败记录', 'failed');
                         <th>追溯码</th>
                         <th>关联任务ID</th>
                         <th>任务创建时间</th>
+                        <th>最后更新时间</th>
                         <th>状态</th>
                         <th>API 返回详情</th>
                         <th width="160">操作</th>
@@ -251,13 +252,13 @@ layout('失败记录', 'failed');
             const resp = await fetch('index.php?page=api&action=failed&' + params);
             const data = await resp.json();
             render(data);
-        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="10" class="text-center py-5 text-danger">加载失败</td></tr>'; }
+        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="11" class="text-center py-5 text-danger">加载失败</td></tr>'; }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => {
                 const logId = r.id;
@@ -278,6 +279,7 @@ layout('失败记录', 'failed');
                     </td>
                     <td>${hasTask ? taskId : '-'}</td>
                     <td class="text-nowrap">${esc(r.created_at)}</td>
+                    <td class="text-nowrap">${esc(r.updated_at || '-')}</td>
                     <td><span class="badge ${r.request_status === '请求失败' ? 'bg-danger' : 'bg-warning text-dark'}">${esc(r.request_status === '请求失败' ? (r.request_status) : (r.response_status || '失败'))}</span></td>
                     <td><button class="btn btn-sm btn-outline-info btn-detail" data-r="${esc(r.response||'')}">查看详情</button></td>
                     <td class="text-nowrap">

@@ -69,12 +69,13 @@ layout('上传任务', 'upload-tasks');
                         <th>往来单位</th>
                         <th>追溯码</th>
                         <th width="170">任务创建时间</th>
+                        <th width="170">最后更新时间</th>
                         <th width="150">状态</th>
                         <th width="120">操作</th>
                     </tr>
                 </thead>
                 <tbody id="tasks-tbody">
-                    <tr><td colspan="8" class="text-center py-5 text-muted">加载中...</td></tr>
+                    <tr><td colspan="9" class="text-center py-5 text-muted">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -279,14 +280,14 @@ layout('上传任务', 'upload-tasks');
             renderPagination(data);
         } catch (e) {
             document.getElementById('tasks-tbody').innerHTML =
-                '<tr><td colspan="8" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
+                '<tr><td colspan="9" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
         }
     }
 
     function renderTable(rows) {
         const tbody = document.getElementById('tasks-tbody');
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted">暂无数据</td></tr>';
             return;
         }
         tbody.innerHTML = rows.map(r => `
@@ -301,6 +302,7 @@ layout('上传任务', 'upload-tasks');
                         : '<span class="text-muted">-</span>'}
                 </td>
                 <td class="text-nowrap">${esc(r.created_at || '-')}</td>
+                <td class="text-nowrap">${esc(r.updated_at || '-')}</td>
                 <td>
                     <span class="badge ${taskStatusBadges[r.task_status] || 'bg-secondary'}">${esc(r.task_status || '-')}</span>
                     ${r.response_status ? `<span class="badge ${responseStatusBadges[r.response_status] || 'bg-secondary'} ms-1">${esc(r.response_status)}</span>` : ''}
