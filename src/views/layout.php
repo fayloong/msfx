@@ -10,18 +10,37 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
         'upload' => [
             'icon' => 'cloud-upload', 'label' => '单据上传',
             'children' => [
-                'upload-tasks' => ['label' => '上传任务', 'href' => 'index.php?page=upload-tasks'],
-                'uploaded' => ['label' => '已上传', 'href' => 'index.php?page=uploaded'],
-                'failed' => ['label' => '失败记录', 'href' => 'index.php?page=failed'],
+                'upload-tasks' => ['icon' => 'arrow-up-circle', 'label' => '上传任务', 'href' => 'index.php?page=upload-tasks'],
+                'task-records' => [
+                    'icon' => 'clock-history', 'label' => '任务记录',
+                    'children' => [
+                        'uploaded' => ['icon' => 'check-circle', 'label' => '上传成功', 'href' => 'index.php?page=uploaded'],
+                        'failed' => ['icon' => 'x-circle', 'label' => '失败记录', 'href' => 'index.php?page=failed'],
+                    ]
+                ],
             ]
         ],
         'manual-upload' => ['icon' => 'plus-circle', 'label' => '手动上传', 'href' => 'index.php?page=manual-upload'],
     ];
 
+    // 递归检查 $activeMenu 是否在某个菜单项的子树中
+    $isActiveInTree = function(string $active, array $item) use (&$isActiveInTree): bool {
+        if (!isset($item['children'])) return false;
+        foreach ($item['children'] as $k => $child) {
+            if ($k === $active) return true;
+            if (isset($child['children']) && $isActiveInTree($active, $child)) return true;
+        }
+        return false;
+    };
+
     $svgIcons = [
         'house' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L2 8.207V13.5A1.5 1.5 0 0 0 3.5 15h9a1.5 1.5 0 0 0 1.5-1.5V8.207l.646.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.707 1.5Z"/></svg>',
         'cloud-upload' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4.406 1.342A5.53 5.53 0 0 1 8 0c2.69 0 4.923 2 5.166 4.579C14.758 4.804 16 6.137 16 7.773 16 9.569 14.502 11 12.687 11H10a.5.5 0 0 1 0-1h2.688C13.979 10 15 8.988 15 7.773c0-1.216-1.02-2.228-2.313-2.228h-.5v-.5C12.188 2.825 10.328 1 8 1a4.53 4.53 0 0 0-2.941 1.1c-.757.652-1.153 1.438-1.153 2.055v.448l-.445.049C2.064 4.805 1 5.952 1 7.318 1 8.785 2.23 10 3.781 10H6a.5.5 0 0 1 0 1H3.781C1.708 11 0 9.366 0 7.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383Z"/></svg>',
         'plus-circle' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>',
+        'arrow-up-circle' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/><path fill-rule="evenodd" d="M8 12a.5.5 0 0 0 .5-.5V5.707l2.146 2.147a.5.5 0 0 0 .708-.708l-3-3a.5.5 0 0 0-.708 0l-3 3a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5z"/></svg>',
+        'clock-history' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/><path d="M7.5 4a.5.5 0 0 1 .5.5V8h2.5a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg>',
+        'check-circle' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/><path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/></svg>',
+        'x-circle' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>',
     ];
 ?>
 <!DOCTYPE html>
@@ -67,6 +86,8 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
         .sidebar.collapsed .nav-label { opacity: 0; width: 0; overflow: hidden; }
         .sidebar .submenu { padding-left: 16px; }
         .sidebar .submenu .nav-link { padding-left: 32px; font-size: 0.9rem; }
+        .sidebar .submenu .submenu { padding-left: 0; }
+        .sidebar .submenu .submenu .nav-link { padding-left: 48px; }
         .sidebar.collapsed .submenu { display: none; }
         .main-content {
             margin-left: var(--sidebar-width); padding: 24px;
@@ -91,19 +112,39 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
     <nav class="mt-2">
         <?php foreach ($menuItems as $key => $item): ?>
             <?php if (isset($item['children'])): ?>
-                <!-- 子菜单 -->
-                <a class="nav-link <?= in_array($activeMenu, array_keys($item['children'])) ? 'active' : '' ?>"
+                <!-- 一级子菜单 -->
+                <a class="nav-link <?= $isActiveInTree($activeMenu, $item) ? 'active' : '' ?>"
                    data-bs-toggle="collapse" href="#submenu-<?= $key ?>" role="button">
                     <?= $svgIcons[$item['icon']] ?? '' ?>
                     <span class="nav-label"><?= htmlspecialchars($item['label']) ?></span>
                 </a>
-                <div class="collapse submenu <?= in_array($activeMenu, array_keys($item['children'])) ? 'show' : '' ?>"
+                <div class="collapse submenu <?= $isActiveInTree($activeMenu, $item) ? 'show' : '' ?>"
                      id="submenu-<?= $key ?>">
                     <?php foreach ($item['children'] as $childKey => $child): ?>
-                        <a class="nav-link <?= $activeMenu === $childKey ? 'active' : '' ?>"
-                           href="<?= $child['href'] ?>">
-                            <span class="nav-label"><?= htmlspecialchars($child['label']) ?></span>
-                        </a>
+                        <?php if (isset($child['children'])): ?>
+                            <!-- 二级子菜单（可折叠） -->
+                            <a class="nav-link <?= $isActiveInTree($activeMenu, $child) ? 'active' : '' ?>"
+                               data-bs-toggle="collapse" href="#submenu-<?= $childKey ?>" role="button">
+                                <?= $svgIcons[$child['icon']] ?? '' ?>
+                                <span class="nav-label"><?= htmlspecialchars($child['label']) ?></span>
+                            </a>
+                            <div class="collapse submenu <?= $isActiveInTree($activeMenu, $child) ? 'show' : '' ?>"
+                                 id="submenu-<?= $childKey ?>">
+                                <?php foreach ($child['children'] as $grandKey => $grandChild): ?>
+                                    <a class="nav-link <?= $activeMenu === $grandKey ? 'active' : '' ?>"
+                                       href="<?= $grandChild['href'] ?>">
+                                        <?= $svgIcons[$grandChild['icon']] ?? '' ?>
+                                        <span class="nav-label"><?= htmlspecialchars($grandChild['label']) ?></span>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <a class="nav-link <?= $activeMenu === $childKey ? 'active' : '' ?>"
+                               href="<?= $child['href'] ?>">
+                                <?= $svgIcons[$child['icon']] ?? '' ?>
+                                <span class="nav-label"><?= htmlspecialchars($child['label']) ?></span>
+                            </a>
+                        <?php endif; ?>
                     <?php endforeach; ?>
                 </div>
             <?php else: ?>

@@ -1,6 +1,6 @@
 <?php
 /**
- * API: GET /api/uploaded — 已上传记录列表
+ * API: GET /api/uploaded — 上传成功记录列表
  */
 
 use App\Auth;

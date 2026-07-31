@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/layout.php';
-layout('已上传', 'uploaded');
+layout('上传成功', 'uploaded');
 ?>
 
-<h4 class="mb-4">已上传记录</h4>
+<h4 class="mb-4">上传成功</h4>
 
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body">
