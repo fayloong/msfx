@@ -99,7 +99,7 @@ root/
 手动上传（manual_create / manual_import）保持立即上传不变，两套上传路径并存。
 
 ### 批量查询上传状态（check_bill_status.php）
-SQL Server `skwms_new.dbo` 查询当天单据 → 逐个调 `AlibabaAlihealthDrugKytSearchbillDetailRequest` API → `result.msg_code == 'FAIL_BIZ_NO_PAT_INFO'` 为未上传 → 已上传的写入 `upload_logs`（success=1）→ 未上传的写入 `upload_tasks`（source=batch_check, status=任务失败）+ `upload_logs`（success=0, 关联 task_id）→ API 间隔 0.5s
+双源合并：`upload_tasks`（task_status='等待上传'）+ `upload_logs`（response_status != '上传成功'）→ 按 `djbh` 去重 → 逐个调 `ApiClient::searchBillDetail()` → 已上传的按来源分别更新状态或写日志 → 未上传（信息不存在）的按来源处理：upload_tasks 来源更新 `updated_at`，upload_logs 来源检查无 batch_check 任务后创建 → API 间隔 0.5s
 
 ### 手动上传（Web 端）
 
