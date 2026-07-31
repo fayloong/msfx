@@ -131,7 +131,7 @@ root/
 | ent_name | TEXT | 往来单位名称 |
 | trace_codes | TEXT | 追溯码（逗号分隔） |
 | task_status | TEXT | 等待上传/已处理（上传完成后统一标记） |
-| source | TEXT | cron/manual/batch_check |
+| source | TEXT | cron/manual/batch_check/batch_retry |
 | request_status | TEXT | 请求成功/请求失败 |
 | response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定 |
 | resp | TEXT | API 返回内容 |
@@ -147,10 +147,12 @@ root/
 | ent_name | TEXT | 往来单位名称 |
 | trace_codes | TEXT | 追溯码 |
 | rq | TEXT | 单据日期（回填自 upload_tasks 或 SQL Server） |
+| source | TEXT | cron/manual/batch_check/batch_retry |
 | request_status | TEXT | 请求成功/请求失败 |
 | response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定 |
 | response | TEXT | API 返回内容 |
 | created_at | TEXT | 任务创建时间（API 调用时间） |
+| updated_at | TEXT | 最后更新时间 |
 
 ### ent_list（往来单位缓存）
 | 字段 | 类型 | 说明 |

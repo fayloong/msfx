@@ -175,6 +175,7 @@ try {
                 'ent_name' => $group['ent_name'],
                 'sn' => $allCodes,
                 'task_id' => $taskId,
+                'source' => 'manual',
             ]], function (array $progress) {
                 echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
                 flush();

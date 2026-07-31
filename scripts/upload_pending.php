@@ -32,7 +32,7 @@ try {
 
     // 1. 读取所有等待上传的任务
     $tasks = $db->query(
-        "SELECT id, rq, djbh, ent_name, trace_codes, bill_type FROM upload_tasks WHERE task_status = '等待上传'"
+        "SELECT id, rq, djbh, ent_name, trace_codes, bill_type, source FROM upload_tasks WHERE task_status = '等待上传'"
     );
 
     if (empty($tasks)) {
@@ -53,6 +53,7 @@ try {
             'ent_name' => $task['ent_name'],
             'sn' => $task['trace_codes'],
             'task_id' => (int)$task['id'],
+            'source' => $task['source'] ?? 'cron',
         ];
     }
 

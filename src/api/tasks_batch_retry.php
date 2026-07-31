@@ -58,6 +58,7 @@ try {
             'ent_name' => $t['ent_name'],
             'sn' => $t['trace_codes'] ?? '',
             'task_id' => (int)$t['id'],
+            'source' => 'batch_retry',
         ];
     }, $tasks);
 

@@ -80,6 +80,7 @@ try {
         'ent_name' => $entName,
         'sn' => $traceCodes,
         'task_id' => $taskId,
+        'source' => 'manual',
     ]], function (array $progress) {
         echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
         flush();

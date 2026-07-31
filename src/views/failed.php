@@ -27,6 +27,16 @@ layout('失败记录', 'failed');
                     <option value="请求失败">请求失败</option>
                 </select>
             </div>
+            <div class="col-md-1">
+                <label class="form-label small text-muted">来源</label>
+                <select class="form-select" id="filter-source">
+                    <option value="">全部</option>
+                    <option value="cron">定时采集</option>
+                    <option value="manual">手动上传</option>
+                    <option value="batch_check">批量核查</option>
+                    <option value="batch_retry">批量重传</option>
+                </select>
+            </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted">任务创建时间</label>
                 <input type="text" class="form-control" id="created-range" placeholder="选择日期范围" readonly>
@@ -56,6 +66,7 @@ layout('失败记录', 'failed');
                         <th>往来单位</th>
                         <th>追溯码</th>
                         <th>关联任务ID</th>
+                        <th width="80">来源</th>
                         <th>任务创建时间</th>
                         <th>最后更新时间</th>
                         <th>状态</th>
@@ -206,6 +217,19 @@ layout('失败记录', 'failed');
         locale: "zh",
     });
 
+    const sourceLabels = {
+        'cron': '定时采集',
+        'manual': '手动上传',
+        'batch_check': '批量核查',
+        'batch_retry': '批量重传',
+    };
+    const sourceBadges = {
+        'cron': 'bg-primary',
+        'manual': 'bg-success',
+        'batch_check': 'bg-info',
+        'batch_retry': 'bg-warning text-dark',
+    };
+
     function readRange(fp) {
         const d = fp.selectedDates;
         if (d.length === 2) {
@@ -235,10 +259,10 @@ layout('失败记录', 'failed');
 
     async function load() {
         const params = new URLSearchParams({page_num: page});
-        ['djbh','ent-name','response-status'].forEach(id => {
+        ['djbh','ent-name','response-status','filter-source'].forEach(id => {
             const v = document.getElementById(id).value.trim();
             if (v) {
-                const paramName = id === 'ent-name' ? 'ent_name' : id === 'response-status' ? 'response_status' : id;
+                const paramName = id === 'ent-name' ? 'ent_name' : id === 'response-status' ? 'response_status' : id === 'filter-source' ? 'source' : id;
                 params.set(paramName, v);
             }
         });
@@ -252,13 +276,13 @@ layout('失败记录', 'failed');
             const resp = await fetch('index.php?page=api&action=failed&' + params);
             const data = await resp.json();
             render(data);
-        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="11" class="text-center py-5 text-danger">加载失败</td></tr>'; }
+        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="12" class="text-center py-5 text-danger">加载失败</td></tr>'; }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="11" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => {
                 const logId = r.id;
@@ -278,6 +302,7 @@ layout('失败记录', 'failed');
                             : '<span class="text-muted">-</span>'}
                     </td>
                     <td>${hasTask ? taskId : '-'}</td>
+                    <td><span class="badge ${sourceBadges[r.source] || 'bg-secondary'}">${esc(sourceLabels[r.source] || r.source || '-')}</span></td>
                     <td class="text-nowrap">${esc(r.created_at)}</td>
                     <td class="text-nowrap">${esc(r.updated_at || '-')}</td>
                     <td><span class="badge ${r.request_status === '请求失败' ? 'bg-danger' : 'bg-warning text-dark'}">${esc(r.request_status === '请求失败' ? (r.request_status) : (r.response_status || '失败'))}</span></td>
@@ -454,7 +479,7 @@ layout('失败记录', 'failed');
         load();
     }));
 
-    ['djbh','ent-name','response-status'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
+    ['djbh','ent-name','response-status','filter-source'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
     fpCreated.config.onChange.push(() => { page=1; load(); });
     fpRq.config.onChange.push(() => { page=1; load(); });
     load();

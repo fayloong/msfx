@@ -24,6 +24,16 @@ layout('已上传', 'uploaded');
                     <option value="单据重复">单据重复</option>
                 </select>
             </div>
+            <div class="col-md-1">
+                <label class="form-label small text-muted">来源</label>
+                <select class="form-select" id="filter-source">
+                    <option value="">全部</option>
+                    <option value="cron">定时采集</option>
+                    <option value="manual">手动上传</option>
+                    <option value="batch_check">批量核查</option>
+                    <option value="batch_retry">批量重传</option>
+                </select>
+            </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted">任务创建时间</label>
                 <input type="text" class="form-control" id="created-range" placeholder="选择日期范围" readonly>
@@ -50,6 +60,7 @@ layout('已上传', 'uploaded');
                         <th>往来单位</th>
                         <th>追溯码</th>
                         <th>关联任务ID</th>
+                        <th width="80">来源</th>
                         <th>任务创建时间</th>
                         <th>最后更新时间</th>
                         <th>状态</th>
@@ -82,6 +93,19 @@ layout('已上传', 'uploaded');
         locale: "zh",
     });
 
+    const sourceLabels = {
+        'cron': '定时采集',
+        'manual': '手动上传',
+        'batch_check': '批量核查',
+        'batch_retry': '批量重传',
+    };
+    const sourceBadges = {
+        'cron': 'bg-primary',
+        'manual': 'bg-success',
+        'batch_check': 'bg-info',
+        'batch_retry': 'bg-warning text-dark',
+    };
+
     function readRange(fp) {
         const d = fp.selectedDates;
         if (d.length === 2) {
@@ -110,11 +134,13 @@ layout('已上传', 'uploaded');
         const d = document.getElementById('djbh').value.trim();
         const en = document.getElementById('ent-name').value.trim();
         const rs = document.getElementById('response-status').value;
+        const src = document.getElementById('filter-source').value;
         const [df, dt] = readRange(fpCreated);
         const [rf, rt] = readRange(fpRq);
         if (d) params.set('djbh', d);
         if (en) params.set('ent_name', en);
         if (rs) params.set('response_status', rs);
+        if (src) params.set('source', src);
         if (df) params.set('date_from', df);
         if (dt) params.set('date_to', dt);
         if (rf) params.set('rq_from', rf);
@@ -125,14 +151,14 @@ layout('已上传', 'uploaded');
             const data = await resp.json();
             render(data);
         } catch (e) {
-            document.getElementById('tbody').innerHTML = '<tr><td colspan="9" class="text-center py-5 text-danger">加载失败</td></tr>';
+            document.getElementById('tbody').innerHTML = '<tr><td colspan="10" class="text-center py-5 text-danger">加载失败</td></tr>';
         }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => `
                 <tr>
@@ -145,6 +171,7 @@ layout('已上传', 'uploaded');
                             : '<span class="text-muted">-</span>'}
                     </td>
                     <td>${r.task_id || '-'}</td>
+                    <td><span class="badge ${sourceBadges[r.source] || 'bg-secondary'}">${esc(sourceLabels[r.source] || r.source || '-')}</span></td>
                     <td class="text-nowrap">${esc(r.created_at)}</td>
                     <td class="text-nowrap">${esc(r.updated_at || '-')}</td>
                     <td><span class="badge bg-success">${esc(r.response_status || '成功')}</span></td>
@@ -211,7 +238,7 @@ layout('已上传', 'uploaded');
         alert('已复制到剪贴板');
     });
     document.getElementById('btn-refresh').addEventListener('click', () => { page=1; load(); });
-    ['djbh','ent-name','response-status'].forEach(id => {
+    ['djbh','ent-name','response-status','filter-source'].forEach(id => {
         let t;
         document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { page=1; load(); }, 400); });
         document.getElementById(id).addEventListener('change', () => { page=1; load(); });

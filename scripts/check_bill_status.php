@@ -147,6 +147,7 @@ try {
                             'ent_name' => $rec['ent_name'],
                             'trace_codes' => $rec['trace_codes'],
                             'rq' => $rec['rq'],
+                            'source' => 'batch_check',
                         ]);
                         break;
 
@@ -174,6 +175,7 @@ try {
                             'trace_codes' => $rec['trace_codes'],
                             'rq' => $rec['rq'],
                             'task_id' => $rec['task_id'] ?? 0,
+                            'source' => 'batch_check',
                         ]);
                         break;
                 }

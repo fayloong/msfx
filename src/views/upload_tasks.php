@@ -37,6 +37,16 @@ layout('上传任务', 'upload-tasks');
                     <option value="未确定">未确定</option>
                 </select>
             </div>
+            <div class="col-md-1">
+                <label class="form-label small text-muted">来源</label>
+                <select class="form-select" id="filter-source">
+                    <option value="">全部</option>
+                    <option value="cron">定时采集</option>
+                    <option value="manual">手动上传</option>
+                    <option value="batch_check">批量核查</option>
+                    <option value="batch_retry">批量重传</option>
+                </select>
+            </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted">单据日期</label>
                 <input type="text" class="form-control" id="filter-rq-range" placeholder="选择日期范围" readonly>
@@ -68,6 +78,7 @@ layout('上传任务', 'upload-tasks');
                         <th>单号</th>
                         <th>往来单位</th>
                         <th>追溯码</th>
+                        <th width="80">来源</th>
                         <th width="170">任务创建时间</th>
                         <th width="170">最后更新时间</th>
                         <th width="150">状态</th>
@@ -75,7 +86,7 @@ layout('上传任务', 'upload-tasks');
                     </tr>
                 </thead>
                 <tbody id="tasks-tbody">
-                    <tr><td colspan="9" class="text-center py-5 text-muted">加载中...</td></tr>
+                    <tr><td colspan="10" class="text-center py-5 text-muted">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -250,6 +261,18 @@ layout('上传任务', 'upload-tasks');
         '往来单位缺失': 'bg-dark',
         '未确定': 'bg-secondary',
     };
+    const sourceLabels = {
+        'cron': '定时采集',
+        'manual': '手动上传',
+        'batch_check': '批量核查',
+        'batch_retry': '批量重传',
+    };
+    const sourceBadges = {
+        'cron': 'bg-primary',
+        'manual': 'bg-success',
+        'batch_check': 'bg-info',
+        'batch_retry': 'bg-warning text-dark',
+    };
 
     function getFilters() {
         const params = new URLSearchParams();
@@ -257,12 +280,14 @@ layout('上传任务', 'upload-tasks');
         const entName = document.getElementById('filter-ent-name').value.trim();
         const taskStatus = document.getElementById('filter-task-status').value;
         const responseStatus = document.getElementById('filter-response-status').value;
+        const source = document.getElementById('filter-source').value;
         const [dateFrom, dateTo] = readRange(fpRq);
         const [createdFrom, createdTo] = readRange(fpCreated);
         if (djbh) params.set('djbh', djbh);
         if (entName) params.set('ent_name', entName);
         if (taskStatus) params.set('task_status', taskStatus);
         if (responseStatus) params.set('response_status', responseStatus);
+        if (source) params.set('source', source);
         if (dateFrom) params.set('date_from', dateFrom);
         if (dateTo) params.set('date_to', dateTo);
         if (createdFrom) params.set('created_from', createdFrom);
@@ -280,14 +305,14 @@ layout('上传任务', 'upload-tasks');
             renderPagination(data);
         } catch (e) {
             document.getElementById('tasks-tbody').innerHTML =
-                '<tr><td colspan="9" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
+                '<tr><td colspan="10" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
         }
     }
 
     function renderTable(rows) {
         const tbody = document.getElementById('tasks-tbody');
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-5 text-muted">暂无数据</td></tr>';
             return;
         }
         tbody.innerHTML = rows.map(r => `
@@ -301,6 +326,7 @@ layout('上传任务', 'upload-tasks');
                         ? `<button class="btn btn-sm btn-outline-secondary btn-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>`
                         : '<span class="text-muted">-</span>'}
                 </td>
+                <td><span class="badge ${sourceBadges[r.source] || 'bg-secondary'}">${esc(sourceLabels[r.source] || r.source || '-')}</span></td>
                 <td class="text-nowrap">${esc(r.created_at || '-')}</td>
                 <td class="text-nowrap">${esc(r.updated_at || '-')}</td>
                 <td>
@@ -545,7 +571,7 @@ layout('上传任务', 'upload-tasks');
 
     // 筛选实时搜索（防抖）
     let searchTimeout;
-    ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status'].forEach(id => {
+    ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status', 'filter-source'].forEach(id => {
         document.getElementById(id).addEventListener('input', () => {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => { currentPage = 1; loadData(); }, 400);

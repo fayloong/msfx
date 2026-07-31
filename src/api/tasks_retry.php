@@ -55,6 +55,7 @@ try {
         'ent_name' => $task['ent_name'],
         'sn' => $task['trace_codes'] ?? '',
         'task_id' => (int)$task['id'],
+        'source' => 'batch_retry',
     ]], function (array $progress) {
         echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
         flush();

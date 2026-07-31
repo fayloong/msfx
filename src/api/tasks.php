@@ -62,6 +62,11 @@ if ($method === 'GET') {
         $where[] = "response_status = ?";
         $params[] = $_GET['response_status'];
     }
+    // 来源筛选
+    if (!empty($_GET['source'])) {
+        $where[] = "source = ?";
+        $params[] = $_GET['source'];
+    }
 
     // 单据日期范围
     if (!empty($_GET['date_from'])) {
