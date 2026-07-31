@@ -18,7 +18,7 @@
 
 ### 核心流程
 
-- **定时上传 (Cron Upload)**：每天执行 `scripts/cron_upload.php` → TaskFetcher 查询 SQL Server → 按单号拼装追溯码 → 写入 upload_tasks（source=cron）→ 拆分超 3500 的单号 → UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速）→ LogWriter 写 JSONL + SQLite。总耗时约 6-7 分钟（530 条单据）。
+- **定时上传 (Cron Upload)**：分两步独立调度 —— `scripts/fetch_bills.php` 每小时从 SQL Server 采集单据写入 upload_tasks（source=cron, task_status=等待上传）；`scripts/upload_pending.php` 每天 3 次读取所有等待上传任务，通过 UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速、追溯码超 3500 拆分）→ LogWriter 写 JSONL + SQLite。手动上传保持立即上传不变。
 
 - **批量查询上传状态 (Batch Check)**：执行 `scripts/check_bill_status.php` → TaskFetcher 查询 SQL Server → 逐个调 `ApiClient::searchBillDetail()` 查询单据是否在平台存在 → 已上传的通过 LogWriter 写入 upload_logs → 未上传的写入 upload_tasks（source=batch_check, status=任务失败）+ upload_logs（关联 task_id）方便重传。API 间隔 0.5s。
 

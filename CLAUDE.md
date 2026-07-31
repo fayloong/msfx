@@ -54,7 +54,8 @@ root/
 │   ├── index.php                 # Web 单入口（page 参数分发路由）
 │   └── favicon.svg               # SVG 网站图标
 ├── scripts/
-│   ├── cron_upload.php           # cron 定时上传入口
+│   ├── fetch_bills.php           # cron 从 SQL Server 采集单据写入上传队列
+│   ├── upload_pending.php        # cron 批量上传队列中等待中的任务
 │   ├── check_bill_status.php     # 批量查询单据上传状态
 │   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列）
@@ -87,8 +88,15 @@ root/
 
 ## 核心数据流
 
-### 定时上传（cron_upload.php）
-SQL Server `skwms_new.dbo` 查询当天单据 → 按 `djbh` 聚合追溯码 → 写入 SQLite `upload_tasks`（source=cron, status=上传中）→ 查 SQLite `ent_list` 缓存 → 缓存未命中调码上放心 API 获取 `ent_id` → 超过 3500 追溯码自动拆分为 `单号_1, 单号_2...` → 调 `AlibabaAlihealthDrugKytUploadinoutbillRequest` API → 结果写入 JSONL + SQLite `upload_logs`（关联 task_id）→ 更新 `upload_tasks` 状态 → 重试 3 次（仅网络错误，间隔 30s）→ API 间隔 0.33s → flock 文件锁防并发
+### 定时上传（fetch_bills.php + upload_pending.php）
+
+采集和上传解耦为两个独立脚本，可分别设 cron 规则。
+
+**采集（fetch_bills.php）**：SQL Server 查询当天单据 → 按 `djbh` 去重（已存在的跳过）→ 写入 SQLite `upload_tasks`（source=cron, task_status=等待上传, bill_type=单据号前缀）
+
+**上传（upload_pending.php）**：读取 `upload_tasks` 中所有 `task_status='等待上传'` 的任务（不限来源）→ 查 SQLite `ent_list` 缓存 → 缓存未命中调码上放心 API 获取 `ent_id` → 超过 3500 追溯码自动拆分为 `单号_1, 单号_2...` → 调 API 上传 → 结果写入 JSONL + SQLite `upload_logs`（关联 task_id）→ 更新 `upload_tasks` 状态 → 重试 3 次（仅网络错误，间隔 30s）→ API 间隔 0.33s → flock 文件锁防并发
+
+手动上传（manual_create / manual_import）保持立即上传不变，两套上传路径并存。
 
 ### 批量查询上传状态（check_bill_status.php）
 SQL Server `skwms_new.dbo` 查询当天单据 → 逐个调 `AlibabaAlihealthDrugKytSearchbillDetailRequest` API → `result.msg_code == 'FAIL_BIZ_NO_PAT_INFO'` 为未上传 → 已上传的写入 `upload_logs`（success=1）→ 未上传的写入 `upload_tasks`（source=batch_check, status=任务失败）+ `upload_logs`（success=0, 关联 task_id）→ API 间隔 0.5s
@@ -166,7 +174,7 @@ SQL Server `skwms_new.dbo` 查询当天单据 → 逐个调 `AlibabaAlihealthDru
 - Composer 依赖：`phpoffice/phpspreadsheet`（xlsx 导入/导出）
 - 前端 CDN：Bootstrap 5.3.3 + Bootstrap Icons 1.11.3 + flatpickr 4.6.9（日期范围选择器 + 中文 locale）
 - `db.php`（不在仓库内，位于 Web PHP include_path），提供 `info_log()`、`hht()` 等函数
-  - CLI 环境下 `db.php` 不可用，`cron_upload.php` 内部定义了 `info_log()` 桩函数输出到 stderr
+  - CLI 环境下 `db.php` 不可用，CLI 脚本内部定义了 `info_log()` 桩函数输出到 stderr
 - `src/SqlSrvHelper.php` 通过 composer `classmap` 自动加载（非 namespace 类）
 - PHP 扩展：`sqlsrv`（SQL Server）、`curl`、`sqlite3`
 - 运行环境：PHP 8.1 + Nginx + SQL Server
@@ -174,11 +182,14 @@ SQL Server `skwms_new.dbo` 查询当天单据 → 逐个调 `AlibabaAlihealthDru
 ## 常用命令
 
 ```bash
-# 定时上传（当天）
-php /usr/share/nginx/mashangfangxin/scripts/cron_upload.php
+# 采集当天单据到上传队列
+php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php
 
-# 定时上传（指定日期）
-php /usr/share/nginx/mashangfangxin/scripts/cron_upload.php 2026-07-28
+# 采集指定日期的单据
+php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php 2026-07-28
+
+# 批量上传队列中等待上传的任务
+php /usr/share/nginx/mashangfangxin/scripts/upload_pending.php
 
 # 批量查询单据上传状态（当天）
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php
