@@ -25,6 +25,7 @@ $redirect = $_GET['redirect'] ?? 'dashboard';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>码上放心 — 登录</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link href="/assets/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
