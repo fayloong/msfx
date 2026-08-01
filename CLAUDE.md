@@ -44,7 +44,7 @@ root/
 │   │   ├── tasks_batch_delete.php # 批量删除上传任务
 │   │   ├── tasks_batch_retry.php  # 批量重传
 │   │   ├── uploaded.php          # 已上传记录列表（upload_logs success=1）
-│   │   ├── failed.php            # 失败记录列表（upload_logs success=0）
+│   │   ├── failed.php            # 失败记录列表（排除该单号已有上传成功/单据重复记录的日志行）
 │   │   ├── logs_delete.php       # 删除单条日志记录
 │   │   ├── logs_batch_delete.php # 批量删除日志记录
 │   │   ├── manual_create.php     # 手动创建任务并立即上传

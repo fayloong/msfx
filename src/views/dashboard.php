@@ -16,8 +16,8 @@ $totalToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(
 // 今日成功数
 $successToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(created_at) = ? AND response_status IN ('上传成功', '单据重复')", [$today])['cnt'] ?? 0;
 
-// 今日失败数
-$failedToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(created_at) = ? AND (request_status = '请求失败' OR response_status NOT IN ('上传成功', '单据重复'))", [$today])['cnt'] ?? 0;
+// 今日失败数（排除该单号已有上传成功/单据重复记录的，与失败记录页口径一致）
+$failedToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(created_at) = ? AND (request_status = '请求失败' OR response_status NOT IN ('上传成功', '单据重复')) AND NOT EXISTS (SELECT 1 FROM upload_logs ok WHERE ok.djbh = upload_logs.djbh AND ok.response_status IN ('上传成功', '单据重复'))", [$today])['cnt'] ?? 0;
 
 // 待处理数 — 从 upload_tasks 表中查
 $pendingCount = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_tasks WHERE task_status = '等待上传'")['cnt'] ?? 0;

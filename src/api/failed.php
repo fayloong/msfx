@@ -18,7 +18,9 @@ $page = max(1, intval($_GET['page_num'] ?? 1));
 $perPage = 20;
 $offset = ($page - 1) * $perPage;
 
-$where = ["(request_status = '请求失败' OR response_status NOT IN ('上传成功', '单据重复'))"];
+// 排除该单号已有"上传成功/单据重复"记录的日志行——重传成功后旧失败记录不再显示
+$where = ["(request_status = '请求失败' OR response_status NOT IN ('上传成功', '单据重复'))",
+          "NOT EXISTS (SELECT 1 FROM upload_logs ok WHERE ok.djbh = upload_logs.djbh AND ok.response_status IN ('上传成功', '单据重复'))"];
 $params = [];
 
 if (!empty($_GET['search'])) {

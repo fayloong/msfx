@@ -58,7 +58,7 @@ try {
     // ── 来源 2: upload_logs（失败记录） ──
     echo "[check_bill_status] 正在从 upload_logs 拉取失败记录...\n";
     $logs = $db->query(
-        "SELECT id AS log_id, task_id, djbh, ent_name, trace_codes, rq FROM upload_logs WHERE (response_status IS NULL OR response_status != '上传成功')"
+        "SELECT id AS log_id, task_id, djbh, ent_name, trace_codes, rq FROM upload_logs WHERE (response_status IS NULL OR response_status NOT IN ('上传成功', '单据重复'))"
     );
     if (!empty($logs)) {
         foreach ($logs as $log) {
@@ -113,9 +113,9 @@ try {
         $source = $rec['source'];
         $n = $i + 1;
 
-        // 去重：已确认在平台存在的跳过 API 查询
+        // 去重：已确认在平台存在的跳过 API 查询（上传成功或单据重复均视为已上传）
         $already = $db->queryOne(
-            "SELECT id FROM upload_logs WHERE djbh = ? AND response_status = '上传成功' LIMIT 1",
+            "SELECT id FROM upload_logs WHERE djbh = ? AND response_status IN ('上传成功', '单据重复') LIMIT 1",
             [$djbh]
         );
         if ($already) {
