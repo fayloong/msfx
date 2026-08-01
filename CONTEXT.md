@@ -8,7 +8,7 @@
 
 - **上传日志 (Upload Log)**：每次 API 调用的结果记录。与上传任务通过 `task_id` 关联。包含单据日期（`rq`，回填自 upload_tasks 或 SQL Server）、单号、往来单位、追溯码、请求状态（`request_status`）、响应状态（`response_status`）、API 返回内容、任务创建时间（`created_at`，即 API 调用时间）。存储在 SQLite `upload_logs` 表，同时写入 JSONL 文件永久保存。
 
-- **单据 (Bill)**：ERP 系统中的出入库单。类型分入库（1xx：102 采购入库, 103 退货入库, 104 调拨入库, 107 供应入库, 108 召回入库, 110 赠品入库, 111 盘盈入库, 112 报废入库, 113 其他入库）和出库（2xx：201 销售出库, 202 退货出库, 203 调拨出库, 204 返工出库, 205 销毁出库, 206 抽检出库, 207 直调出库, 209 供应出库, 211 召回出库, 212 赠品出库, 214 盘亏出库, 215 损坏出库, 216 报废出库, 217 其他出库, 237 直调退货）。在 SQL Server 中以 `djbh` 作为唯一标识。cron 上传时类型由 `djbh` 前 3 位（如 XSO/XST/JHG/JHO）经映射表转为数字码；手动上传时用户直接在下拉菜单选择数字类型码。
+- **单据 (Bill)**：ERP 系统中的出入库单。类型分入库（1xx：102 采购入库, 103 退货入库, 104 调拨入库, 107 供应入库, 108 召回入库, 110 赠品入库, 111 盘盈入库, 112 报废入库, 113 其他入库）和出库（2xx：201 销售出库, 202 退货出库, 203 调拨出库, 204 返工出库, 205 销毁出库, 206 抽检出库, 207 直调出库, 209 供应出库, 211 召回出库, 212 赠品出库, 214 盘亏出库, 215 损坏出库, 216 报废出库, 217 其他出库, 237 直调退货）。在 SQL Server 中以 `djbh` 作为唯一标识。类型码统一经 `App\BillType::normalize` 归一化为 3 位数字码：字母前缀（如 XSO/XST/JHG/JHO）转数字、空值按 `djbh` 前 3 位推导；cron 上传时来自 SQL Server 的 type 字段，手动上传时用户直接在下拉菜单选择数字类型码。Web 三个数据页表格以中文类型名称展示。
 
 - **追溯码 (Trace Code)**：药品电子监管码，字符串类型。一个单据对应多个追溯码，以英文逗号分隔拼接为长文本。API 限制单次上传最多 3500 个追溯码，超出时自动拆分为 `单号_1, 单号_2...`。
 
@@ -18,9 +18,9 @@
 
 ### 核心流程
 
-- **定时上传 (Cron Upload)**：分两步独立调度 —— `scripts/fetch_bills.php` 每小时从 SQL Server 采集单据写入 upload_tasks（source=cron, task_status=等待上传）；`scripts/upload_pending.php` 每天 3 次读取所有等待上传任务，通过 UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速、追溯码超 3500 拆分）→ LogWriter 写 JSONL + SQLite。手动上传保持立即上传不变。
+- **定时上传 (Cron Upload)**：分两步独立调度 —— `scripts/fetch_bills.php` 定时（当前 cron 每 30 分钟）从 SQL Server 采集单据写入 upload_tasks（source=cron, task_status=等待上传），采集带计数门卫（当天单据计数无变化则跳过）；`scripts/upload_pending.php` 读取所有等待上传任务（当前 crontab 未启用，手动触发），通过 UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速、追溯码超 3500 拆分）→ LogWriter 写 JSONL + SQLite。手动上传保持立即上传不变。
 
-- **批量查询上传状态 (Batch Check)**：执行 `scripts/check_bill_status.php` → 双源合并（upload_tasks 等待上传 + upload_logs 非成功记录）按 djbh 去重 → 逐个调 `ApiClient::searchBillDetail()` 查询单据是否在平台存在 → 已上传的按来源更新状态或写日志 → 未上传的（信息不存在）按来源处理：upload_logs 来源创建 batch_check 任务方便重传，upload_tasks 来源仅更新时间戳。API 间隔 0.5s。
+- **批量查询上传状态 (Batch Check)**：执行 `scripts/check_bill_status.php` → 双源合并（upload_tasks 等待上传 + upload_logs 非成功记录）按 djbh 去重 → 逐个调 `ApiClient::searchBillDetail()` 查询单据是否在平台存在 → 已上传的按来源更新状态或写日志 → 未上传的（信息不存在）按来源仅更新 `updated_at`。API 间隔 0.5s。查询受**新鲜度门卫**约束：两表各带 `last_checked_at` 列记录上次成功查询时间，距上次查询不足 30 分钟（常量 `CHECK_INTERVAL_MINUTES`）的单据直接跳过，避免高频 cron 下对无变化单据重复调 API；查询成功（含"信息不存在"）才 touch，API 异常与"已确认在平台跳过"不 touch 以便下次重查。新单据 `last_checked_at` 为 NULL 天然立即查。建议 cron 8-20 点每 5 分钟一次。
 
 - **手动上传 (Manual Upload)**：
 
@@ -28,7 +28,7 @@
   - **xlsx 导入**：下载模板（5 列：日期/单号/单据类型/往来单位/追溯码），同单号多行自动合并为一个任务（取首个非空的日期/单据类型/往来单位，合并所有追溯码）。也兼容传统一行一个单据格式。
   - 上传逻辑与 cron 共用 UploadService。
 
-- **Web 管理**：Bootstrap 5 + flatpickr，左侧可折叠菜单，AJAX 交互。三个数据页面均支持按单号/往来单位/状态/单据日期/任务创建时间筛选，日期使用 flatpickr 范围选择器（一个输入框选起止日期），分页最多 10 个页码。管理上传任务（查看/编辑/删除/重传/批量操作）、浏览上传日志（已上传/失败记录）、手动新增单据。
+- **Web 管理**：Bootstrap 5 + flatpickr，左侧可折叠菜单，AJAX 交互。三个数据页面（上传任务/上传成功/失败记录）均支持按单号/往来单位/状态/单据日期/任务创建时间筛选，表格含单据类型列（中文名称）；日期使用 flatpickr 范围选择器（一个输入框选起止日期），分页最多 10 个页码。管理上传任务（查看/编辑/删除/重传/批量操作）、浏览上传日志（已上传/失败记录）、手动新增单据。
 
 - **重传 (Retransmit)**：对失败任务重新发起上传调用。区分网络超时（重试最多 3 次，间隔 30s）和 API 业务错误（不重试，直接标记失败）。
 
