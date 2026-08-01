@@ -77,6 +77,25 @@ class TaskFetcher
         return is_array($rows) ? count($rows) : 0;
     }
 
+    /**
+     * 查询指定日期 SALEOUTMT/PURINMT 当天单据计数（fetch_bills 变化检测门卫用）。
+     * 轻量查询，用于判断是否需要执行重查询 fetchBills。
+     *
+     * @throws \RuntimeException 计数查询无结果时
+     */
+    public function countBills(string $date): int
+    {
+        $date = $this->validateDate($date);
+        $row = $this->db->queryOne(
+            "SELECT (SELECT COUNT(1) FROM SALEOUTMT WHERE Dates = ?) + (SELECT COUNT(1) FROM PURINMT WHERE Dates = ?) AS cnt",
+            [$date, $date]
+        );
+        if ($row === false) {
+            throw new \RuntimeException('单据计数查询无结果');
+        }
+        return (int)($row['cnt'] ?? 0);
+    }
+
     private function validateDate(string $date): string
     {
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {

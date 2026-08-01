@@ -32,7 +32,7 @@ root/
 │   ├── Database.php              # SQLite 数据库封装（单例）
 │   ├── Auth.php                  # 单用户 session 认证
 │   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索），区分网络/业务错误
-│   ├── TaskFetcher.php           # 从 SQL Server 拉取待上传单据
+│   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数）
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
 │   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载）
@@ -72,7 +72,8 @@ root/
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列）
 │   └── init_db.php               # 初始化 SQLite 数据库及表结构
 ├── data/
-│   └── msfx.db                   # SQLite 本地数据库（3 张表 + 索引）
+│   ├── msfx.db                   # SQLite 本地数据库（3 张表 + 索引）
+│   └── fetch_bill_counter.json   # fetch_bills 变化检测门卫基线（当天单据计数）
 ├── logs/                         # API 日志 JSONL 文件
 ├── upload_test.php               # 原始上传脚本（旧版，保留参考）
 ├── get_ent_list_test.php         # 原始往来单位同步脚本（旧版）
@@ -103,7 +104,7 @@ root/
 
 采集和上传解耦为两个独立脚本，可分别设 cron 规则。
 
-**采集（fetch_bills.php）**：SQL Server 查询当天单据 → 按 `djbh` 去重（已存在的跳过）→ 写入 SQLite `upload_tasks`（source=cron, task_status=等待上传, bill_type=单据号前缀）
+**采集（fetch_bills.php）**：启动时轻量查询 SALEOUTMT/PURINMT 当天单据计数，与 `data/fetch_bill_counter.json` 基线比较——同一日期且计数相同则跳过采集（避免重视图查询空转），基线只在采集成功（视图查询 + SQLite 写入全部完成）后更新；然后 SQL Server 查询当天单据 → 按 `djbh` 去重（已存在的跳过）→ 写入 SQLite `upload_tasks`（source=cron, task_status=等待上传, bill_type=单据号前缀）
 
 **上传（upload_pending.php）**：读取 `upload_tasks` 中所有 `task_status='等待上传'` 的任务（不限来源）→ 查 SQLite `ent_list` 缓存 → 缓存未命中调码上放心 API 获取 `ent_id` → 超过 3500 追溯码自动拆分为 `单号_1, 单号_2...` → 调 API 上传 → 结果写入 JSONL + SQLite `upload_logs`（关联 task_id）→ 更新 `upload_tasks` 状态 → 重试 3 次（仅网络错误，间隔 30s）→ API 间隔 0.33s → flock 文件锁防并发
 
