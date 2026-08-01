@@ -67,7 +67,10 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
             width: var(--sidebar-width); background: #1e293b; color: #cbd5e1;
             transition: width var(--transition-speed) ease;
             overflow-x: hidden; overflow-y: auto; white-space: nowrap;
+            display: flex; flex-direction: column;
         }
+        .sidebar .logout-link { margin-top: auto; color: #f87171; }
+        .sidebar .logout-link:hover { color: #fff; background: rgba(248, 113, 113, 0.25); }
         .sidebar.collapsed { width: var(--sidebar-collapsed-width); }
         .sidebar .brand {
             display: flex; align-items: center; height: 56px; padding: 0 16px;
@@ -96,7 +99,6 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
             transition: margin-left var(--transition-speed) ease;
         }
         .sidebar.collapsed ~ .main-content { margin-left: var(--sidebar-collapsed-width); }
-        .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
         @media (max-width: 768px) {
             .sidebar { width: var(--sidebar-collapsed-width); }
             .sidebar .brand-text, .sidebar .nav-label { opacity: 0; width: 0; overflow: hidden; }
@@ -157,14 +159,13 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
             <?php endif; ?>
         <?php endforeach; ?>
     </nav>
+    <a class="nav-link logout-link" href="index.php?page=login&action=logout" title="退出登录">
+        <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"/><path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/></svg>
+        <span class="nav-label">退出</span>
+    </a>
 </aside>
 
 <div class="main-content">
-    <div class="top-bar">
-        <div class="d-flex align-items-center">
-            <a href="index.php?page=login&action=logout" class="btn btn-sm btn-outline-danger">退出</a>
-        </div>
-    </div>
 <?php
 }
 
