@@ -7,6 +7,7 @@
  */
 
 use App\Auth;
+use App\BillType;
 use App\Database;
 
 Auth::init();
@@ -33,6 +34,7 @@ if ($method === 'GET') {
             echo json_encode(['error' => '任务不存在'], JSON_UNESCAPED_UNICODE);
             exit;
         }
+        $task['bill_type'] = BillType::normalize($task['bill_type'] ?? '', $task['djbh'] ?? '');
         echo json_encode($task, JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -110,6 +112,11 @@ if ($method === 'GET') {
         "SELECT * FROM upload_tasks {$whereClause} ORDER BY id DESC LIMIT ? OFFSET ?",
         array_merge($params, [$perPage, $offset])
     );
+
+    foreach ($rows as &$row) {
+        $row['bill_type'] = BillType::normalize($row['bill_type'] ?? '', $row['djbh'] ?? '');
+    }
+    unset($row);
 
     echo json_encode([
         'data' => $rows,

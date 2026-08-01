@@ -148,6 +148,7 @@ root/
 | trace_codes | TEXT | 追溯码（逗号分隔） |
 | task_status | TEXT | 等待上传/已处理（上传完成后统一标记） |
 | source | TEXT | cron/manual/batch_check/batch_retry |
+| bill_type | TEXT | 单据类型码（3 位数字，兼容旧字母前缀如 XSO；读取时经 `App\BillType::normalize` 归一化） |
 | request_status | TEXT | 请求成功/请求失败 |
 | response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定 |
 | resp | TEXT | API 返回内容 |

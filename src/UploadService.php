@@ -13,13 +13,6 @@ class UploadService
     private const RETRY_INTERVAL_SEC = 30;
     private const API_INTERVAL_US = 330000;
 
-    private static array $billTypeMap = [
-        'XSO' => '201', // 销售出库
-        'XST' => '103', // 退货入库
-        'JHG' => '102', // 采购入库
-        'JHO' => '202', // 采购退出
-    ];
-
     public function __construct(?string $lockFile = null)
     {
         $this->apiClient = new ApiClient();
@@ -94,11 +87,8 @@ class UploadService
      */
     private function uploadSingle(string $billCode, array $bill, string $traceCodes): array
     {
-        $billType = $bill['type'] ?? '201';
-        // 支持数字类型码（如 "102"）直接使用，也兼容旧的字母前缀（如 "JHG"）
-        if (!preg_match('/^\d{3}$/', $billType)) {
-            $billType = self::$billTypeMap[$billType] ?? '201';
-        }
+        // 数字类型码直通，字母前缀（如 "JHG"）归一化；无法识别兜底销售出库（原逻辑）
+        $billType = BillType::normalize($bill['type'] ?? '', '') ?: '201';
 
         for ($attempt = 0; $attempt < self::MAX_RETRIES; $attempt++) {
             try {

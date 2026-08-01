@@ -76,6 +76,7 @@ layout('上传任务', 'upload-tasks');
                         <th width="40"><input type="checkbox" class="form-check-input" id="select-all"></th>
                         <th width="100">单据日期</th>
                         <th>单号</th>
+                        <th width="110">单据类型</th>
                         <th>往来单位</th>
                         <th>追溯码</th>
                         <th width="80">来源</th>
@@ -86,7 +87,7 @@ layout('上传任务', 'upload-tasks');
                     </tr>
                 </thead>
                 <tbody id="tasks-tbody">
-                    <tr><td colspan="10" class="text-center py-5 text-muted">加载中...</td></tr>
+                    <tr><td colspan="11" class="text-center py-5 text-muted">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -274,6 +275,13 @@ layout('上传任务', 'upload-tasks');
         'batch_check': 'bg-info',
         'batch_retry': 'bg-warning text-dark',
     };
+    const billTypeLabels = {
+        '102': '采购入库', '103': '退货入库', '104': '调拨入库', '107': '供应入库', '108': '召回入库',
+        '110': '赠品入库', '111': '盘盈入库', '112': '报废入库', '113': '其他入库',
+        '201': '销售出库', '202': '退货出库', '203': '调拨出库', '204': '返工出库', '205': '销毁出库',
+        '206': '抽检出库', '207': '直调出库', '209': '供应出库', '211': '召回出库', '212': '赠品出库',
+        '214': '盘亏出库', '215': '损坏出库', '216': '报废出库', '217': '其他出库', '237': '直调退货',
+    };
 
     function getFilters() {
         const params = new URLSearchParams();
@@ -306,14 +314,14 @@ layout('上传任务', 'upload-tasks');
             renderPagination(data);
         } catch (e) {
             document.getElementById('tasks-tbody').innerHTML =
-                '<tr><td colspan="10" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
+                '<tr><td colspan="11" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
         }
     }
 
     function renderTable(rows) {
         const tbody = document.getElementById('tasks-tbody');
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center py-5 text-muted">暂无数据</td></tr>';
             return;
         }
         tbody.innerHTML = rows.map(r => `
@@ -321,6 +329,7 @@ layout('上传任务', 'upload-tasks');
                 <td><input type="checkbox" class="form-check-input row-checkbox" data-id="${r.id}" ${selectedIds.has(r.id) ? 'checked' : ''}></td>
                 <td class="text-nowrap">${esc(r.rq)}</td>
                 <td><code>${esc(r.djbh)}</code></td>
+                <td>${billTypeLabels[r.bill_type] || '-'}</td>
                 <td>${esc(r.ent_name)}</td>
                 <td>
                     ${r.trace_codes
