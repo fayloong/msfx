@@ -19,7 +19,7 @@ $successToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE dat
 // 今日失败数（排除该单号已有上传成功/单据重复记录的，与失败记录页口径一致）
 $failedToday = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs WHERE date(created_at) = ? AND (request_status = '请求失败' OR response_status NOT IN ('上传成功', '单据重复')) AND NOT EXISTS (SELECT 1 FROM upload_logs ok WHERE ok.djbh = upload_logs.djbh AND ok.response_status IN ('上传成功', '单据重复'))", [$today])['cnt'] ?? 0;
 
-// 待处理数 — 从 upload_tasks 表中查
+// 等待上传数 — 从 upload_tasks 表中查
 $pendingCount = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_tasks WHERE task_status = '等待上传'")['cnt'] ?? 0;
 
 layout('首页仪表盘', 'dashboard');
@@ -81,7 +81,7 @@ layout('首页仪表盘', 'dashboard');
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <p class="text-warning mb-1 small fw-semibold">待处理</p>
+                        <p class="text-warning mb-1 small fw-semibold">等待上传</p>
                         <h2 class="mb-0" id="stat-pending"><?= $pendingCount ?></h2>
                     </div>
                     <div class="rounded-circle bg-warning bg-opacity-25 p-3">
