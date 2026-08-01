@@ -70,5 +70,15 @@ try {
 
     echo json_encode(['_final' => true, 'success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE) . "\n";
 } catch (\Throwable $e) {
+    // 尝试恢复状态，忽略数据库错误（与单条重传 tasks_retry 保持一致）
+    try {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $db->execute(
+            "UPDATE upload_tasks SET task_status = '等待上传', request_status = NULL, response_status = NULL, updated_at = datetime('now','localtime') WHERE id IN ({$placeholders})",
+            $ids
+        );
+    } catch (\Throwable $dbEx) {
+        // 忽略
+    }
     echo json_encode(['_final' => true, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE) . "\n";
 }
