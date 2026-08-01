@@ -7,6 +7,7 @@ $dbPath = __DIR__ . '/../data/msfx.db';
 
 try {
     $db = new SQLite3($dbPath);
+    $db->busyTimeout(15000);
     $db->exec('PRAGMA journal_mode=WAL');
     $db->exec('PRAGMA foreign_keys=ON');
 
@@ -54,6 +55,8 @@ try {
     try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN response_status TEXT DEFAULT NULL"); } catch (\Exception $e) {}
     try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN bill_type TEXT DEFAULT ''"); } catch (\Exception $e) {}
     try { $db->exec("ALTER TABLE upload_logs ADD COLUMN source TEXT DEFAULT ''"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_tasks ADD COLUMN last_checked_at TEXT DEFAULT NULL"); } catch (\Exception $e) {}
+    try { $db->exec("ALTER TABLE upload_logs ADD COLUMN last_checked_at TEXT DEFAULT NULL"); } catch (\Exception $e) {}
 
     // 往来单位缓存表
     $db->exec("CREATE TABLE IF NOT EXISTS ent_list (

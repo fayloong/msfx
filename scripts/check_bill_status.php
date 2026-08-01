@@ -27,18 +27,23 @@ use App\Database;
 use App\LogWriter;
 Config::load();
 
+// 新鲜度门卫：距上次成功查询超过该分钟数的单据才重新调 API，避免高频 cron 下重复请求触发限流
+const CHECK_INTERVAL_MINUTES = 30;
+
 $date = $argv[1] ?? date('Y-m-d');
 
 echo "[check_bill_status] 开始查询，日期: {$date}\n";
 
 try {
     $db = Database::getInstance();
+    $threshold = date('Y-m-d H:i:s', time() - CHECK_INTERVAL_MINUTES * 60);
     $allRecords = [];
 
-    // ── 来源 1: upload_tasks（等待上传） ──
+    // ── 来源 1: upload_tasks（等待上传，且上次查询已过期） ──
     echo "[check_bill_status] 正在从 upload_tasks 拉取等待上传的记录...\n";
     $tasks = $db->query(
-        "SELECT id AS task_id, djbh, ent_name, trace_codes, rq FROM upload_tasks WHERE task_status = '等待上传'"
+        "SELECT id AS task_id, djbh, ent_name, trace_codes, rq FROM upload_tasks WHERE task_status = '等待上传' AND (last_checked_at IS NULL OR last_checked_at <= ?)",
+        [$threshold]
     );
     if (!empty($tasks)) {
         foreach ($tasks as $task) {
@@ -55,10 +60,11 @@ try {
     $taskCount = count($tasks);
     echo "[check_bill_status] upload_tasks 拉取到 {$taskCount} 条记录\n";
 
-    // ── 来源 2: upload_logs（失败记录） ──
+    // ── 来源 2: upload_logs（失败记录，且上次查询已过期） ──
     echo "[check_bill_status] 正在从 upload_logs 拉取失败记录...\n";
     $logs = $db->query(
-        "SELECT id AS log_id, task_id, djbh, ent_name, trace_codes, rq FROM upload_logs WHERE (response_status IS NULL OR response_status NOT IN ('上传成功', '单据重复'))"
+        "SELECT id AS log_id, task_id, djbh, ent_name, trace_codes, rq FROM upload_logs WHERE (response_status IS NULL OR response_status NOT IN ('上传成功', '单据重复')) AND (last_checked_at IS NULL OR last_checked_at <= ?)",
+        [$threshold]
     );
     if (!empty($logs)) {
         foreach ($logs as $log) {
@@ -135,8 +141,8 @@ try {
                 switch ($source) {
                     case 'upload_tasks':
                         $db->execute(
-                            "UPDATE upload_tasks SET task_status = '已处理', request_status = '请求成功', response_status = '上传成功', updated_at = ? WHERE id = ?",
-                            [$now, $rec['task_id']]
+                            "UPDATE upload_tasks SET task_status = '已处理', request_status = '请求成功', response_status = '上传成功', updated_at = ?, last_checked_at = ? WHERE id = ?",
+                            [$now, $now, $rec['task_id']]
                         );
                         $logWriter->write([
                             'task_id' => $rec['task_id'],
@@ -153,8 +159,8 @@ try {
 
                     case 'upload_logs':
                         $db->execute(
-                            "UPDATE upload_logs SET request_status = '请求成功', response_status = '上传成功', updated_at = ? WHERE id = ?",
-                            [$now, $rec['log_id']]
+                            "UPDATE upload_logs SET request_status = '请求成功', response_status = '上传成功', updated_at = ?, last_checked_at = ? WHERE id = ?",
+                            [$now, $now, $rec['log_id']]
                         );
                         // 同步更新关联的 upload_tasks
                         if (!empty($rec['task_id']) && $rec['task_id'] > 0) {
@@ -188,15 +194,15 @@ try {
                 switch ($source) {
                     case 'upload_tasks':
                         $db->execute(
-                            "UPDATE upload_tasks SET updated_at = ? WHERE id = ?",
-                            [$now, $rec['task_id']]
+                            "UPDATE upload_tasks SET updated_at = ?, last_checked_at = ? WHERE id = ?",
+                            [$now, $now, $rec['task_id']]
                         );
                         break;
 
                     case 'upload_logs':
                         $db->execute(
-                            "UPDATE upload_logs SET updated_at = ? WHERE id = ?",
-                            [$now, $rec['log_id']]
+                            "UPDATE upload_logs SET updated_at = ?, last_checked_at = ? WHERE id = ?",
+                            [$now, $now, $rec['log_id']]
                         );
                         break;
                 }

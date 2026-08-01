@@ -111,7 +111,11 @@ root/
 手动上传（manual_create / manual_import）保持立即上传不变，两套上传路径并存。
 
 ### 批量查询上传状态（check_bill_status.php）
-双源合并：`upload_tasks`（task_status='等待上传'）+ `upload_logs`（response_status != '上传成功'）→ 按 `djbh` 去重 → 逐个调 `ApiClient::searchBillDetail()` → 已上传的按来源分别更新状态或写日志 → 未上传（信息不存在）的按来源处理：upload_tasks 来源更新 `updated_at`，upload_logs 来源检查无 batch_check 任务后创建 → API 间隔 0.5s
+新鲜度门卫：两个来源查询均带 `last_checked_at` 条件（`last_checked_at IS NULL OR last_checked_at <= 阈值`，阈值常量 `CHECK_INTERVAL_MINUTES = 30`）——距上次成功查询不足 30 分钟的单据不拉出，避免高频 cron 下对无变化单据重复调 API（建议 cron: 8-20 点每 5 分钟一次）。
+
+双源合并：`upload_tasks`（task_status='等待上传'）+ `upload_logs`（response_status != '上传成功'）→ 按 `djbh` 去重 → 逐个调 `ApiClient::searchBillDetail()` → 已上传的按来源分别更新状态或写日志 → 未上传（信息不存在）的按来源更新 `updated_at` → API 间隔 0.5s。
+
+`last_checked_at` 更新规则：API 查询成功（含"信息不存在"）才 touch；API 异常和循环内"已确认在平台跳过"（SQLite 中已有上传成功/单据重复记录）不 touch，下次 cron 自动重查。新采集/新建任务的 `last_checked_at` 为 NULL，天然立即查。
 
 ### 手动上传（Web 端）
 
@@ -149,6 +153,7 @@ root/
 | resp | TEXT | API 返回内容 |
 | created_at | TEXT | 任务创建时间（写入 SQLite 的时间） |
 | updated_at | TEXT | 最后更新时间 |
+| last_checked_at | TEXT | 距上次 check_bill_status 成功查询的时间（新鲜度门卫用，NULL=从未查过） |
 
 ### upload_logs（上传日志）
 | 字段 | 类型 | 说明 |
@@ -165,6 +170,7 @@ root/
 | response | TEXT | API 返回内容 |
 | created_at | TEXT | 任务创建时间（API 调用时间） |
 | updated_at | TEXT | 最后更新时间 |
+| last_checked_at | TEXT | 距上次 check_bill_status 成功查询的时间（新鲜度门卫用，NULL=从未查过） |
 
 ### ent_list（往来单位缓存）
 | 字段 | 类型 | 说明 |
@@ -205,11 +211,9 @@ php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php 2026-07-28
 # 批量上传队列中等待上传的任务
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending.php
 
-# 批量查询单据上传状态（当天）
+# 批量查询单据上传状态（新鲜度门卫：距上次查询不足 30 分钟的单据自动跳过）
+# 注：日期参数仅打印在日志中，查询范围不受日期限制（按门卫规则扫描全部待查单据）
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php
-
-# 批量查询单据上传状态（指定日期）
-php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php 2026-07-28
 
 # 清理超过 3 个月的 SQLite 日志
 php /usr/share/nginx/mashangfangxin/scripts/cleanup_logs.php
