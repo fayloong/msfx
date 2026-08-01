@@ -75,6 +75,8 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
         }
         .sidebar .brand-text { transition: opacity var(--transition-speed); }
         .sidebar.collapsed .brand-text { opacity: 0; width: 0; overflow: hidden; }
+        .sidebar .brand #toggle-sidebar { cursor: pointer; opacity: 0.85; border-radius: 4px; padding: 2px; transition: opacity 0.15s, background 0.15s; }
+        .sidebar .brand #toggle-sidebar:hover { opacity: 1; background: rgba(96, 165, 250, 0.2); }
         .sidebar .nav-link {
             display: flex; align-items: center; padding: 10px 16px; color: #94a3b8;
             text-decoration: none; border-radius: 0; transition: background 0.15s;
@@ -106,7 +108,7 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
 <body>
 <aside class="sidebar" id="sidebar">
     <div class="brand">
-        <svg width="24" height="24" fill="#60a5fa" viewBox="0 0 16 16" style="flex-shrink:0"><path d="M2.5 3.5a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1h-11zm0 3a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1h-7zm0 3a.5.5 0 0 1 0-1h9a.5.5 0 0 1 0 1h-9zm0 3a.5.5 0 0 1 0-1h5a.5.5 0 0 1 0 1h-5z"/></svg>
+        <svg id="toggle-sidebar" width="24" height="24" fill="#60a5fa" viewBox="0 0 16 16" style="flex-shrink:0" title="收起/展开菜单"><path d="M2.5 3.5a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1h-11zm0 3a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1h-7zm0 3a.5.5 0 0 1 0-1h9a.5.5 0 0 1 0 1h-9zm0 3a.5.5 0 0 1 0-1h5a.5.5 0 0 1 0 1h-5z"/></svg>
         <span class="brand-text ms-2">码上放心</span>
     </div>
     <nav class="mt-2">
@@ -159,11 +161,7 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
 
 <div class="main-content">
     <div class="top-bar">
-        <button class="btn btn-sm btn-outline-secondary" id="toggle-sidebar" title="收起/展开菜单">
-            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/></svg>
-        </button>
-        <div class="d-flex align-items-center gap-3">
-            <span class="text-muted small"><?= date('Y-m-d H:i') ?></span>
+        <div class="d-flex align-items-center">
             <a href="index.php?page=login&action=logout" class="btn btn-sm btn-outline-danger">退出</a>
         </div>
     </div>
