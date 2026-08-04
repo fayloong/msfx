@@ -133,10 +133,10 @@ class TaskFetcher
         SELECT LEFT(a.djbh,3) AS type,
             a.rq, a.djbh, a.erpbillcode, bd.businessname AS ent_name, b.dzjgm AS trace_codes
         INTO #task_detail
-        from skwms_new.dbo.v_pf_phlrhz a 
+        from skwms_new.dbo.v_pf_phlrhz a
         join skwms_new.dbo.wms_dzjg b on b.djbh = a.djbh
-        join hyyy_zyscm.dbo.SALENOTESMT sal on sal.BillCode=a.erpbillcode
-        join hyyy_zyscm.dbo.businessdoc bd on bd.businessid=sal.AccptId
+        join skwms_new.dbo.mchk c on c.dwbh = a.dwbh
+        join hyyy_zyscm.dbo.businessdoc bd on bd.businessid = c.entdwbh
         WHERE EXISTS(SELECT * FROM #bill_list x WHERE x.djbh = a.djbh)
 
         UNION ALL

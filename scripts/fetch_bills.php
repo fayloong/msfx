@@ -95,14 +95,19 @@ try {
     $db = Database::getInstance();
     $now = date('Y-m-d H:i:s');
 
-    // 批量查询已存在的 djbh，构建查找集合
+    // 批量查询已存在的 djbh，构建查找集合（分块查询，规避 SQLite 999 参数上限）
     $djbhs = array_column($bills, 'djbh');
-    $placeholders = implode(',', array_fill(0, count($djbhs), '?'));
-    $existing = $db->query(
-        "SELECT djbh FROM upload_tasks WHERE djbh IN ({$placeholders})",
-        $djbhs
-    );
-    $existingSet = array_flip(array_column($existing, 'djbh'));
+    $existingSet = [];
+    foreach (array_chunk($djbhs, 500) as $chunk) {
+        $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+        $existing = $db->query(
+            "SELECT djbh FROM upload_tasks WHERE djbh IN ({$placeholders})",
+            $chunk
+        );
+        foreach ($existing as $row) {
+            $existingSet[$row['djbh']] = true;
+        }
+    }
 
     $insertCount = 0;
     $skipCount = 0;
