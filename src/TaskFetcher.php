@@ -111,7 +111,7 @@ class TaskFetcher
             DROP TABLE #bill_list
 
         SELECT DISTINCT LEFT(a.djbh,3) AS type,
-            a.rq, a.djbh, a.erpbillcode, bd.businessname AS ent_name
+        a.rq, a.djbh, a.erpbillcode, bd.businessname AS ent_name
         INTO #bill_list
         FROM skwms_new.dbo.v_pf_phlrhz a
         JOIN skwms_new.dbo.mchk c ON c.dwbh = a.dwbh
