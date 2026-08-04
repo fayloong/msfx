@@ -46,7 +46,9 @@ layout('失败记录', 'failed');
                 <input type="text" class="form-control" id="rq-range" placeholder="选择日期范围" readonly>
             </div>
             <div class="col-md-2 d-flex gap-2 align-items-end">
-                <button class="btn btn-outline-secondary" id="btn-refresh">刷新</button>
+                <button class="btn btn-outline-secondary" id="btn-refresh" title="刷新">
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                </button>
                 <button class="btn btn-danger btn-sm" id="btn-batch-delete" disabled>批量删除</button>
                 <button class="btn btn-warning btn-sm" id="btn-batch-retry" disabled>批量重传</button>
             </div>
