@@ -96,6 +96,8 @@ try {
     $now = date('Y-m-d H:i:s');
 
     // 批量查询已存在的 djbh，构建查找集合（分块查询，规避 SQLite 999 参数上限）
+    // 除 upload_tasks 中的任务外，upload_logs 已上传成功/单据重复的单据也不采集，
+    // 避免任务被删除后已上传单据被重新入队
     $djbhs = array_column($bills, 'djbh');
     $existingSet = [];
     foreach (array_chunk($djbhs, 500) as $chunk) {
@@ -105,6 +107,13 @@ try {
             $chunk
         );
         foreach ($existing as $row) {
+            $existingSet[$row['djbh']] = true;
+        }
+        $uploaded = $db->query(
+            "SELECT djbh FROM upload_logs WHERE djbh IN ({$placeholders}) AND response_status IN ('上传成功', '单据重复')",
+            $chunk
+        );
+        foreach ($uploaded as $row) {
             $existingSet[$row['djbh']] = true;
         }
     }

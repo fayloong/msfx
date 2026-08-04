@@ -126,7 +126,14 @@ try {
         );
         if ($already) {
             $skipCount++;
-            echo "[{$n}/{$total}] {$djbh} → 已确认在平台，跳过\n";
+            // 平台已有该单，任务目标已达成：标记任务已处理，避免停留在"等待上传"被反复拉取/重传
+            if ($source === 'upload_tasks') {
+                $db->execute(
+                    "UPDATE upload_tasks SET task_status = '已处理', updated_at = ?, last_checked_at = ? WHERE id = ?",
+                    [$now, $now, $rec['task_id']]
+                );
+            }
+            echo "[{$n}/{$total}] {$djbh} → 已确认在平台，任务标记已处理\n";
             continue;
         }
 
