@@ -8,7 +8,7 @@ layout('上传成功', 'uploaded');
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body">
         <div class="row g-2 align-items-end">
-            <div class="col-md-2">
+            <div class="col-md-1">
                 <label class="form-label small text-muted">单号</label>
                 <input type="text" class="form-control" id="djbh" placeholder="单号筛选">
             </div>
@@ -34,7 +34,7 @@ layout('上传成功', 'uploaded');
                     <option value="batch_retry">批量重传</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-1">
                 <label class="form-label small text-muted">任务创建时间</label>
                 <input type="text" class="form-control" id="created-range" placeholder="选择日期范围" readonly>
             </div>
@@ -42,7 +42,7 @@ layout('上传成功', 'uploaded');
                 <label class="form-label small text-muted">单据日期</label>
                 <input type="text" class="form-control" id="rq-range" placeholder="选择日期范围" readonly>
             </div>
-            <div class="col-md-2 d-flex gap-2 align-items-end">
+            <div class="col-md-3 d-flex gap-2 align-items-end">
                 <button class="btn btn-primary btn-sm" id="btn-refresh" title="刷新">
                     <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
                     刷新
