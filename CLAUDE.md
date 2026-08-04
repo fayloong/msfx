@@ -68,7 +68,7 @@ root/
 │   ├── fetch_bills.php           # cron 从 SQL Server 采集单据写入上传队列
 │   ├── upload_pending.php        # cron 批量上传队列中等待中的任务
 │   ├── check_bill_status.php     # 批量查询单据上传状态
-│   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志
+│   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志与已完成任务
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列）
 │   └── init_db.php               # 初始化 SQLite 数据库及表结构
 ├── data/
@@ -132,8 +132,10 @@ root/
   JSONL 文件（永久保存，logs/api_YYYY-MM-DD.jsonl）
     ↓ 同步写入
   SQLite upload_logs（查询用，保留 3 个月）
-    ↓ 定时清理（cleanup_logs.php）
-  删除 3 个月前的记录
+    ↓ 定时清理（cleanup_logs.php，每天凌晨 3 点）
+  删除 3 个月前的 upload_logs 记录，以及 3 个月前已处理（task_status='已处理'）
+  的 upload_tasks 任务（按 updated_at 判断，避免误清 rq 很旧但最近才采集/处理的任务；
+  历史仍可查 upload_logs 与 JSONL，任务表本质是待处理队列，终态任务无保留价值）
 ```
 
 ## SQLite 本地数据库
@@ -218,7 +220,7 @@ php /usr/share/nginx/mashangfangxin/scripts/upload_pending.php
 # 注：日期参数仅打印在日志中，查询范围不受日期限制（按门卫规则扫描全部待查单据）
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php
 
-# 清理超过 3 个月的 SQLite 日志
+# 清理超过 3 个月的 SQLite 日志与已完成任务
 php /usr/share/nginx/mashangfangxin/scripts/cleanup_logs.php
 
 # 回填 upload_logs 的单据日期（首次部署后执行一次即可）
