@@ -84,12 +84,14 @@ layout('上传成功', 'uploaded');
     const today = new Date();
     const weekAgo = new Date(today);
     weekAgo.setDate(today.getDate() - 6);
+    let createdTouched = false;   // 任务创建时间是否被用户手动改过（关键词检索时忽略默认 7 天范围）
 
     const fpCreated = flatpickr("#created-range", {
         mode: "range",
         dateFormat: "Y-m-d",
         locale: "zh",
         defaultDate: [weekAgo, today],
+        onChange: () => { createdTouched = true; },
     });
 
     const fpRq = flatpickr("#rq-range", {
@@ -153,8 +155,10 @@ layout('上传成功', 'uploaded');
         if (en) params.set('ent_name', en);
         if (rs) params.set('response_status', rs);
         if (src) params.set('source', src);
-        if (df) params.set('date_from', df);
-        if (dt) params.set('date_to', dt);
+        // 关键词检索时忽略默认的 7 天日期范围（用户手动改过日期则正常组合）
+        const ignoreDefaultRq = (d || en) && !createdTouched;
+        if (df && !ignoreDefaultRq) params.set('date_from', df);
+        if (dt && !ignoreDefaultRq) params.set('date_to', dt);
         if (rf) params.set('rq_from', rf);
         if (rt) params.set('rq_to', rt);
 

@@ -2,6 +2,7 @@
 /data/*.db
 /data/*.db-*
 /data/*.db.*
+/data/fetch_bill_counter.json
 /logs/*.jsonl
 /logs/upload.lock
 /config/.env

@@ -235,12 +235,14 @@ layout('上传任务', 'upload-tasks');
     const today = new Date();
     const weekAgo = new Date(today);
     weekAgo.setDate(today.getDate() - 6);
+    let rqTouched = false;   // 单据日期是否被用户手动改过（关键词检索时忽略默认 7 天范围）
 
     const fpRq = flatpickr("#filter-rq-range", {
         mode: "range",
         dateFormat: "Y-m-d",
         locale: "zh",
         defaultDate: [weekAgo, today],
+        onChange: () => { rqTouched = true; },
     });
 
     const fpCreated = flatpickr("#filter-created-range", {
@@ -304,8 +306,10 @@ layout('上传任务', 'upload-tasks');
         if (taskStatus) params.set('task_status', taskStatus);
         if (responseStatus) params.set('response_status', responseStatus);
         if (source) params.set('source', source);
-        if (dateFrom) params.set('date_from', dateFrom);
-        if (dateTo) params.set('date_to', dateTo);
+        // 关键词检索时忽略默认的 7 天日期范围（用户手动改过日期则正常组合）
+        const ignoreDefaultRq = (djbh || entName) && !rqTouched;
+        if (dateFrom && !ignoreDefaultRq) params.set('date_from', dateFrom);
+        if (dateTo && !ignoreDefaultRq) params.set('date_to', dateTo);
         if (createdFrom) params.set('created_from', createdFrom);
         if (createdTo) params.set('created_to', createdTo);
         params.set('page_num', currentPage);

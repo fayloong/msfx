@@ -214,12 +214,14 @@ layout('失败记录', 'failed');
     const today = new Date();
     const weekAgo = new Date(today);
     weekAgo.setDate(today.getDate() - 6);
+    let createdTouched = false;   // 任务创建时间是否被用户手动改过（关键词检索时忽略默认 7 天范围）
 
     const fpCreated = flatpickr("#created-range", {
         mode: "range",
         dateFormat: "Y-m-d",
         locale: "zh",
         defaultDate: [weekAgo, today],
+        onChange: () => { createdTouched = true; },
     });
 
     const fpRq = flatpickr("#rq-range", {
@@ -277,6 +279,8 @@ layout('失败记录', 'failed');
 
     async function load() {
         const params = new URLSearchParams({page_num: page});
+        const hasKeyword = !!document.getElementById('djbh').value.trim()
+            || !!document.getElementById('ent-name').value.trim();
         ['djbh','ent-name','response-status','filter-source'].forEach(id => {
             const v = document.getElementById(id).value.trim();
             if (v) {
@@ -286,8 +290,10 @@ layout('失败记录', 'failed');
         });
         const [df, dt] = readRange(fpCreated);
         const [rf, rt] = readRange(fpRq);
-        if (df) params.set('date_from', df);
-        if (dt) params.set('date_to', dt);
+        // 关键词检索时忽略默认的 7 天日期范围（用户手动改过日期则正常组合）
+        const ignoreDefaultRq = hasKeyword && !createdTouched;
+        if (df && !ignoreDefaultRq) params.set('date_from', df);
+        if (dt && !ignoreDefaultRq) params.set('date_to', dt);
         if (rf) params.set('rq_from', rf);
         if (rt) params.set('rq_to', rt);
         try {
