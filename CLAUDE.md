@@ -17,6 +17,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 药品追溯码上传系统（码上放心平台对接），用于河药将 ERP 系统中的出入库单上传至阿里健康 "码上放心" 平台。Web 管理端 + CLI 脚本，OOP 架构，无框架。
 
+计划开发 Python 桌面客户端版（单机软件，交付客户），完整工程提示词见 `docs/python-client/engineering-prompt.md`（含技术栈、目录结构、数据模型、业务规则、UI 设计、开发里程碑）。
+
 ## 项目架构
 
 ```
@@ -70,7 +72,8 @@ root/
 │   ├── check_bill_status.php     # 批量查询单据上传状态
 │   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志与已完成任务
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列）
-│   └── init_db.php               # 初始化 SQLite 数据库及表结构
+│   ├── init_db.php               # 初始化 SQLite 数据库及表结构
+│   └── sqlite_query.php          # 调试工具：直接传 SQL 查询/操作 SQLite（表格输出）
 ├── data/
 │   ├── msfx.db                   # SQLite 本地数据库（3 张表 + 索引）
 │   └── fetch_bill_counter.json   # fetch_bills 变化检测门卫基线（当天单据计数）
@@ -228,6 +231,10 @@ php /usr/share/nginx/mashangfangxin/scripts/backfill_rq.php
 
 # 初始化/迁移 SQLite 数据库
 php /usr/share/nginx/mashangfangxin/scripts/init_db.php
+
+# 直接传 SQL 查询/操作 SQLite（调试工具，可传多条，无参数时列出表及行数）
+php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "SELECT * FROM upload_tasks ORDER BY id DESC LIMIT 10"
+php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "UPDATE upload_tasks SET task_status='已处理' WHERE id=1"
 
 # 网页访问（需要登录，密码见 .env ADMIN_PASSWORD）
 http://192.168.2.189:8188
