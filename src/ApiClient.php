@@ -121,4 +121,37 @@ class ApiClient
 
         return ['found' => $found, 'response' => $respArray, 'error' => ''];
     }
+
+    /**
+     * 从 searchbilldetail 响应解析单据申报的追溯码数量（数量对账用）。
+     *
+     * 结构: result.model.bill_chk_in_out_detail_list_d_t_o_list.billchkinoutdetaillistdtolist
+     *   - 单药品: 关联数组（键为字段名），取 min_pkg_count
+     *   - 多药品: 列表（键 0,1,2...），各药品 min_pkg_count 累加
+     *   - 单据不存在（FAIL_BIZ_NO_PAT_INFO）/ 结构缺失: 0
+     *
+     * @param array|null $respArray searchBillDetail() 返回的 response（已解码数组，异常时为 null）
+     * @return int 单据申报的追溯码总数
+     */
+    public static function sumBillDetailCount(?array $respArray): int
+    {
+        $dto = $respArray['result']['model']['bill_chk_in_out_detail_list_d_t_o_list']['billchkinoutdetaillistdtolist'] ?? null;
+        if (!is_array($dto) || empty($dto)) {
+            return 0;
+        }
+
+        // 单药品: 关联数组（键为字段名）
+        if (isset($dto['physic_name'])) {
+            return (int)($dto['min_pkg_count'] ?? 0);
+        }
+
+        // 多药品: 列表，累加各项
+        $sum = 0;
+        foreach ($dto as $item) {
+            if (is_array($item)) {
+                $sum += (int)($item['min_pkg_count'] ?? 0);
+            }
+        }
+        return $sum;
+    }
 }
