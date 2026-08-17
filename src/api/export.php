@@ -10,6 +10,7 @@
 use App\Auth;
 use App\BillType;
 use App\Database;
+use App\TraceSplitter;
 
 Auth::init();
 if (!Auth::check()) {
@@ -142,10 +143,10 @@ $sql = $selectSql . $whereClause . ' ' . $orderBy;
 if ($type === 'tasks') {
     $columns = [
         '单据日期' => fn($r) => $r['rq'] ?? '',
-        '单号' => fn($r) => $r['djbh'] ?? '',
+        '单号' => fn($r) => $r['_piece_bill_code'] ?? ($r['djbh'] ?? ''),
         '单据类型' => fn($r) => BillType::normalize($r['bill_type'] ?? '', $r['djbh'] ?? ''),
         '往来单位' => fn($r) => $r['ent_name'] ?? '',
-        '追溯码' => fn($r) => truncateTraceCodes((string)($r['trace_codes'] ?? '')),
+        '追溯码' => fn($r) => truncateTraceCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
         '来源' => fn($r) => $r['source'] ?? '',
         '任务状态' => fn($r) => $r['task_status'] ?? '',
         '响应状态' => fn($r) => $r['response_status'] ?? '',
@@ -159,10 +160,10 @@ if ($type === 'tasks') {
         : fn($r) => ($r['request_status'] ?? '') === '请求失败' ? '请求失败' : ($r['response_status'] ?: '失败');
     $columns = [
         '单据日期' => fn($r) => $r['rq'] ?? '',
-        '单号' => fn($r) => $r['djbh'] ?? '',
+        '单号' => fn($r) => $r['_piece_bill_code'] ?? ($r['djbh'] ?? ''),
         '单据类型' => fn($r) => BillType::normalize($r['t_bill_type'] ?? '', $r['djbh'] ?? ''),
         '往来单位' => fn($r) => $r['ent_name'] ?? '',
-        '追溯码' => fn($r) => truncateTraceCodes((string)($r['trace_codes'] ?? '')),
+        '追溯码' => fn($r) => truncateTraceCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
         '关联任务ID' => fn($r) => ($r['task_id'] ?? 0) ?: '',
         '来源' => fn($r) => $r['source'] ?? '',
         '任务创建时间' => fn($r) => $r['created_at'] ?? '',
@@ -173,9 +174,13 @@ if ($type === 'tasks') {
 }
 
 // ---------- 辅助函数 ----------
-/** xlsx 单格文本上限 32767 字符，超限截断并追加省略标记 */
-const CELL_TEXT_LIMIT = 32000;
+/** xlsx 单格文本上限 32767 字符，超限截断并追加省略标记；值取自 TraceSplitter 保持单一来源 */
+const CELL_TEXT_LIMIT = TraceSplitter::DEFAULT_CHAR_LIMIT;
 
+/**
+ * 追溯码截断兜底：正常路径已由 TraceSplitter 按 32000 字符拆行，单格不会超限；
+ * 仅在极端情况（单条追溯码自身超 32000 字符，理论不触发）下截断并提示码总数。
+ */
 function truncateTraceCodes(string $value): string
 {
     if (mb_strlen($value) <= CELL_TEXT_LIMIT) {
@@ -238,11 +243,20 @@ foreach ($params as $i => $value) {
 $result = $stmt->execute();
 $rowNum = 2;
 while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-    $cells = [];
-    foreach ($columns as $fn) {
-        $cells[] = $fn($row);
+    // 追溯码按字符数拆行（超 32000 字符时一单多行，单号加 _N 后缀，对齐上传拆分命名）
+    $pieces = TraceSplitter::splitByCharLimit(
+        (string)($row['djbh'] ?? ''),
+        (string)($row['trace_codes'] ?? '')
+    );
+    foreach ($pieces as $pieceBillCode => $pieceCodes) {
+        $row['_piece_bill_code'] = $pieceBillCode;
+        $row['_piece_trace_codes'] = $pieceCodes;
+        $cells = [];
+        foreach ($columns as $fn) {
+            $cells[] = $fn($row);
+        }
+        fwrite($fh, rowXml($rowNum++, $cells));
     }
-    fwrite($fh, rowXml($rowNum++, $cells));
 }
 fwrite($fh, '</sheetData></worksheet>');
 fclose($fh);

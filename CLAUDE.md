@@ -36,6 +36,7 @@ root/
 │   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索），区分网络/业务错误
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数）
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）
+│   ├── TraceSplitter.php         # 导出拆行：追溯码按字符数拆多行（每行 ≤32000 字符）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
 │   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载）
 │   ├── LockManager.php           # 未使用（预留）
@@ -78,6 +79,8 @@ root/
 ├── data/
 │   ├── msfx.db                   # SQLite 本地数据库（3 张表 + 索引）
 │   └── fetch_bill_counter.json   # fetch_bills 变化检测门卫基线（当天单据计数）
+├── tests/
+│   └── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php）
 ├── logs/                         # API 日志 JSONL 文件
 ├── upload_test.php               # 原始上传脚本（旧版，保留参考）
 ├── get_ent_list_test.php         # 原始往来单位同步脚本（旧版）
@@ -96,14 +99,13 @@ root/
 | `uploaded` | `views/uploaded.php` | 已上传记录 |
 | `failed` | `views/failed.php` | 失败记录 |
 | `manual-upload` | `views/manual_upload.php` | 手动上传 |
-| `api` | `api/{action}.php` | AJAX API 端点 |
-| `export` | `api/export.php` | 导出 xlsx（`type=tasks/uploaded/failed` + 与列表 API 一致的筛选参数） |
+| `api` | `api/{action}.php` | AJAX API 端点（导出实际走 `page=api&action=export`，前端按钮以此调用） |
 
 所有页面（除 login 和 api）需要登录。API 端点内部自行处理认证。
 
 三个数据页面（upload-tasks / uploaded / failed）均支持筛选：单号、往来单位、状态、**单据日期**（`rq`）、**任务创建时间**（`created_at`）。日期筛选使用 flatpickr 范围选择器，一个输入框同时选起止日期，默认最近 7 天（含当天）。**关键词检索（单号/往来单位）不受默认日期范围限制**：输入关键词时若日期选择器仍是默认 7 天（用户未手动改过），前端自动不传日期参数实现全库检索；用户手动改过日期则关键词+日期正常组合过滤。分页最多显示 10 个页码，超出用省略号。
 
-三个数据页工具栏均有"导出 xlsx"按钮：按当前生效筛选条件全量导出（前端已计算关键词忽略默认日期后的参数）。导出走 `api/export.php`，**流式生成**（sheet XML 逐行写临时文件 + ZipArchive 打包，不用 PhpSpreadsheet 避免全量驻留内存）；单格超 32767 字符截断（追溯码追加 `…(共N个码)`，其余列追加 `…(已截断)`）；无匹配数据时前端拦截提示、后端仍输出带表头的空文件。导出列与页面表格对齐（来源列导出机器值 cron/manual/...，单据类型导出归一化 3 位码），文件名 `上传任务/已上传/失败记录_YYYY-MM-DD.xlsx`。
+三个数据页工具栏均有"导出 xlsx"按钮：按当前生效筛选条件全量导出（前端已计算关键词忽略默认日期后的参数）。导出走 `page=api&action=export`（`api/export.php`），**流式生成**（sheet XML 逐行写临时文件 + ZipArchive 打包，不用 PhpSpreadsheet 避免全量驻留内存）；追溯码按字符数拆行（`App\TraceSplitter::splitByCharLimit`，每行 ≤32000 字符 ≈ 1523 码，超限时一单多行、单号加 `_N` 后缀，命名对齐上传拆分、已带后缀的单号追加后缀），拆行兜底（单条码自身超 32000 字符的极端情况）仍截断并追加 `…(共N个码)`，其余列超限追加 `…(已截断)`；无匹配数据时前端拦截提示、后端仍输出带表头的空文件。导出列与页面表格对齐（来源列导出机器值 cron/manual/...，单据类型导出归一化 3 位码），文件名 `上传任务/已上传/失败记录_YYYY-MM-DD.xlsx`。
 
 ## 核心数据流
 
@@ -239,6 +241,9 @@ php /usr/share/nginx/mashangfangxin/scripts/init_db.php
 # 直接传 SQL 查询/操作 SQLite（调试工具，可传多条，无参数时列出表及行数）
 php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "SELECT * FROM upload_tasks ORDER BY id DESC LIMIT 10"
 php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "UPDATE upload_tasks SET task_status='已处理' WHERE id=1"
+
+# 运行 TraceSplitter 单元测试
+php /usr/share/nginx/mashangfangxin/tests/trace_splitter_test.php
 
 # 网页访问（需要登录，密码见 .env ADMIN_PASSWORD）
 http://192.168.2.189:8188
