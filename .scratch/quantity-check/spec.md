@@ -1,4 +1,4 @@
-**Status:** ready-for-agent
+**Status:** implemented
 
 # 数量对账检查（check_quantity.php）
 
@@ -104,3 +104,20 @@ CLAUDE.md 更新：架构图 `scripts/` 列表、常用命令新增 `check_quant
 - 每日单量约 350~1000 单（均值 ~650），按 0.5s 限速，单日检查约 5-7 分钟
 - `searchbilldetail` 的 `min_pkg_count` 语义经真实数据验证：单药品返回对象、多药品返回数组；字段值即该药品追溯码数量
 - 完全未上传与部分缺失统一归入"数量不符"，靠 response 中 `actual=0` 区分
+
+## Comments
+
+### 2026-08-17 实现完成（commit 77f826b）——方向修正
+
+首次实际运行（检查 2026-08-15）即推翻本 spec 的数量对比设计，核心发现：**`min_pkg_count` 是最小包装数，不是追溯码数**。平台按最小包装申报，中包装码（件码，`wms_dzjg.dzjgm_type='中'`）按件内盒数展开（1 件码=5/10/200 盒），与本地码数量纲不同——90 条"数量不符"中 62 条全是量纲假阳性（比值 1.1~400 倍无一相符），28 条是未上传（actual=0）被混入。平台接口不返回码数字段，SQL Server 无件码→盒数映射，两数量纲无法统一。
+
+实现偏离本 spec 的决策（详见 docs/adr/0002-quantity-check-upload-only.md）：
+
+- **退化为"只查是否上传"**：不再比对申报数量；未上传写 `response_status='信息不存在'`（与 check_bill_status 口径一致），已上传零记录
+- **幂等升级为先删后写**：每单先清理该单旧 quantity_check 记录再按新判定写入，历史"数量不符"误报随重跑自动清除（90 条已全部清理，无手工脚本）
+- **删除 `ApiClient::sumBillDetailCount`**（量纲错误且不再使用），测试改测 `ApiClient::isBillFound`（7 项断言）
+- **基线改用 `TaskFetcher::fetchBillsMeta()`**（轻量单据列表，不再拉码明细）
+- 追加 `Database::busyTimeout(30s)`（与 fetch_bills 写库撞锁）
+- 运行窗口：必须 20 点后（与 check_bill_status 并发必撞平台限流）——cron 见 `.scratch/scheduler-fix/spec.md`（21:10）
+
+验证：全量重跑 2026-08-15 共 725 单（已上传 541 / 未上传 184 / 异常 0），184 条"信息不存在"、0 条"数量不符"残留；XSOWMS00997501 确认未上传（平台 FAIL_BIZ_NO_PAT_INFO），现显示"信息不存在"。
