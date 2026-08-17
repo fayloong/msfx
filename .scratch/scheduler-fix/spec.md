@@ -1,4 +1,4 @@
-**Status:** ready-for-agent
+**Status:** implemented
 
 # 调度缺陷修复：check_bill_status 拆分 + 防并发 + 错峰 cron
 

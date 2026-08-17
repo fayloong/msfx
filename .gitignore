@@ -4,6 +4,6 @@
 /data/*.db.*
 /data/fetch_bill_counter.json
 /logs/*.jsonl
-/logs/upload.lock
+/logs/*.lock
 /config/.env
 .DS_Store

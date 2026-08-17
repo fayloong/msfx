@@ -1,13 +1,15 @@
 <?php
 /**
- * 批量查询单据上传状态
+ * 批量查询单据上传状态（来源 1：等待上传任务）
  * 用法: php scripts/check_bill_status.php [日期 Y-m-d]
  *
- * 从两个来源合并单据列表，逐个调用码上放心查询 API：
- *   1. upload_tasks 中 task_status='等待上传' 的记录
- *   2. upload_logs 中 success=0 的记录
+ * 逐个调用码上放心查询 API 确认 upload_tasks 中 task_status='等待上传' 的记录：
+ *   - 已上传 → 任务标记已处理
+ *   - 信息不存在 → 保持状态，仅更新 updated_at / last_checked_at
+ *   - API 异常 → 跳过不修改
  *
- * 合并后按 djbh 去重，根据查询结果和来源执行不同处理策略。
+ * 失败记录（来源 2）的复查已拆分到 check_failed_logs.php（每天 20:40）。
+ * 建议 cron: 8-20 点每 5 分钟一次。flock 防并发：锁被占用时直接退出。
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -32,77 +34,42 @@ const CHECK_INTERVAL_MINUTES = 30;
 
 $date = $argv[1] ?? date('Y-m-d');
 
+// flock 防并发：锁被占用说明已有实例在跑，直接退出
+$lockFile = __DIR__ . '/../logs/check_bill_status.lock';
+$lockFp = fopen($lockFile, 'w+');
+if (!$lockFp || !flock($lockFp, LOCK_EX | LOCK_NB)) {
+    if ($lockFp) {
+        fclose($lockFp);
+    }
+    echo "[check_bill_status] 已有实例在运行（锁文件 {$lockFile} 被占用），本次退出\n";
+    exit(0);
+}
+
 echo "[check_bill_status] 开始查询，日期: {$date}\n";
 
 try {
     $db = Database::getInstance();
     $threshold = date('Y-m-d H:i:s', time() - CHECK_INTERVAL_MINUTES * 60);
-    $allRecords = [];
 
-    // ── 来源 1: upload_tasks（等待上传，且上次查询已过期） ──
+    // ── 来源: upload_tasks（等待上传，且上次查询已过期） ──
     echo "[check_bill_status] 正在从 upload_tasks 拉取等待上传的记录...\n";
     $tasks = $db->query(
         "SELECT id AS task_id, djbh, ent_name, trace_codes, rq FROM upload_tasks WHERE task_status = '等待上传' AND (last_checked_at IS NULL OR last_checked_at <= ?)",
         [$threshold]
     );
-    if (!empty($tasks)) {
-        foreach ($tasks as $task) {
-            $allRecords[] = [
-                'djbh' => $task['djbh'],
-                'ent_name' => $task['ent_name'] ?? '',
-                'trace_codes' => $task['trace_codes'] ?? '',
-                'rq' => $task['rq'] ?? '',
-                'source' => 'upload_tasks',
-                'task_id' => $task['task_id'],
-            ];
-        }
-    }
     $taskCount = count($tasks);
     echo "[check_bill_status] upload_tasks 拉取到 {$taskCount} 条记录\n";
 
-    // ── 来源 2: upload_logs（失败记录，且上次查询已过期） ──
-    echo "[check_bill_status] 正在从 upload_logs 拉取失败记录...\n";
-    $logs = $db->query(
-        "SELECT id AS log_id, task_id, djbh, ent_name, trace_codes, rq FROM upload_logs WHERE (response_status IS NULL OR response_status NOT IN ('上传成功', '单据重复')) AND (last_checked_at IS NULL OR last_checked_at <= ?)",
-        [$threshold]
-    );
-    if (!empty($logs)) {
-        foreach ($logs as $log) {
-            $allRecords[] = [
-                'djbh' => $log['djbh'],
-                'ent_name' => $log['ent_name'] ?? '',
-                'trace_codes' => $log['trace_codes'] ?? '',
-                'rq' => $log['rq'] ?? '',
-                'source' => 'upload_logs',
-                'log_id' => $log['log_id'],
-                'task_id' => $log['task_id'] ?? 0,
-            ];
-        }
-    }
-    $logCount = count($logs);
-    echo "[check_bill_status] upload_logs 拉取到 {$logCount} 条记录\n";
-
-    // ── 合并去重（按 djbh，首次遇到胜出） ──
-    $merged = [];
-    foreach ($allRecords as $rec) {
-        $djbh = $rec['djbh'];
-        if (!isset($merged[$djbh])) {
-            $merged[$djbh] = $rec;
-        }
-    }
-    $allRecords = null; // 释放内存
-
-    $totalAfterMerge = count($merged);
-    echo "[check_bill_status] 合并去重后共 {$totalAfterMerge} 条单据（upload_tasks: {$taskCount}, upload_logs: {$logCount}）\n";
-
-    if (empty($merged)) {
+    if (empty($tasks)) {
         echo "[check_bill_status] 没有需要查询的单据\n";
         exit(0);
     }
 
+    $total = count($tasks);
+    echo "[check_bill_status] 共 {$total} 条待确认单据\n";
+
     $apiClient = new ApiClient();
     $logWriter = new LogWriter();
-    $logDir = __DIR__ . '/../logs';
     $now = date('Y-m-d H:i:s');
 
     $foundCount = 0;
@@ -110,13 +77,11 @@ try {
     $errorCount = 0;
     $skipCount = 0;
 
-    $records = array_values($merged);
-    $total = count($records);
+    $records = $tasks;
 
     // ── 逐条查询 ──
     foreach ($records as $i => $rec) {
         $djbh = $rec['djbh'];
-        $source = $rec['source'];
         $n = $i + 1;
 
         // 去重：已确认在平台存在的跳过 API 查询（上传成功或单据重复均视为已上传）
@@ -127,12 +92,10 @@ try {
         if ($already) {
             $skipCount++;
             // 平台已有该单，任务目标已达成：标记任务已处理，避免停留在"等待上传"被反复拉取/重传
-            if ($source === 'upload_tasks') {
-                $db->execute(
-                    "UPDATE upload_tasks SET task_status = '已处理', updated_at = ?, last_checked_at = ? WHERE id = ?",
-                    [$now, $now, $rec['task_id']]
-                );
-            }
+            $db->execute(
+                "UPDATE upload_tasks SET task_status = '已处理', updated_at = ?, last_checked_at = ? WHERE id = ?",
+                [$now, $now, $rec['task_id']]
+            );
             echo "[{$n}/{$total}] {$djbh} → 已确认在平台，任务标记已处理\n";
             continue;
         }
@@ -142,85 +105,40 @@ try {
             $responseJson = json_encode($result['response'], JSON_UNESCAPED_UNICODE);
 
             if ($result['found']) {
-                // ── 上传成功 ──
+                // ── 上传成功：任务标记已处理 ──
                 $foundCount++;
 
-                switch ($source) {
-                    case 'upload_tasks':
-                        $db->execute(
-                            "UPDATE upload_tasks SET task_status = '已处理', request_status = '请求成功', response_status = '上传成功', updated_at = ?, last_checked_at = ? WHERE id = ?",
-                            [$now, $now, $rec['task_id']]
-                        );
-                        $logWriter->write([
-                            'task_id' => $rec['task_id'],
-                            'djbh' => $djbh,
-                            'request_status' => '请求成功',
-                            'response_status' => '上传成功',
-                            'response' => $responseJson,
-                            'ent_name' => $rec['ent_name'],
-                            'trace_codes' => $rec['trace_codes'],
-                            'rq' => $rec['rq'],
-                            'source' => 'batch_check',
-                        ]);
-                        break;
-
-                    case 'upload_logs':
-                        $db->execute(
-                            "UPDATE upload_logs SET request_status = '请求成功', response_status = '上传成功', updated_at = ?, last_checked_at = ? WHERE id = ?",
-                            [$now, $now, $rec['log_id']]
-                        );
-                        // 同步更新关联的 upload_tasks
-                        if (!empty($rec['task_id']) && $rec['task_id'] > 0) {
-                            $db->execute(
-                                "UPDATE upload_tasks SET task_status = '已处理', request_status = '请求成功', response_status = '上传成功', updated_at = ? WHERE id = ?",
-                                [$now, $rec['task_id']]
-                            );
-                        }
-                        // 手动写 JSONL（LogWriter 只支持 INSERT）
-                        _writeJsonl($logDir, [
-                            'action' => 'update',
-                            'log_id' => $rec['log_id'],
-                            'djbh' => $djbh,
-                            'request_status' => '请求成功',
-                            'response_status' => '上传成功',
-                            'response' => $responseJson,
-                            'ent_name' => $rec['ent_name'],
-                            'trace_codes' => $rec['trace_codes'],
-                            'rq' => $rec['rq'],
-                            'task_id' => $rec['task_id'] ?? 0,
-                            'source' => 'batch_check',
-                        ]);
-                        break;
-                }
+                $db->execute(
+                    "UPDATE upload_tasks SET task_status = '已处理', request_status = '请求成功', response_status = '上传成功', updated_at = ?, last_checked_at = ? WHERE id = ?",
+                    [$now, $now, $rec['task_id']]
+                );
+                $logWriter->write([
+                    'task_id' => $rec['task_id'],
+                    'djbh' => $djbh,
+                    'request_status' => '请求成功',
+                    'response_status' => '上传成功',
+                    'response' => $responseJson,
+                    'ent_name' => $rec['ent_name'],
+                    'trace_codes' => $rec['trace_codes'],
+                    'rq' => $rec['rq'],
+                    'source' => 'batch_check',
+                ]);
 
                 echo "[{$n}/{$total}] {$djbh} → 已上传\n";
             } else {
-                // ── 信息不存在 ──
+                // ── 信息不存在：保持状态，仅 touch ──
                 $notFoundCount++;
 
-                switch ($source) {
-                    case 'upload_tasks':
-                        $db->execute(
-                            "UPDATE upload_tasks SET updated_at = ?, last_checked_at = ? WHERE id = ?",
-                            [$now, $now, $rec['task_id']]
-                        );
-                        break;
-
-                    case 'upload_logs':
-                        $db->execute(
-                            "UPDATE upload_logs SET updated_at = ?, last_checked_at = ? WHERE id = ?",
-                            [$now, $now, $rec['log_id']]
-                        );
-                        break;
-                }
+                $db->execute(
+                    "UPDATE upload_tasks SET updated_at = ?, last_checked_at = ? WHERE id = ?",
+                    [$now, $now, $rec['task_id']]
+                );
 
                 echo "[{$n}/{$total}] {$djbh} → 未上传\n";
             }
         } catch (\Exception $e) {
-            // ── API 异常 ──
+            // ── API 异常：跳过，不修改 ──
             $errorCount++;
-
-            // upload_tasks / upload_logs 来源: 跳过，不修改
 
             echo "[{$n}/{$total}] {$djbh} → 查询异常: " . $e->getMessage() . "\n";
         }
@@ -238,17 +156,4 @@ try {
 } catch (\Exception $e) {
     echo "[check_bill_status] 错误: " . $e->getMessage() . "\n";
     exit(1);
-}
-
-/**
- * 手动写 JSONL 行（用于 UPDATE 场景，LogWriter 只支持 INSERT）
- */
-function _writeJsonl(string $logDir, array $record): void
-{
-    $line = [
-        'timestamp' => date('Y-m-d H:i:s'),
-    ] + $record;
-    $jsonlFile = $logDir . '/api_' . date('Y-m-d') . '.jsonl';
-    $content = json_encode($line, JSON_UNESCAPED_UNICODE) . "\n";
-    file_put_contents($jsonlFile, $content, FILE_APPEND | LOCK_EX);
 }
