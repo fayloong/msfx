@@ -14,6 +14,8 @@ class Database
         $this->db->enableExceptions(true);
         $this->db->exec('PRAGMA journal_mode=WAL');
         $this->db->exec('PRAGMA foreign_keys=ON');
+        // 撞写锁时等待最多 30s 而非立即报错（cron 脚本与 fetch_bills 每半小时写库时间窗可能重叠）
+        $this->db->busyTimeout(30000);
     }
 
     public static function getInstance(): self

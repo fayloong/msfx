@@ -117,41 +117,21 @@ class ApiClient
         }
 
         $respArray = json_decode(json_encode($result['data'], JSON_UNESCAPED_UNICODE), true);
-        $found = !(isset($respArray['result']['msg_code']) && $respArray['result']['msg_code'] === 'FAIL_BIZ_NO_PAT_INFO');
 
-        return ['found' => $found, 'response' => $respArray, 'error' => ''];
+        return ['found' => self::isBillFound($respArray), 'response' => $respArray, 'error' => ''];
     }
 
     /**
-     * 从 searchbilldetail 响应解析单据申报的追溯码数量（数量对账用）。
+     * 判定 searchbilldetail 响应是否表明单据在平台存在（数量对账/状态查询用）。
      *
-     * 结构: result.model.bill_chk_in_out_detail_list_d_t_o_list.billchkinoutdetaillistdtolist
-     *   - 单药品: 关联数组（键为字段名），取 min_pkg_count
-     *   - 多药品: 列表（键 0,1,2...），各药品 min_pkg_count 累加
-     *   - 单据不存在（FAIL_BIZ_NO_PAT_INFO）/ 结构缺失: 0
+     * 仅 msg_code=FAIL_BIZ_NO_PAT_INFO（信息不存在）视为未上传，其余响应（含其他业务错误码）
+     * 均视为单据存在——平台"信息不存在"是未上传的唯一判定依据。
      *
      * @param array|null $respArray searchBillDetail() 返回的 response（已解码数组，异常时为 null）
-     * @return int 单据申报的追溯码总数
+     * @return bool true=单据在平台存在，false=信息不存在（未上传）
      */
-    public static function sumBillDetailCount(?array $respArray): int
+    public static function isBillFound(?array $respArray): bool
     {
-        $dto = $respArray['result']['model']['bill_chk_in_out_detail_list_d_t_o_list']['billchkinoutdetaillistdtolist'] ?? null;
-        if (!is_array($dto) || empty($dto)) {
-            return 0;
-        }
-
-        // 单药品: 关联数组（键为字段名）
-        if (isset($dto['physic_name'])) {
-            return (int)($dto['min_pkg_count'] ?? 0);
-        }
-
-        // 多药品: 列表，累加各项
-        $sum = 0;
-        foreach ($dto as $item) {
-            if (is_array($item)) {
-                $sum += (int)($item['min_pkg_count'] ?? 0);
-            }
-        }
-        return $sum;
+        return !(isset($respArray['result']['msg_code']) && $respArray['result']['msg_code'] === 'FAIL_BIZ_NO_PAT_INFO');
     }
 }

@@ -78,6 +78,25 @@ class TaskFetcher
     }
 
     /**
+     * 拉取指定日期单据元数据（单号/日期/往来单位），不含追溯码明细。
+     * 数量对账用：仅需单据列表判断是否上传，避免重查询 wms_dzjg 追溯码明细。
+     *
+     * @param string|null $date 日期 Y-m-d，null 表示当天
+     * @return array<int, array{type: string, rq: string, djbh: string, erpbillcode: string, ent_name: string}>
+     */
+    public function fetchBillsMeta(?string $date = null): array
+    {
+        $date = $this->validateDate($date ?? date('Y-m-d'));
+        $sql = $this->buildCountQuery($date);
+        $results = $this->db->executeBatch($sql);
+        $rows = end($results);
+        if (!is_array($rows) || empty($rows)) {
+            return [];
+        }
+        return array_values($rows);
+    }
+
+    /**
      * 查询指定日期 SALEOUTMT/PURINMT 当天单据计数（fetch_bills 变化检测门卫用）。
      * 轻量查询，用于判断是否需要执行重查询 fetchBills。
      *

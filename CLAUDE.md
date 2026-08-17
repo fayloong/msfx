@@ -72,7 +72,7 @@ root/
 │   ├── fetch_bills.php           # cron 从 SQL Server 采集单据写入上传队列
 │   ├── upload_pending.php        # cron 批量上传队列中等待中的任务
 │   ├── check_bill_status.php     # 批量查询单据上传状态
-│   ├── check_quantity.php        # 数量对账：核对单据追溯码是否完整上传（SQL Server 基线 vs 平台申报数，只检查不补传）
+│   ├── check_quantity.php        # 上传检查：核对单据是否已上传到平台（只查是否上传，不比对数量，只检查不补传）
 │   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志与已完成任务
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列）
 │   ├── init_db.php               # 初始化 SQLite 数据库及表结构
@@ -82,7 +82,7 @@ root/
 │   └── fetch_bill_counter.json   # fetch_bills 变化检测门卫基线（当天单据计数）
 ├── tests/
 │   ├── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php）
-│   └── quantity_check_test.php   # ApiClient::sumBillDetailCount 自包含断言测试（php tests/quantity_check_test.php）
+│   └── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
 ├── logs/                         # API 日志 JSONL 文件
 ├── upload_test.php               # 原始上传脚本（旧版，保留参考）
 ├── get_ent_list_test.php         # 原始往来单位同步脚本（旧版）
@@ -131,7 +131,7 @@ root/
 `last_checked_at` 更新规则：API 查询成功（含"信息不存在"）和"已确认在平台跳过"（标记任务已处理时）都会 touch；仅 API 异常不 touch，下次 cron 自动重查。新采集/新建任务的 `last_checked_at` 为 NULL，天然立即查。
 
 ### 数量对账（check_quantity.php）
-定位：外部系统负责上传时，本项目只检查上传情况、不补传。以 SQL Server 为"应有码"基线（复用 `TaskFetcher::fetchBills()` 查询，不写库），逐单依次查询平台原始单号 → `_1` → `_2`...（**原始单号查不到仍继续查拆分子单**，直到拆分子单也查不到为止，上限 10 次；原始单号已传齐时提前结束）的申报数量并汇总（`ApiClient::sumBillDetailCount()` 解析 `min_pkg_count`，单药品关联数组/多药品列表两种结构），与本地应有码数对比。相等零记录；不相等（含平台完全查不到，actual=0）写 `upload_logs`（`response_status='数量不符'`，source=`quantity_check`，response 存 `{djbh, rq, expected, actual, sub_bills}`）＋ JSONL，Web 失败记录页可见；API 异常跳过该单不误报。**幂等**：同单同日期已有数量不符记录时 UPDATE 而非重复插入（限流熔断后下次运行重查不产生重复告警）。API 间隔 1s；平台限流（App Call Limited）时**本轮熔断**，剩余单据下次运行自动重查。cron 每天一次，默认检查昨天（参数可指定日期）。该检查顺带修正 check_bill_status 的盲区：外部系统拆分上传后原始单号查不到被误判"未上传"的场景，数量对账的运行时子单查询能识别子单已传齐。
+定位：外部系统负责上传时，本项目只检查上传情况、不补传。以 SQL Server 单据列表为基线（复用 `TaskFetcher::fetchBillsMeta()` 轻量查询，不写库），逐单依次查询平台原始单号 → `_1` → `_2`...（**原始单号查不到仍继续查拆分子单**，直到拆分子单也查不到为止，上限 10 次；原始单号查到时提前结束，不查子单）判定单据是否已上传（`ApiClient::isBillFound()`：仅 `FAIL_BIZ_NO_PAT_INFO` 视为未上传）。**只查是否上传，不比对申报数量**（历史结论：平台 `min_pkg_count` 是最小包装数而非追溯码数，中包装码/件码按件内盒数展开申报，与本地码数量纲不同，数量对比必然误报，故退化）。未上传写 `upload_logs`（`response_status='信息不存在'`，source=`quantity_check`，response 存 `{djbh, rq, status}`）＋ JSONL，Web 失败记录页可见；已上传不写记录。**幂等**：每单先清理该单旧的 quantity_check 记录再按新判定写入（限流熔断后下次运行重查不产生重复/残留记录，历史"数量不符"误报随重跑自动清除）。API 间隔 1s；平台限流（App Call Limited）时**本轮熔断**，剩余单据下次运行自动重查。**运行时机**：必须避开 check_bill_status（8-20 点每 5 分钟一轮）的调用窗口，否则并发触发平台限流，cron 建议 20 点后每天一次，默认检查昨天（参数可指定日期）。该检查顺带修正 check_bill_status 的盲区：外部系统拆分上传后原始单号查不到被误判"未上传"的场景，数量对账的运行时子单查询能识别子单已传齐。
 
 ### 手动上传（Web 端）
 
@@ -185,7 +185,7 @@ root/
 | rq | TEXT | 单据日期（回填自 upload_tasks 或 SQL Server） |
 | source | TEXT | cron/manual/batch_check/batch_retry/quantity_check |
 | request_status | TEXT | 请求成功/请求失败 |
-| response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定/数量不符 |
+| response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定 |
 | response | TEXT | API 返回内容 |
 | created_at | TEXT | 任务创建时间（API 调用时间） |
 | updated_at | TEXT | 最后更新时间 |
@@ -247,7 +247,8 @@ php /usr/share/nginx/mashangfangxin/scripts/init_db.php
 php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "SELECT * FROM upload_tasks ORDER BY id DESC LIMIT 10"
 php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "UPDATE upload_tasks SET task_status='已处理' WHERE id=1"
 
-# 数量对账：核对指定日期单据的追溯码是否完整上传（默认昨天；数量不符写入 upload_logs '数量不符'，Web 失败记录页可见）
+# 上传检查：核对指定日期单据是否已上传到平台（默认昨天；未上传写入 upload_logs '信息不存在'，Web 失败记录页可见）
+# 注意: 只能在 20:00 后运行（避开 check_bill_status 8-20 点的调用窗口，否则并发触发平台限流）
 php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php
 php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php 2026-08-16
 
