@@ -56,6 +56,10 @@ layout('上传任务', 'upload-tasks');
                 <input type="text" class="form-control" id="filter-created-range" placeholder="选择日期范围" readonly>
             </div>
             <div class="col-md-3 d-flex gap-2 align-items-end">
+                <button class="btn btn-outline-primary btn-sm" id="btn-export" title="按当前筛选条件导出 xlsx">
+                    <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/></svg>
+                    导出 xlsx
+                </button>
                 <button class="btn btn-primary btn-sm" id="btn-refresh" title="刷新">
                     <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
                     刷新
@@ -231,6 +235,7 @@ layout('上传任务', 'upload-tasks');
 (function() {
     let currentPage = 1;
     let selectedIds = new Set();
+    let total = 0;
 
     const today = new Date();
     const weekAgo = new Date(today);
@@ -321,6 +326,7 @@ layout('上传任务', 'upload-tasks');
         try {
             const resp = await fetch('index.php?page=api&action=tasks&' + params.toString());
             const data = await resp.json();
+            total = data.total || 0;
             renderTable(data.data || []);
             renderPagination(data);
         } catch (e) {
@@ -519,6 +525,42 @@ layout('上传任务', 'upload-tasks');
 
     // 事件绑定
     document.getElementById('btn-refresh').addEventListener('click', () => loadData());
+
+    // 导出 xlsx：按当前筛选条件全量导出（无数据时不发请求）
+    async function exportXlsx() {
+        if (!total) { alert('当前筛选条件下无数据可导出'); return; }
+        const btn = document.getElementById('btn-export');
+        const params = getFilters();
+        params.delete('page_num');
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '导出中...';
+        try {
+            const resp = await fetch('index.php?page=api&action=export&type=tasks&' + params.toString());
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => null);
+                alert('导出失败: ' + (err && err.error ? err.error : 'HTTP ' + resp.status));
+                return;
+            }
+            const blob = await resp.blob();
+            const cd = resp.headers.get('Content-Disposition') || '';
+            const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = m ? decodeURIComponent(m[1]) : 'export.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert('导出失败: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        }
+    }
+    document.getElementById('btn-export').addEventListener('click', exportXlsx);
     document.getElementById('select-all').addEventListener('change', function() {
         document.querySelectorAll('.row-checkbox').forEach(cb => {
             cb.checked = this.checked;

@@ -51,7 +51,8 @@ root/
 │   │   ├── logs_batch_delete.php # 批量删除日志记录
 │   │   ├── manual_create.php     # 手动创建任务并立即上传
 │   │   ├── manual_import.php     # xlsx 导入批量创建并上传
-│   │   └── template_download.php # 下载 xlsx 导入模板
+│   │   ├── template_download.php # 下载 xlsx 导入模板
+│   │   └── export.php            # 按当前筛选条件导出 xlsx（流式生成，内存 O(1)）
 │   └── views/                    # 页面视图（PHP 模板）
 │       ├── layout.php            # 全局布局（左侧菜单 + 顶栏）
 │       ├── login.php             # 登录页
@@ -96,10 +97,13 @@ root/
 | `failed` | `views/failed.php` | 失败记录 |
 | `manual-upload` | `views/manual_upload.php` | 手动上传 |
 | `api` | `api/{action}.php` | AJAX API 端点 |
+| `export` | `api/export.php` | 导出 xlsx（`type=tasks/uploaded/failed` + 与列表 API 一致的筛选参数） |
 
 所有页面（除 login 和 api）需要登录。API 端点内部自行处理认证。
 
 三个数据页面（upload-tasks / uploaded / failed）均支持筛选：单号、往来单位、状态、**单据日期**（`rq`）、**任务创建时间**（`created_at`）。日期筛选使用 flatpickr 范围选择器，一个输入框同时选起止日期，默认最近 7 天（含当天）。**关键词检索（单号/往来单位）不受默认日期范围限制**：输入关键词时若日期选择器仍是默认 7 天（用户未手动改过），前端自动不传日期参数实现全库检索；用户手动改过日期则关键词+日期正常组合过滤。分页最多显示 10 个页码，超出用省略号。
+
+三个数据页工具栏均有"导出 xlsx"按钮：按当前生效筛选条件全量导出（前端已计算关键词忽略默认日期后的参数）。导出走 `api/export.php`，**流式生成**（sheet XML 逐行写临时文件 + ZipArchive 打包，不用 PhpSpreadsheet 避免全量驻留内存）；单格超 32767 字符截断（追溯码追加 `…(共N个码)`，其余列追加 `…(已截断)`）；无匹配数据时前端拦截提示、后端仍输出带表头的空文件。导出列与页面表格对齐（来源列导出机器值 cron/manual/...，单据类型导出归一化 3 位码），文件名 `上传任务/已上传/失败记录_YYYY-MM-DD.xlsx`。
 
 ## 核心数据流
 

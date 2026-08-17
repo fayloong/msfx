@@ -46,6 +46,10 @@ layout('失败记录', 'failed');
                 <input type="text" class="form-control" id="rq-range" placeholder="选择日期范围" readonly>
             </div>
             <div class="col-md-3 d-flex gap-2 align-items-end">
+                <button class="btn btn-outline-danger btn-sm" id="btn-export" title="按当前筛选条件导出 xlsx">
+                    <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708z"/></svg>
+                    导出 xlsx
+                </button>
                 <button class="btn btn-primary btn-sm" id="btn-refresh" title="刷新">
                     <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
                     刷新
@@ -211,6 +215,7 @@ layout('失败记录', 'failed');
 <script>
 (function() {
     let page = 1;
+    let total = 0;
     const today = new Date();
     const weekAgo = new Date(today);
     weekAgo.setDate(today.getDate() - 6);
@@ -277,8 +282,8 @@ layout('失败记录', 'failed');
     let selectedTaskIds = new Set();  // upload_tasks.id (for retry — only non-zero)
     let confirmCb = null;
 
-    async function load() {
-        const params = new URLSearchParams({page_num: page});
+    function buildParams() {
+        const params = new URLSearchParams();
         const hasKeyword = !!document.getElementById('djbh').value.trim()
             || !!document.getElementById('ent-name').value.trim();
         ['djbh','ent-name','response-status','filter-source'].forEach(id => {
@@ -296,6 +301,12 @@ layout('失败记录', 'failed');
         if (dt && !ignoreDefaultRq) params.set('date_to', dt);
         if (rf) params.set('rq_from', rf);
         if (rt) params.set('rq_to', rt);
+        return params;
+    }
+
+    async function load() {
+        const params = buildParams();
+        params.set('page_num', page);
         try {
             const resp = await fetch('index.php?page=api&action=failed&' + params);
             const data = await resp.json();
@@ -305,6 +316,7 @@ layout('失败记录', 'failed');
 
     function render(data) {
         const tbody = document.getElementById('tbody');
+        total = data.total || 0;
         if (!data.data || !data.data.length) {
             tbody.innerHTML = '<tr><td colspan="13" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
@@ -459,6 +471,41 @@ layout('失败记录', 'failed');
     function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
     document.getElementById('btn-refresh').addEventListener('click', () => load());
+
+    // 导出 xlsx：按当前筛选条件全量导出（无数据时不发请求）
+    async function exportXlsx() {
+        if (!total) { alert('当前筛选条件下无数据可导出'); return; }
+        const btn = document.getElementById('btn-export');
+        const params = buildParams();
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '导出中...';
+        try {
+            const resp = await fetch('index.php?page=api&action=export&type=failed&' + params.toString());
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => null);
+                alert('导出失败: ' + (err && err.error ? err.error : 'HTTP ' + resp.status));
+                return;
+            }
+            const blob = await resp.blob();
+            const cd = resp.headers.get('Content-Disposition') || '';
+            const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = m ? decodeURIComponent(m[1]) : 'export.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert('导出失败: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        }
+    }
+    document.getElementById('btn-export').addEventListener('click', exportXlsx);
     document.getElementById('select-all').addEventListener('change', function() {
         document.querySelectorAll('.row-cb').forEach(cb => {
             cb.checked = this.checked;
