@@ -89,6 +89,10 @@ CLAUDE.md 更新：架构图 `scripts/` 列表、常用命令新增 `check_quant
 ## Out of Scope
 
 - 追溯码级明细对账（`querycodeactive` 逐码查询）——数量对账发现不符后由人工处理
+  - **实测结论（2026-08-17）**：`upbill.detail.withcode` 与 `querycodeactive` 均无法返回码级明细：
+    - `upbill.detail.withcode` 是收货企业视角（`refEntId` 必须 = `toRefUserId`）；查外部系统上传的单（收货≠自己）报 `FAIL_BIZ_AUTH_ERROR`（收货企业未授权本 AppKey）；查本地上传的入库单（收货=自己）返回 SUCCESS 但无 model 明细（疑似委托业务 `agentRefEntId` 数据域，与 Uploadinoutbill 上传的数据不互通）
+    - `querycodeactive` 对真实已上传的码返回 SUCCESS 但无状态列表
+    - 如需码级核对：先向阿里健康开放平台确认上述两接口的正确调用方式（可能需轮询/下载机制或新增参数），或让外部系统提供其上传的码清单做本地 diff
 - 补传缺码（Web 一键补传 / 自动补传）——定位为"只检查告警"，避免与外部系统并发上传冲突
 - 修改 `check_bill_status.php` / LogWriter / 前端页面——零 UI 改动
 - 拆分映射表（原始单号 ↔ 子单持久化）——由"逐次查询直到查不到"的运行时策略替代
