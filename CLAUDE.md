@@ -34,7 +34,7 @@ root/
 │   ├── Database.php              # SQLite 数据库封装（单例）
 │   ├── Auth.php                  # 单用户 session 认证
 │   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索），区分网络/业务错误
-│   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数）
+│   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合）
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）
 │   ├── TraceSplitter.php         # 导出拆行：追溯码按字符数拆多行（每行 ≤32000 字符）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
@@ -47,7 +47,7 @@ root/
 │   │   ├── tasks_batch_delete.php # 批量删除上传任务
 │   │   ├── tasks_batch_retry.php  # 批量重传
 │   │   ├── uploaded.php          # 已上传记录列表（upload_logs success=1）
-│   │   ├── failed.php            # 失败记录列表（排除该单号已有上传成功/单据重复记录的日志行）
+│   │   ├── failed.php            # 失败记录列表（排除该单号已有上传成功/单据重复记录的日志行；quantity_check 来源记录豁免——数量对账仅查已上传成功单，若不豁免会被 NOT EXISTS 全隐藏，告警出口失效）
 │   │   ├── logs_delete.php       # 删除单条日志记录
 │   │   ├── logs_batch_delete.php # 批量删除日志记录
 │   │   ├── manual_create.php     # 手动创建任务并立即上传
@@ -83,7 +83,9 @@ root/
 │   └── fetch_bill_counter.json   # fetch_bills 变化检测门卫基线（当天单据计数）
 ├── tests/
 │   ├── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php）
-│   └── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
+│   ├── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
+│   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
+│   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
 ├── logs/                         # API 日志 JSONL 文件
 ├── upload_test.php               # 原始上传脚本（旧版，保留参考）
 ├── get_ent_list_test.php         # 原始往来单位同步脚本（旧版）
@@ -141,13 +143,13 @@ root/
 | fetch_bills（采集） | `0,30 0,1,2,3,8-23 * * *` | 写库与检查脚本的 SQLite 锁冲突由 busyTimeout(30s) 兜底 |
 | check_bill_status（来源 1） | `*/5 8-20 * * *` | 高频确认新单 |
 | check_failed_logs（来源 2） | `40 20 * * *` | 20:40，fetch_bills 20:30 轮已结束、21:00 轮未到 |
-| check_quantity（数量对账） | `10 21 * * *` | 21:10，fetch_bills 21:00/21:30 两轮之间 |
+| check_quantity（数量对账） | `10 21 * * *` | 21:10，fetch_bills 21:00/21:30 两轮之间；数量对比（shl vs min_pkg_count 求和），~650 单约 13 分钟 |
 | cleanup_logs | `0 3 * * *` | 清理 3 个月前的日志 |
 
 覆盖保证：任何单据最终都会被查到平台状态（等待上传 ≤30 分钟 / 失败记录 ≤24h / SQL Server 全量 ≤24h）。check_quantity 与 check_failed_logs 不得改到 8-20 点窗口内运行（与 check_bill_status 并发调同一 AppKey 立即触发平台限流）。
 
 ### 数量对账（check_quantity.php）
-定位：外部系统负责上传时，本项目只检查上传情况、不补传。以 SQL Server 单据列表为基线（复用 `TaskFetcher::fetchBillsMeta()` 轻量查询，不写库），逐单依次查询平台原始单号 → `_1` → `_2`...（**原始单号查不到仍继续查拆分子单**，直到拆分子单也查不到为止，上限 10 次；原始单号查到时提前结束，不查子单）判定单据是否已上传（`ApiClient::isBillFound()`：仅 `FAIL_BIZ_NO_PAT_INFO` 视为未上传）。**只查是否上传，不比对申报数量**（历史结论：平台 `min_pkg_count` 是最小包装数而非追溯码数，中包装码/件码按件内盒数展开申报，与本地码数量纲不同，数量对比必然误报，故退化）。未上传写 `upload_logs`（`response_status='信息不存在'`，source=`quantity_check`，response 存 `{djbh, rq, status}`）＋ JSONL，Web 失败记录页可见；已上传不写记录。**幂等**：每单先清理该单旧的 quantity_check 记录再按新判定写入（限流熔断后下次运行重查不产生重复/残留记录，历史"数量不符"误报随重跑自动清除）。API 间隔 1s；平台限流（App Call Limited）时**本轮熔断**，剩余单据下次运行自动重查。**运行时机**：必须避开 check_bill_status（8-20 点每 5 分钟一轮）的调用窗口，否则并发触发平台限流，cron 配 21:10 每天一次（详见上方 cron 时间表），默认检查昨天（参数可指定日期）。该检查顺带修正 check_bill_status 的盲区：外部系统拆分上传后原始单号查不到被误判"未上传"的场景，数量对账的运行时子单查询能识别子单已传齐。
+定位：外部系统负责上传时，本项目只检查上传情况、不补传。**查询范围仅针对 check_bill_status 已检查过且状态是"上传成功"的单据**（upload_logs `source='batch_check' AND response_status='上传成功'`，按 rq 筛选）——未上传的单据由 check_bill_status 以任务状态（等待上传）反映，数量对账不重复查询/告警。逐单依次查询平台原始单号 → `_1` → `_2`...（上限 10 次），跨拆分子单累加平台申报数量（`ApiClient::sumBillDetailCount()`：累加 `min_pkg_count`），与本地应有数量对比（`TaskFetcher::fetchBillQuantitiesByCodes()`：明细视图 `SUM(shl)` 聚合，轻量查询不写库）。**比较口径统一为最小包装单位数**：本地 `shl` 即"已展开的最小包装单位数"（整件行 `shl = baozhshl × jlgg`、零散行 `shl = lingsshl`，见 ADR 0004——推翻早期"两数量纲无法统一"结论）。**基线剔除本地非药品行**（jixing 含商品/食品/消杀/用品/器械/化妆品/消毒剂/敷料/试剂/材料/设备等，spkfk 查不到剂型的行保守保留）——平台是药品追溯平台，外部系统按平台规则不申报非药品（实测 08-15 有 16 条"数量不符"纯属此类）。**查询策略"相等即停，不等查尽"**：原始单号查到且数量相等即停（未拆分大头单 1 次调用）；原始单号查不到或数量不等继续查子单，防止"原单号+拆分并存"漏计。**判定**：`actual ≠ expected` → `数量不符`（非成功状态，Web 失败记录页天然可见，response 存 `{djbh, rq, expected, actual, sub_bills:[{djbh, count}]}`）；相等 → 传齐零记录；全序列查不到 → `信息不存在`（防御分支：batch_check 已确认上传成功但平台查不到）。**已知假阳性类别（运维看到"数量不符"时优先怀疑）**：本地零售规格 ≠ 平台生产规格的药品（氨咖黄敏胶囊 本地 10粒/盒 → 50 盒 vs 平台 500粒/盒 → 1；青霉素钠 20 瓶 vs 平台 1 盒）——本地 shl 按本地最小包装（零售规格）计数、平台按注册规格（生产包装）申报，同数量不同包装数，机制本身已验证精确（实测单 19 行中 18 行逐行相等）。**无法核对跳过**（不写任何记录）：本地 `SUM(shl)` 为 NULL（明细视图无行）、平台响应解析失败（`sumBillDetailCount` 返回 null）——不误报。**幂等**：每轮先清理目标日期全部 quantity_check 记录再按新判定写入（限流熔断后下次运行重查不产生重复/残留记录，历史"数量不符"误报随重跑自动清除）。API 间隔 1s；平台限流（App Call Limited）时**本轮熔断**，剩余单据下次运行自动重查。**运行时机**：必须避开 check_bill_status（8-20 点每 5 分钟一轮）的调用窗口，否则并发触发平台限流，cron 配 21:10 每天一次（详见上方 cron 时间表），默认检查昨天（参数可指定日期）。该检查顺带修正 check_bill_status 的盲区：外部系统拆分上传后原始单号查不到被误判"未上传"的场景，数量对账的运行时子单查询能识别子单已传齐。
 
 ### 手动上传（Web 端）
 
@@ -184,7 +186,7 @@ root/
 | source | TEXT | cron/manual/batch_check/batch_retry |
 | bill_type | TEXT | 单据类型码（3 位数字，兼容旧字母前缀如 XSO；读取时经 `App\BillType::normalize` 归一化） |
 | request_status | TEXT | 请求成功/请求失败 |
-| response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定 |
+| response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定（任务表不产生"数量不符"，该状态仅 quantity_check 写 upload_logs） |
 | resp | TEXT | API 返回内容 |
 | created_at | TEXT | 任务创建时间（写入 SQLite 的时间） |
 | updated_at | TEXT | 最后更新时间 |
@@ -201,7 +203,7 @@ root/
 | rq | TEXT | 单据日期（回填自 upload_tasks 或 SQL Server） |
 | source | TEXT | cron/manual/batch_check/batch_retry/quantity_check |
 | request_status | TEXT | 请求成功/请求失败 |
-| response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定 |
+| response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定/数量不符（quantity_check 专用） |
 | response | TEXT | API 返回内容 |
 | created_at | TEXT | 任务创建时间（API 调用时间） |
 | updated_at | TEXT | 最后更新时间 |
@@ -266,7 +268,7 @@ php /usr/share/nginx/mashangfangxin/scripts/init_db.php
 php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "SELECT * FROM upload_tasks ORDER BY id DESC LIMIT 10"
 php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "UPDATE upload_tasks SET task_status='已处理' WHERE id=1"
 
-# 上传检查：核对指定日期单据是否已上传到平台（默认昨天；未上传写入 upload_logs '信息不存在'，Web 失败记录页可见）
+# 数量对账：核对指定日期单据申报数量是否传齐（默认昨天；三分支判定：传齐零记录/数量不符/未上传）
 # 注意: 只能在 20:00 后运行（避开 check_bill_status 8-20 点的调用窗口，否则并发触发平台限流；cron 已配 21:10）
 php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php
 php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php 2026-08-16
@@ -274,6 +276,9 @@ php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php 2026-08-16
 # 运行单元测试
 php /usr/share/nginx/mashangfangxin/tests/trace_splitter_test.php
 php /usr/share/nginx/mashangfangxin/tests/quantity_check_test.php
+
+# 查询单号在码上放心平台的上传状态（searchbill.detail；输出 JSON + 另存 tests/searchbill_<单号>.json）
+php /usr/share/nginx/mashangfangxin/tests/search_bill_test.php XSOWMS00997501
 
 # 网页访问（需要登录，密码见 .env ADMIN_PASSWORD）
 http://192.168.2.189:8188

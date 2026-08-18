@@ -1,0 +1,92 @@
+{
+    "bill_code": "XSOWMS00997232",
+    "found": true,
+    "error": "",
+    "response": {
+        "result": {
+            "model": {
+                "bill_chk_in_out_detail_list_d_t_o_list": {
+                    "billchkinoutdetaillistdtolist": [
+                        {
+                            "approve_no": "国药准字H44023311",
+                            "drug_ent_base_info_id": "00000000000005075502",
+                            "expired_date": "2028-02-29 00:00:00",
+                            "min_pkg_count": "1",
+                            "min_preparations_count": "20",
+                            "physic_name": "注射用头孢拉定 注射剂 0.5g(含精氨酸)",
+                            "physic_type": "3",
+                            "physic_type_name": "普通药品",
+                            "preparations_unit": "瓶",
+                            "prod_code": "1107355001",
+                            "produce_date": "2026-03-31 00:00:00",
+                            "produce_ent_name": "广州白云山天心制药股份有限公司",
+                            "product_batch_no": "260357",
+                            "product_code": "1107355",
+                            "temp_pkg_spec": "20瓶/盒"
+                        },
+                        {
+                            "approve_no": "国药准字H20056546",
+                            "drug_ent_base_info_id": "6602c2eee4b06ebc21315bda",
+                            "expired_date": "2027-08-31 00:00:00",
+                            "min_pkg_count": "3",
+                            "min_preparations_count": "3",
+                            "physic_name": "氨基酸注射液 注射剂 500ml：25g（总氨基酸）",
+                            "physic_type": "3",
+                            "physic_type_name": "普通药品",
+                            "preparations_unit": "瓶",
+                            "prod_code": "9500046990",
+                            "produce_date": "2025-09-17 00:00:00",
+                            "produce_ent_name": "广东利泰制药股份有限公司",
+                            "product_batch_no": "1125091004",
+                            "product_code": "9500046",
+                            "temp_pkg_spec": "1瓶/盒"
+                        },
+                        {
+                            "approve_no": "国药准字H44024196",
+                            "drug_ent_base_info_id": "0a65d6a4c13544b3ab506485c119a09b",
+                            "expired_date": "2028-04-30 00:00:00",
+                            "min_pkg_count": "10",
+                            "min_preparations_count": "500",
+                            "physic_name": "氯芬黄敏片 片剂 ---",
+                            "physic_type": "3",
+                            "physic_type_name": "普通药品",
+                            "preparations_unit": "片",
+                            "prod_code": "9211835001",
+                            "produce_date": "2025-05-27 00:00:00",
+                            "produce_ent_name": "广州白云山明兴制药有限公司",
+                            "product_batch_no": "1250523",
+                            "product_code": "9211835",
+                            "temp_pkg_spec": "50片/瓶"
+                        },
+                        {
+                            "approve_no": "国药准字Z44021243",
+                            "drug_ent_base_info_id": "322444e005fd48b2bc3cf08ff2795cd7",
+                            "expired_date": "2027-05-31 00:00:00",
+                            "min_pkg_count": "2",
+                            "min_preparations_count": "12",
+                            "physic_name": "野木瓜注射液 注射剂 2ml",
+                            "physic_type": "3",
+                            "physic_type_name": "普通药品",
+                            "preparations_unit": "支",
+                            "prod_code": "9111323002",
+                            "produce_date": "2025-06-30 00:00:00",
+                            "produce_ent_name": "广东新峰药业股份有限公司",
+                            "product_batch_no": "250602",
+                            "product_code": "9111323",
+                            "temp_pkg_spec": "6支/盒"
+                        }
+                    ]
+                },
+                "bill_code": "XSOWMS00997232",
+                "bill_time": "2026-08-15",
+                "bill_type": "201",
+                "from_ent_name": "河药医药（河源）有限公司",
+                "to_ent_name": "和平县医共体东水分院上坝村卫生站"
+            },
+            "msg_code": "SUCCESS",
+            "msg_info": "调用成功",
+            "response_success": "true"
+        },
+        "request_id": "15qw509upxo7d"
+    }
+}

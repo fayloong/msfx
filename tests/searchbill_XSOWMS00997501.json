@@ -1,0 +1,13 @@
+{
+    "bill_code": "XSOWMS00997501",
+    "found": false,
+    "error": "",
+    "response": {
+        "result": {
+            "msg_code": "FAIL_BIZ_NO_PAT_INFO",
+            "msg_info": "信息不存在",
+            "response_success": "false"
+        },
+        "request_id": "15r2zboxjvzvz"
+    }
+}

@@ -134,4 +134,37 @@ class ApiClient
     {
         return !(isset($respArray['result']['msg_code']) && $respArray['result']['msg_code'] === 'FAIL_BIZ_NO_PAT_INFO');
     }
+
+    /**
+     * 汇总 searchbilldetail 响应的平台申报数量（最小包装单位数，数量对账用）。
+     *
+     * 累加各药品行的 min_pkg_count（单药品=关联数组、多药品=列表两种结构都支持）。
+     * 返回 null 表示无法核对：响应无明细结构（含信息不存在）、或任一行缺 min_pkg_count
+     * ——缺字段不按 0 处理，防止解析异常伪装成"数量不符"差异。
+     *
+     * @param array|null $respArray searchBillDetail() 返回的 response（已解码数组，异常时为 null）
+     * @return int|null 平台申报的最小包装单位总数；无法核对时为 null
+     */
+    public static function sumBillDetailCount(?array $respArray): ?int
+    {
+        $list = $respArray['result']['model']['bill_chk_in_out_detail_list_d_t_o_list']['billchkinoutdetaillistdtolist'] ?? null;
+        if (!is_array($list) || empty($list)) {
+            return null;
+        }
+
+        // 单药品=关联数组（含 min_pkg_count 等字段），多药品=列表
+        if (isset($list['min_pkg_count'])) {
+            $list = [$list];
+        }
+
+        $total = 0;
+        foreach ($list as $item) {
+            if (!is_array($item) || !isset($item['min_pkg_count']) || !is_numeric($item['min_pkg_count'])) {
+                return null;
+            }
+            $total += (int)$item['min_pkg_count'];
+        }
+
+        return $total;
+    }
 }

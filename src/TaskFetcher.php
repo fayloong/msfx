@@ -4,6 +4,11 @@ namespace App;
 
 class TaskFetcher
 {
+    /** 非药品剂型关键词：含这些词的 jixing 行（消杀用品/器械/商品/食品等）平台药品追溯不申报，数量对账基线剔除 */
+    private const NON_DRUG_JIXING_KEYWORDS = [
+        '商品', '食品', '消杀', '用品', '器械', '化妆品', '消毒剂', '敷料', '试剂', '材料', '设备',
+    ];
+
     private \SqlSrvHelper $db;
 
     public function __construct(?array $config = null)
@@ -94,6 +99,90 @@ class TaskFetcher
             return [];
         }
         return array_values($rows);
+    }
+
+    /**
+     * 拉取指定日期单据的本地应有数量基线（最小包装单位数，数量对账用）。
+     *
+     * 以 fetchBillsMeta 单据列表为基线，逐单聚合明细视图 SUM(shl)，返回结构与基线一一对应。
+     *
+     * @param string $date 日期 Y-m-d
+     * @return array<int, array{type: string, rq: string, djbh: string, erpbillcode: string, ent_name: string, expected: int|null}>
+     *         expected 为 null 表示该单在明细视图无行（SUM(shl) 为 NULL），无法核对，上层应跳过不误报
+     */
+    public function fetchBillQuantities(string $date): array
+    {
+        $bills = $this->fetchBillsMeta($date);
+        if (empty($bills)) {
+            return [];
+        }
+        $expectedMap = $this->fetchBillQuantitiesByCodes(array_column($bills, 'djbh'));
+        foreach ($bills as &$bill) {
+            $bill['expected'] = $expectedMap[$bill['djbh']] ?? null;
+        }
+        unset($bill);
+        return $bills;
+    }
+
+    /**
+     * 按单号列表聚合本地应有数量（最小包装单位数，数量对账用）。
+     *
+     * 从明细视图聚合 SUM(shl)：
+     * - 出库侧：v_pf_phlrmx 按 djbh 分组（覆盖 XSO 销售出库/JHO 退货出库）
+     * - 入库侧：v_sjdmx_mx 按 ysdjbh 分组（入库单号在 ysdjbh 列，djbh 是 JHI 前缀临时单，
+     *   沿用 fetchBillsMeta 的 join 模式）
+     * 用单号 IN 列表聚合而非 rq 日期过滤——rq 字符串比较在明细视图上不可靠（实测
+     * BETWEEN 返回空而单条 djbh 查询正常），IN 列表与单据基线天然一致。
+     *
+     * shl 即"已展开的最小包装单位数"（整件行 shl = baozhshl × jlgg、零散行 shl = lingsshl），
+     * 与平台 searchbill.detail 的 min_pkg_count 同量纲，可直接对比（见 ADR 0004）。
+     * 非药品行（jixing 含消杀/器械/商品/食品等，spkfk 查不到剂型的行保守保留）从聚合中剔除——
+     * 平台是药品追溯平台，外部系统按平台规则不申报非药品（实测 08-15 有 16 条"数量不符"纯属此类）。
+     *
+     * @param array<int, string> $djbhList 单据单号列表
+     * @return array<string, int|null> djbh => SUM(shl)；明细视图无行（SUM 为 NULL）时为 null（无法核对）
+     */
+    public function fetchBillQuantitiesByCodes(array $djbhList): array
+    {
+        if (empty($djbhList)) {
+            return [];
+        }
+
+        // 单号来自 SQL Server 信任域（字母数字），转义单引号后内插 IN 列表
+        $escaped = array_map(static fn ($djbh) => str_replace("'", "''", $djbh), $djbhList);
+        $inList = "'" . implode("','", $escaped) . "'";
+
+        $outResults = $this->db->query(
+            "SELECT m.djbh, SUM(m.shl) AS total
+             FROM skwms_new.dbo.v_pf_phlrmx m
+             LEFT JOIN skwms_new.dbo.spkfk s ON s.spid = m.spid
+             WHERE m.djbh IN ({$inList}) AND {$this->drugRowCondition()}
+             GROUP BY m.djbh"
+        );
+        $inResults = $this->db->query(
+            "SELECT m.ysdjbh AS djbh, SUM(m.shl) AS total
+             FROM skwms_new.dbo.v_sjdmx_mx m
+             LEFT JOIN skwms_new.dbo.spkfk s ON s.spid = m.spid
+             WHERE m.ysdjbh IN ({$inList}) AND {$this->drugRowCondition()}
+             GROUP BY m.ysdjbh"
+        );
+
+        $sumByDjbh = [];
+        foreach (array_merge($outResults, $inResults) as $row) {
+            $sumByDjbh[$row['djbh']] = (int)$row['total'];
+        }
+
+        return $sumByDjbh;
+    }
+
+    /** 药品行过滤条件 SQL 片段：jixing 不含非药品关键词（spkfk 查不到剂型时保守保留） */
+    private function drugRowCondition(): string
+    {
+        $parts = [];
+        foreach (self::NON_DRUG_JIXING_KEYWORDS as $kw) {
+            $parts[] = "s.jixing NOT LIKE '%{$kw}%'";
+        }
+        return '(s.jixing IS NULL OR (' . implode(' AND ', $parts) . '))';
     }
 
     /**

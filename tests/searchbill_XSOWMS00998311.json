@@ -1,0 +1,58 @@
+{
+    "bill_code": "XSOWMS00998311",
+    "found": true,
+    "error": "",
+    "response": {
+        "result": {
+            "model": {
+                "bill_chk_in_out_detail_list_d_t_o_list": {
+                    "billchkinoutdetaillistdtolist": [
+                        {
+                            "approve_no": "国药准字H20052214",
+                            "drug_ent_base_info_id": "00000000000004286503",
+                            "expired_date": "2027-10-06 00:00:00",
+                            "min_pkg_count": "20",
+                            "min_preparations_count": "120",
+                            "physic_name": "氯雷他定片 片剂 10mg",
+                            "physic_type": "3",
+                            "physic_type_name": "普通药品",
+                            "preparations_unit": "片",
+                            "prod_code": "1101795003",
+                            "produce_date": "2024-10-07 00:00:00",
+                            "produce_ent_name": "广东逸舒制药股份有限公司",
+                            "product_batch_no": "241002",
+                            "product_code": "1101795",
+                            "temp_pkg_spec": "6片/盒"
+                        },
+                        {
+                            "approve_no": "国药准字H44020618",
+                            "drug_ent_base_info_id": "66d96d05e4b0c539740eeb9f",
+                            "expired_date": "2027-12-04 00:00:00",
+                            "min_pkg_count": "30",
+                            "min_preparations_count": "1500",
+                            "physic_name": "诺氟沙星胶囊 胶囊剂 0.1g",
+                            "physic_type": "3",
+                            "physic_type_name": "普通药品",
+                            "preparations_unit": "粒",
+                            "prod_code": "9500056359",
+                            "produce_date": "2025-12-05 00:00:00",
+                            "produce_ent_name": "广东恒健制药有限公司",
+                            "product_batch_no": "251201",
+                            "product_code": "9500056",
+                            "temp_pkg_spec": "50粒/盒"
+                        }
+                    ]
+                },
+                "bill_code": "XSOWMS00998311",
+                "bill_time": "2026-08-17",
+                "bill_type": "201",
+                "from_ent_name": "河药医药（河源）有限公司",
+                "to_ent_name": "龙川县老隆镇下泡水市南卫生站二"
+            },
+            "msg_code": "SUCCESS",
+            "msg_info": "调用成功",
+            "response_success": "true"
+        },
+        "request_id": "15r0q9aeukm05"
+    }
+}

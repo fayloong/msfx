@@ -1,0 +1,44 @@
+{
+    "bill_code": "JHGWMS00062697",
+    "found": true,
+    "error": "",
+    "response": {
+        "result": {
+            "model": {
+                "bill_chk_in_out_detail_list_d_t_o_list": {
+                    "billchkinoutdetaillistdtolist": {
+                        "approve_no": "国药准字H20150042",
+                        "drug_ent_base_info_id": "d346a7379d434ac1a8970ce86f5bde70",
+                        "expired_date": "2027-12-31 00:00:00",
+                        "min_pkg_count": "600",
+                        "min_preparations_count": "7200",
+                        "physic_name": "盐酸左西替利嗪颗粒 颗粒剂 2.5mg",
+                        "physic_type": "3",
+                        "physic_type_name": "普通药品",
+                        "preparations_unit": "袋",
+                        "prod_code": "9224143003",
+                        "produce_date": "2026-01-16 00:00:00",
+                        "produce_ent_name": "康芝药业股份有限公司",
+                        "product_batch_no": "260106",
+                        "product_code": "9224143",
+                        "temp_pkg_spec": "12袋/盒"
+                    }
+                },
+                "bill_code": "JHGWMS00062697",
+                "bill_time": "2026-08-17",
+                "bill_type": "102",
+                "bill_type_name": "PurchaseWareHouseIn",
+                "from_ent_name": "广东康大药品营销有限公司",
+                "from_user_id": "00000000000023000132",
+                "mod_date": "2026-08-17 18:32:20",
+                "process_date": "2026-08-17 18:32:21",
+                "to_ent_name": "河药医药（河源）有限公司",
+                "to_user_id": "61e13892e4b07106fef61a2a"
+            },
+            "msg_code": "SUCCESS",
+            "msg_info": "调用成功",
+            "response_success": "true"
+        },
+        "request_id": "15rttw38o7pqv"
+    }
+}

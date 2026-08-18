@@ -16,6 +16,8 @@
 
 - **单号 (Bill Code)**：单据编号，如 `JHGWMS00061116`。cron 上传时前 3 位标识单据类型（XSO/XST/JHG/JHO）；手动上传时单据类型由用户从下拉菜单独立选择。拆分时衍生为 `单号_1, 单号_2...`。
 
+- **最小包装数 (Min Package Count)**：药品申报数量的统一量纲，即"已展开到最小包装单位"的数量（如盒装药品的最小包装数是盒内的最小销售单位数）。平台 `searchbill.detail` 返回的 `min_pkg_count` 即此量纲；本地对应 SQL Server 明细视图（出库 `v_pf_phlrmx`、入库 `v_sjdmx_mx`）的 `shl` 字段——整件行 `shl = baozhshl(包装数) × jlgg(件规格)`、零散行 `shl = lingsshl(零散数量)`。数量对账（check_quantity.php）以此为比较口径，与追溯码数不同量纲（件码按件内盒数展开，1 件码=5/10/200 盒）。详见 ADR 0004。
+
 ### 核心流程
 
 - **定时上传 (Cron Upload)**：分两步独立调度 —— `scripts/fetch_bills.php` 定时（当前 cron 每 30 分钟）从 SQL Server 采集单据写入 upload_tasks（source=cron, task_status=等待上传），采集带计数门卫（当天单据计数无变化则跳过）；`scripts/upload_pending.php` 读取所有等待上传任务（当前 crontab 未启用，手动触发），通过 UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速、追溯码超 3500 拆分）→ LogWriter 写 JSONL + SQLite。手动上传保持立即上传不变。

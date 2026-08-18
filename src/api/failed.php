@@ -19,9 +19,12 @@ $page = max(1, intval($_GET['page_num'] ?? 1));
 $perPage = 20;
 $offset = ($page - 1) * $perPage;
 
-// 排除该单号已有"上传成功/单据重复"记录的日志行——重传成功后旧失败记录不再显示
+// 排除该单号已有"上传成功/单据重复"记录的日志行——重传成功后旧失败记录不再显示。
+// 例外：quantity_check 来源的记录（数量对账"数量不符"告警）不受此约束——其单号必然存在
+// batch_check 的"上传成功"记录（数量对账仅查已上传成功单），若参与 NOT EXISTS 会被全部隐藏，
+// 导致告警出口（Web 失败记录页）失效。该来源记录在下次数量对账重跑时自动按新判定清理。
 $where = ["(upload_logs.request_status = '请求失败' OR upload_logs.response_status NOT IN ('上传成功', '单据重复'))",
-          "NOT EXISTS (SELECT 1 FROM upload_logs ok WHERE ok.djbh = upload_logs.djbh AND ok.response_status IN ('上传成功', '单据重复'))"];
+          "(upload_logs.source = 'quantity_check' OR NOT EXISTS (SELECT 1 FROM upload_logs ok WHERE ok.djbh = upload_logs.djbh AND ok.response_status IN ('上传成功', '单据重复')))"];
 $params = [];
 
 if (!empty($_GET['search'])) {
