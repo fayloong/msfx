@@ -85,6 +85,7 @@ root/
 │   ├── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php）
 │   ├── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
+│   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ pkg_amount == min_pkg_count 核心等式（设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
 ├── logs/                         # API 日志 JSONL 文件
 ├── upload_test.php               # 原始上传脚本（旧版，保留参考）
@@ -279,6 +280,10 @@ php /usr/share/nginx/mashangfangxin/tests/quantity_check_test.php
 
 # 查询单号在码上放心平台的上传状态（searchbill.detail；输出 JSON + 另存 tests/searchbill_<单号>.json）
 php /usr/share/nginx/mashangfangxin/tests/search_bill_test.php XSOWMS00997501
+
+# 码级对账探针：逐码调 singlerelation 验证 Σ pkg_amount == searchbill.detail min_pkg_count
+#（设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
+php /usr/share/nginx/mashangfangxin/tests/singlerelation_test.php XSOWMS00997406
 
 # 网页访问（需要登录，密码见 .env ADMIN_PASSWORD）
 http://192.168.2.189:8188
