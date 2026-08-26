@@ -4,11 +4,14 @@
  * 用法: php tests/singlerelation_test.php <单号> [--limit N] [--no-detail]
  *
  * 验证码级数量对账方案的核心等式（设计见 .scratch/quantity-check/singlerelation-tier2.md）：
- *   Σ singlerelation(本地每个追溯码).pkg_amount  ==  searchbill.detail 的 min_pkg_count
+ *   Σ singlerelation(本地每个追溯码).折算系数  ==  searchbill.detail 的 min_pkg_count
  *
- * pkg_amount = 该追溯码折算成平台"最小溯源单位"的系数（实测：大包装码=100，
- * 中包装码=5/20，本身就是最小溯源单位的码=1）；min_pkg_count 同为此口径。
- * 相等 = 本地单据的码全部申报且折算数一致（没漏传）。
+ * 折算系数规则（2026-08-26 加固，实现于 App\ApiClient::sumPkgAmount）：
+ *   is_smallest="Y"（该码即平台最小溯源单位）→ 恒为 1，忽略 pkg_amount
+ *   （反例实测：葡萄糖注射液 120瓶/箱 箱码 is_smallest=Y 但 pkg_amount=120，
+ *    整件只有大码、内部 120 个最小单位无追溯码，120 是注册规格非可对账单位数）；
+ *   is_smallest="N"/缺失 → 用 pkg_amount（实测：大包装码=100、中包装码=5/20）。
+ * min_pkg_count 同为此口径。相等 = 本地单据的码全部申报且折算数一致（没漏传）。
  *
  * 单号基线: 从 SQLite upload_logs 取 source='batch_check' 且 trace_codes 非空的最长
  * 一条记录（与 check_quantity.php 的基线同源，batch_check 成功单的码必然可查）。
@@ -135,8 +138,19 @@ foreach ($codes as $i => $code) {
     $sum += $pkgAmount;
     $pkgByCode[$code] = $pkgAmount;
 
+    // 显示明细: is_smallest 标志 + 原始 pkg_amount（手工解析，与 sumPkgAmount 单一事实源对照，
+    // 验证"Y→取1 忽略 pkg_amount / N→取 pkg_amount"分派是否按预期工作）
+    $rel = is_array($respArr) ? ($respArr['result']['model_list']['code_relation_dto'] ?? null) : null;
+    $isSmallest = is_array($rel) ? (string)($rel['is_smallest'] ?? '') : '';
+    $pi0 = is_array($rel) ? ($rel['produce_info_list']['produce_info_dto'] ?? ($rel['produce_info_list'][0] ?? null)) : null;
+    $rawPkg = is_array($pi0) ? ($pi0['pkg_amount'] ?? null) : null;
+
     if ($showDetail && $i < 30) {
-        echo "[{$i}/{$total}] {$code} → pkg_amount={$pkgAmount}\n";
+        if ($isSmallest === 'Y') {
+            echo "[{$i}/{$total}] {$code} → is_smallest=Y" . ($rawPkg !== null ? "，pkg_amount={$rawPkg} 已忽略" : '') . " → 折算 {$pkgAmount}\n";
+        } else {
+            echo "[{$i}/{$total}] {$code} → is_smallest=" . ($isSmallest === '' ? '缺失' : $isSmallest) . "，pkg_amount={$rawPkg} → 折算 {$pkgAmount}\n";
+        }
     } elseif ($showDetail && $i === 30) {
         echo "...（其余 " . ($total - 30) . " 个码省略，--no-detail 可全关）\n";
     }
@@ -204,11 +218,14 @@ if ($sum === $actual) {
 exit($exitCode);
 
 /**
- * 注: pkg_amount 解析逻辑已收敛到 App\ApiClient::sumPkgAmount（单一事实源，
+ * 注: 折算系数解析逻辑已收敛到 App\ApiClient::sumPkgAmount（单一事实源，
  * check_quantity.php 第 2 级精查复用），本探针不再维护独立解析函数。
  * 响应结构（2026-08-26 实测确认，存档 tests/singlerelation_<单号>.json）：
+ *   result.model_list.code_relation_dto.is_smallest
  *   result.model_list.code_relation_dto.produce_info_list.produce_info_dto.pkg_amount
  * 实测样本（6片/盒氯雷他定片盒码）：is_smallest="Y"（该码即最小溯源单位）、
- * pkg_amount="1"（系数 1，与"最小单位码=1"的 spec 语义一致）。
+ * pkg_amount="1"（系数 1）；反例（葡萄糖注射液 120瓶/箱 箱码）：is_smallest="Y"
+ * 但 pkg_amount="120"（整件只有大码、内部 120 个最小单位无追溯码）——故 Y 时
+ * 忽略 pkg_amount 恒取 1。is_smallest 缺失时回退 pkg_amount。
  * code_relation_dto 与 produce_info_dto 均兼容单条（关联数组）/多条（列表）两种形态。
  */

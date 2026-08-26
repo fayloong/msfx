@@ -191,15 +191,23 @@ class ApiClient
     }
 
     /**
-     * 汇总 singlerelation 响应的码级折算系数 pkg_amount。
+     * 汇总 singlerelation 响应的码级折算系数。
      *
      * 响应结构（2026-08-26 探针实测确认，存档 tests/singlerelation_<单号>.json）：
+     *   result.model_list.code_relation_dto.is_smallest
      *   result.model_list.code_relation_dto.produce_info_list.produce_info_dto.pkg_amount
-     * 实测（6片/盒氯雷他定片盒码）：is_smallest="Y"（该码即最小溯源单位）、
-     * pkg_amount="1"（系数 1）；大包装码系数 >1（实测样本 213 码 → Σ 240）。
+     *
+     * 折算规则（2026-08-26 加固）：
+     * - is_smallest="Y"（该码即平台最小溯源单位）→ 折算系数恒为 1，忽略 pkg_amount。
+     *   反例实测：葡萄糖注射液 120瓶/箱 的箱码 is_smallest="Y" 但 pkg_amount="120"——
+     *   120 是注册规格（整件只有大码、内部 120 个最小单位无追溯码，注射液类常见），
+     *   不是可对账的单位数；平台 searchbill.detail 的 min_pkg_count 对该码按 1 计，
+     *   码级折算必须同为 1 才同口径（否则"数量不符"误报）。is_smallest="Y" 且
+     *   pkg_amount 缺失同样取 1（Y 本身即判定依据）。
+     * - is_smallest 为 "N"/缺失 → 累加 pkg_amount（大包装码系数 >1，实测样本 213 码 → Σ 240）。
      * code_relation_dto 与 produce_info_dto 均兼容单条（关联数组）/多条（列表）两种形态。
-     * 返回 null 表示无法核对：响应无明细结构、或任一条缺 pkg_amount——缺字段不按 0
-     * 处理，防止解析异常伪装成"数量不符"差异。
+     * 返回 null 表示无法核对：响应无明细结构、或 is_smallest 缺失且无 pkg_amount——
+     * 缺字段不按 0 处理，防止解析异常伪装成"数量不符"差异。
      *
      * @param array|null $respArray searchSingleRelation() 返回的 data（已解码数组，异常时为 null）
      * @return int|null 该码折算成平台最小溯源单位的系数；无法核对时为 null
@@ -223,6 +231,11 @@ class ApiClient
         $sum = 0;
         foreach ($rels as $rel) {
             if (!is_array($rel)) {
+                continue;
+            }
+            // is_smallest=Y → 该码即最小溯源单位，折算 1（忽略 pkg_amount；见方法注释反例）
+            if (($rel['is_smallest'] ?? null) === 'Y') {
+                $sum += 1;
                 continue;
             }
             $pis = $rel['produce_info_list'] ?? null;

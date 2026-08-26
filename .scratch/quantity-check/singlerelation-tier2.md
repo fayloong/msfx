@@ -1,4 +1,4 @@
-**Status:** verified（2026-08-26 实测核心等式成立，两级流水线已实现并通过 08-15 全量实测；实现见 scripts/check_quantity.php + src/ApiClient.php）
+**Status:** verified + 加固（2026-08-26 实测核心等式成立，两级流水线已实现并通过 08-15 全量实测；同日按 is_smallest 反例加固折算规则——is_smallest="Y" 的码恒取 1 忽略 pkg_amount，实现见 scripts/check_quantity.php + src/ApiClient.php::sumPkgAmount）
 
 # 数量对账第二级：singlerelation 码级精查（两级流水线）
 
@@ -14,17 +14,23 @@
 （SDK 已含请求类，2025.12.04 版）可解：**它把任意追溯码折算成平台的"最小溯源单位"**，
 使本地码列表也能按平台口径求和，从根上消除规格口径差异。
 
-## 核心等式（待探针验证）
+## 核心等式（2026-08-26 实测成立 + is_smallest 加固）
 
 ```
-Σ singlerelation(本地每个追溯码).pkg_amount  ==  searchbill.detail 的 min_pkg_count
+Σ singlerelation(本地每个追溯码).折算系数  ==  searchbill.detail 的 min_pkg_count
 ```
 
-- `pkg_amount` = 该码折算成平台"最小溯源单位"的系数。**用户已实测**：
-  大包装码 = 100（一个大包装含 100 个最小溯源单位）、中包装码类似（5/20）、
-  本身就是最小溯源单位的码 = 1
+- **折算系数规则（2026-08-26 加固，见 ApiClient::sumPkgAmount）**：
+  - `is_smallest="Y"`（该码即平台最小溯源单位）→ **恒取 1，忽略 pkg_amount**。
+    反例实测：葡萄糖注射液 120瓶/箱 箱码 `83666530015564823443` is_smallest="Y"
+    但 pkg_amount="120"——120 是注册规格（整件只有大码、内部 120 个最小单位无
+    追溯码，注射液类常见），不是可对账的单位数；平台 min_pkg_count 对该码按 1 计，
+    pkg_amount 直取会把"传齐"误判成"数量不符"。is_smallest="Y" 且 pkg_amount
+    缺失同样取 1（Y 本身即判定依据）。
+  - `is_smallest="N"/缺失` → 用 `pkg_amount`（大包装码 = 100、中包装码 = 5/20、
+    最小单位码 = 1；213 码 → Σ 240 实测）。
 - `min_pkg_count` = 平台对该单据申报码按最小溯源单位统计的总数（**不是外部系统
-  申报时填的包装数**，与 pkg_amount 同口径）
+  申报时填的包装数**，与折算系数同口径）
 - 相等 = 本地单据的码全部申报且折算数一致 = **没漏传**（漏传 → 平台统计的码少
   → min_pkg_count 少 → 不等）
 - 关键语义：**expected 完全来自平台码库**（码的固有属性），不依赖本地 shl 的
@@ -43,9 +49,10 @@
 
 - **第 1 级不写库**（内存筛嫌疑单）：62 条规格差异噪声从 Web 失败记录页消失，
   幂等"整日清理"语义不变（每轮重跑天然干净）
-- **第 2 级精查的"超过即停"优化**：逐码累计 Σ pkg_amount，一旦累计 > actual
+- **第 2 级精查的"超过即停"优化**：逐码累计 Σ 折算系数，一旦累计 > actual
   （平台申报总数）即确定"本地多于平台"→ 立即停（大单 1.2 万码的真实差异单
-  不必查完；只有"相等"的嫌疑单才需查完全部码，而嫌疑单平均才 ~16 码）
+  不必查完；只有"相等"的嫌疑单才需查完全部码，而嫌疑单平均才 ~16 码）。
+  is_smallest 加固后系数只小不大（120→1），"超过即停"不会提前误停
 - **第 1 级 actual（跨子单 min_pkg_count 累加）复用于第 2 级**（同轮内数据一致；
   若要跨轮复用需重查，暂不设计）
 - **查不到的码**：理论不存在（batch_check 成功单 = 单在平台存在 = 码必在码库），
@@ -61,7 +68,7 @@
    singlerelation 逐码太慢（1.2 万码单 ≈ 100 分钟），不能全量逐码
 5. 运行时机不变：21:10 cron，避让 check_bill_status 8-20 点窗口
 6. 精查确认的"数量不符"记录复用现有 quantity_check 语义（response 存
-   {djbh, rq, expected, actual, sub_bills}，expected 改为 Σ pkg_amount）
+   {djbh, rq, expected, actual, sub_bills}，expected 改为 Σ 折算系数）
 7. 非药品码跳过语义：以码库查询结果为准（查不到 → 记明细，不按 0 计）
 
 ## Verification（2026-08-26 实测完成）
@@ -70,13 +77,17 @@
 
 | 样本 | 单号 | 码数 | 验证目标 | 结果 |
 |------|------|------|----------|------|
-| 传齐样本 | XSOWMS00998311 | 50 | Σ pkg_amount == 50 == min_pkg_count | ✓ 50 == 50 |
-| 规格差异单 | XSOWMS00997406 | 213 | Σ pkg_amount == min_pkg_count（青霉素钠差 19 假阳性消除） | ✓ 240 == 240（旧口径 259 vs 240 差 19） |
+| 传齐样本 | XSOWMS00998311 | 50 | Σ 折算系数 == 50 == min_pkg_count | ✓ 50 == 50 |
+| 规格差异单 | XSOWMS00997406 | 213 | Σ 折算系数 == min_pkg_count（青霉素钠差 19 假阳性消除） | ✓ 240 == 240（旧口径 259 vs 240 差 19） |
+| is_smallest 反例 | （单码探针） | 1 | is_smallest=Y 且 pkg_amount=120 → 折算 1 | ✓ 1（120 已忽略） |
 
 **核心等式成立，按 spec 实现**。关键实测事实：
 - `pkg_amount` 真实路径 `result.model_list.code_relation_dto.produce_info_list.produce_info_dto.pkg_amount`（与 SDK DTO 推断不同，探针存档确认；解析已收敛到 `ApiClient::sumPkgAmount` 单一事实源）
-- `is_smallest="Y"` 字段确认查询码是否即最小溯源单位；213 码 → Σ 240 证明存在系数 >1 的大包装码
+- `is_smallest="Y"` 字段在 `code_relation_dto` 层，确认查询码是否即最小溯源单位；213 码 → Σ 240 证明存在系数 >1 的大包装码
 - 263/263 码全部可查（"batch_check 成功单的码必然可查"假设成立），接口权限无问题
+- **反例（同日加固的动因）**：葡萄糖注射液 120瓶/箱 箱码 `83666530015564823443`
+  is_smallest="Y" 但 pkg_amount="120"（整件只有大码、内部 120 个最小单位无追溯码）。
+  验证途径：业务已知该类商品客观存在（注射液类常见）→ 主动找码实测坐实 → 加固规则
 
 ### 全量实测（check_quantity.php 2026-08-15，589 单）
 
@@ -100,6 +111,23 @@
 - 补传缺码 / 通知渠道——沿用"只检查告警"
 
 ## Comments
+
+### 2026-08-26 grilling 会话（is_smallest 规则加固）
+
+- 背景：业务已知客观事实——部分药品**整件上只有大包装上游追溯码，内部小包装无追溯码**
+  （注射液类最常见，如葡萄糖注射液 120瓶/箱）。此类商品的箱码 singlerelation 返回
+  is_smallest="Y" 但 pkg_amount=120：120 是注册规格（1 件含 120 个无码单位），
+  而平台 min_pkg_count 对该码按 1 计——旧规则直取 pkg_amount 会把"传齐"误判为
+  "数量不符"（expected=120 vs actual=1 方向）。
+- 主动验证：取葡萄糖注射液箱码 `83666530015564823443` 实测，坐实 is_smallest=Y +
+  pkg_amount=120（旧 sumPkgAmount 返回 120），加固规则成立。
+- 规则确认（用户拍板）：is_smallest="Y" → 恒取 1（含 pkg_amount 缺失）；"N"/缺失 →
+  用 pkg_amount；两者皆缺 → 无法核对（null）。实现于 ApiClient::sumPkgAmount。
+- 探针增强（方案 B）：逐码输出 is_smallest 标志与折算明细，验证分派正确。
+- **8/15（17 张）+ 8/17（124 张，老逻辑仅第 1 级）重查暂缓**（用户决定，时机另行安排）；
+  08-15 的 17 张单码列表 Σ≈码数（全部 pkg_amount=1），预计重查判定不变——待重查实测确认。
+- check_bill_status / check_quantity 的 cron 当前已注释停用（调试期），恢复时更新
+  CLAUDE.md cron 表。
 
 ### 2026-08-25 grilling 会话（设计方案落定）
 
