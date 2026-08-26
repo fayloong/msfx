@@ -175,6 +175,59 @@ class TaskFetcher
         return $sumByDjbh;
     }
 
+    /**
+     * 按单号列表现查 wms_dzjg 追溯码（第 2 级码级精查的码基线，替代 batch_check 快照）。
+     *
+     * 背景（2026-08-26 复核会话）：batch_check 的 trace_codes 是 fetch_bills 采集时刻的
+     * 快照，而大包装箱码（氯化钠/葡萄糖 40/50/120瓶/箱，整件只有大码）常在发货环节由
+     * 手持扫码补录进 wms_dzjg（shuom='手持扫码'，xuhao 与采集码连续段间隔跳跃）——
+     * 快照永远缺补录码，导致"数量不符"假阳性（实测 25/25 全假阳性，见
+     * .scratch/quantity-check/singlerelation-tier2.md）。check_quantity 21:10 运行
+     * 必然晚于发货补录，现查天然规避。
+     *
+     * 出库侧：wms_dzjg 按 djbh 直接取全（与 fetch_bills 采集同构）
+     * 入库侧：wms_dzjg_rk 需 join v_sjdmx_mx（ysdjbh 为入库原始单号，与
+     *   fetchBillQuantitiesByCodes 的入库侧 join 模式一致）
+     * 单号 IN 聚合；现查无码（码全删/视图无行）→ 不返回该单，调用方回退快照基线。
+     *
+     * @param array<int, string> $djbhList 单据单号列表
+     * @return array<string, array<int, string>> djbh => 码列表（去重保序）
+     */
+    public function fetchWmsCodesByDjbhList(array $djbhList): array
+    {
+        if (empty($djbhList)) {
+            return [];
+        }
+
+        // 单号来自 SQL Server 信任域（字母数字），转义单引号后内插 IN 列表
+        $escaped = array_map(static fn ($djbh) => str_replace("'", "''", $djbh), $djbhList);
+        $inList = "'" . implode("','", $escaped) . "'";
+
+        $outRows = $this->db->query(
+            "SELECT djbh, dzjgm FROM skwms_new.dbo.wms_dzjg WHERE djbh IN ({$inList})"
+        );
+        $inRows = $this->db->query(
+            "SELECT d.ysdjbh AS djbh, b.dzjgm
+             FROM skwms_new.dbo.v_sjdmx_mx d
+             JOIN skwms_new.dbo.wms_dzjg_rk b ON b.djbh = d.ysdjbh AND b.dj_sn = d.ydj_sn AND b.spid = d.spid
+             WHERE d.ysdjbh IN ({$inList})"
+        );
+
+        $codesByDjbh = [];
+        foreach (array_merge($outRows, $inRows) as $row) {
+            $code = trim((string)($row['dzjgm'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+            if (!isset($codesByDjbh[$row['djbh']])) {
+                $codesByDjbh[$row['djbh']] = [];
+            }
+            $codesByDjbh[$row['djbh']][$code] = true; // 关联数组去重（保序）
+        }
+
+        return array_map(static fn (array $codes) => array_keys($codes), $codesByDjbh);
+    }
+
     /** 药品行过滤条件 SQL 片段：jixing 不含非药品关键词（spkfk 查不到剂型时保守保留） */
     private function drugRowCondition(): string
     {

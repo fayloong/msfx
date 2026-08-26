@@ -1,0 +1,365 @@
+{
+    "success": true,
+    "data": {
+        "result": {
+            "model_list": {
+                "code_relation_dto": {
+                    "base_infos_d_t_o": {
+                        "base_info_list": {
+                            "base_info_dto": {
+                                "approve_no": "国药准字H20065426",
+                                "exprie_date": "2028-02-29",
+                                "original_expire_date": "2028-02-29",
+                                "original_produce_date": "2026-03-13",
+                                "physic_info": "注射用果糖二磷酸钠 注射剂 10g（以无水物计）",
+                                "physic_name": "注射用果糖二磷酸钠",
+                                "physic_type": "3",
+                                "pkg_ratio": "1:40",
+                                "pkg_spec": "1瓶/盒",
+                                "prepn_spec": "10g（以无水物计）",
+                                "prepn_type": "注射剂",
+                                "prod_id": "00000000000002560507",
+                                "produce_batch_no": "02260301",
+                                "produce_date": "2026-03-13",
+                                "product_code": "1109555",
+                                "ref_ent_id": "320000000000017326",
+                                "sub_type_no": "1109555001"
+                            }
+                        }
+                    },
+                    "code": "81231300054203688895",
+                    "code_active_info_d_t_o": {
+                        "active_count": "27675",
+                        "active_date": "2026-04-02 14:43:36",
+                        "code_active_info_id": "c88522adaa3240e5a2377aca7f610d82",
+                        "crt_date_string": "2026-04-02",
+                        "oper_ic_code": "500002843",
+                        "other_num": "675",
+                        "process_count": "1",
+                        "process_date": "2026-04-02 14:43:36",
+                        "process_end_date": "2026-04-02 14:43:44",
+                        "process_flag": "3",
+                        "relation_type": "2",
+                        "small_num": "27000",
+                        "upload_file_name": "Relation_注射用果糖二磷酸钠_盒1瓶_1109555001_0_20260401-1_20260402_11h30m38s_1.xml",
+                        "upload_file_path": "codefile/460000/460100/460105/320000000000017326/20260402"
+                    },
+                    "code_relation_list": {
+                        "code_info": [
+                            {
+                                "code": "81231300054203366365",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054386965735",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054387124888",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054397167952",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054208883073",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054386800296",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054328323216",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054397242364",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054387528134",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054396762031",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054386482551",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054333882197",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054332245964",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054332567566",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054203840671",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054386722925",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054203521329",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054204001999",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054387200014",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054203926973",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054332160632",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054386884394",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054203604040",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054387440483",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81231300054204324407",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054397088774",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054387363539",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054332485194",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054386562254",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054386406343",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054333725480",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054328644273",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054328004244",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054332400152",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054332325280",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054208966029",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054332648700",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054333805805",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054203688895",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81231300054386645069",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "88221540001287871333",
+                                "status": "O"
+                            },
+                            {
+                                "code": "88221540001287871333",
+                                "code_level": "1",
+                                "code_pack_level": "2",
+                                "parent_code": {},
+                                "status": "I"
+                            }
+                        ]
+                    },
+                    "is_smallest": "Y",
+                    "pkg_info_d_t_o": {
+                        "code_list": {
+                            "string": "81231300054203688895"
+                        }
+                    },
+                    "produce_info_list": {
+                        "produce_info_dto": {
+                            "batch_no": "02260301",
+                            "code": "81231300054203688895",
+                            "expire_date": "20280229",
+                            "original_expire_date": "2028-02-29",
+                            "original_produce_date": "2026-03-13",
+                            "pkg_amount": "1",
+                            "produce_date": "2026-03-13 00:00:00"
+                        }
+                    }
+                }
+            },
+            "msg_code": "SUCCESS",
+            "msg_info": "调用成功",
+            "response_success": "true"
+        },
+        "request_id": "16l8telnekn16"
+    },
+    "error": "",
+    "is_network_error": false
+}

@@ -1,0 +1,1625 @@
+{
+    "success": true,
+    "data": {
+        "result": {
+            "model_list": {
+                "code_relation_dto": {
+                    "base_infos_d_t_o": {
+                        "base_info_list": {
+                            "base_info_dto": {
+                                "approve_no": "国药准字H44024160",
+                                "exprie_date": "2028-01-13",
+                                "original_expire_date": "2028-01-13",
+                                "original_produce_date": "2026-01-14",
+                                "physic_info": "硝苯地平缓释片(Ⅰ) 片剂(缓释) 10mg",
+                                "physic_name": "硝苯地平缓释片(Ⅰ)",
+                                "physic_type": "3",
+                                "pkg_ratio": "1:20:200",
+                                "pkg_spec": "90片/盒",
+                                "prepn_spec": "10mg",
+                                "prepn_type": "片剂(缓释)",
+                                "prod_id": "00000000000007364002",
+                                "produce_batch_no": "260102",
+                                "produce_date": "2026-01-14",
+                                "product_code": "1130854",
+                                "ref_ent_id": "320000000000000684",
+                                "sub_type_no": "1130854004"
+                            }
+                        }
+                    },
+                    "code": "81467280204494488595",
+                    "code_active_info_d_t_o": {
+                        "active_count": "53261",
+                        "active_date": "2026-03-18 16:52:48",
+                        "code_active_info_id": "0af9dbabd0d147e1892c9f3e2e940825",
+                        "crt_date_string": "2026-03-18",
+                        "oper_ic_code": "500025997",
+                        "other_num": "241",
+                        "process_count": "1",
+                        "process_date": "2026-03-18 16:52:48",
+                        "process_end_date": "2026-03-18 16:53:19",
+                        "process_flag": "3",
+                        "relation_type": "2",
+                        "small_num": "48200",
+                        "upload_file_name": "20260309260102(圣90)(TaskCode)_260102_1130854004_盒90片__2026-03-18+165000952_001.xml",
+                        "upload_file_path": "codefile/440000/440600/440606/320000000000000684/20260318"
+                    },
+                    "code_relation_list": {
+                        "code_info": [
+                            {
+                                "code": "81467280207012072110",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206106445827",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206240432052",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206429815078",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206096977284",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206726740724",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206720569137",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207005208173",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206635031617",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206715261194",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060032563",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206735461207",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206645589452",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205248494041",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206739722241",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206204825917",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206213565306",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205825934130",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205239911691",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206654875269",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206649753107",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066720965",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206337112498",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206341375318",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280203745584447",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206536032277",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205353616756",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205347710975",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206638045403",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206428424284",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205361879811",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204892107088",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064911482",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206064391179",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205108691276",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206070621649",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207256851756",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204999790492",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205299193246",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205102070101",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204770249364",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205006481385",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205114646023",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066898814",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280203536373420",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206777256505",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280207078971781",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280203541584172",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207085120841",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280204516880217",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280203526057368",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205294722494",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204512205152",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206768454672",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062180119",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280206809875784",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206784626583",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280203977855780",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206867837758",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280203966150375",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280203976513618",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206795753434",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206801070050",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206875728651",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280205942233859",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019064453503",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205161974439",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206243541095",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280205082733540",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206667652170",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204394815508",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280204390460714",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205075712506",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204991442882",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206236371706",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204400922923",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067232093",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206571679857",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206233814843",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206242395534",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280207207001270",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206961578358",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206227464749",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206245534641",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206945554128",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206582455392",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206952134316",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067043127",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280205612707388",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207080439806",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206236251019",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206251664121",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206243617505",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205956644969",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207087011816",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205615165440",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207073617080",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205619522244",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019063194208",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204244145867",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204293251726",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206541710987",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206549922632",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204995927770",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204287905862",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206557291410",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204241006525",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204407740338",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205004791942",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068896793",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205684396801",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280204689774664",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280205059742578",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205697095203",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280203838202153",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280205690264968",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280203846378498",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204693501092",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280204703844617",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280203855066007",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019068735195",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207167844254",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207123670866",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207152246179",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207161729518",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207110123122",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207156010962",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207172480306",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206097910301",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207164061996",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207116200725",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060412939",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206229579217",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206894254085",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206980010466",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206884453521",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206638763203",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205608494406",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206140311415",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205565821741",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205573122681",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206134889358",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059192187",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205655110636",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207320130958",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204685856646",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205660842892",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207332601945",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204708680912",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204527891956",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207325733543",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204532972896",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204698864766",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062394913",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206079930098",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280203989614312",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204078621962",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205349194918",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280203980611268",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204995080288",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204987084283",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280203994655534",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205005201228",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204387806260",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019066150777",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206618892694",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206628765843",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205597532291",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206711667903",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206722558373",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206728948890",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280205584138307",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206104171899",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206113650818",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206716504942",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019059754020",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205050935171",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205043559166",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204497861122",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205059246910",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206654240055",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205035424231",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206660950149",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204494488595",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205066051309",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204506320605",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067171764",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205329858369",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205317606019",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204594115491",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205155408105",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205147763640",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205326181742",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204685301891",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280204603794222",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280204611293329",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205306400191",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019067619472",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206215028122",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206349497267",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206662044519",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280206645987762",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280206341230546",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205618950949",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206763302228",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280205627345508",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206206790132",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206654893767",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019062505994",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206384193658",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280206391858875",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205470599438",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207092158443",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280207097003837",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "I"
+                            },
+                            {
+                                "code": "81467280205463443328",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280206642143685",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280207102511863",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "S"
+                            },
+                            {
+                                "code": "81467280206393390133",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81467280205472013892",
+                                "code_level": "3",
+                                "code_pack_level": "1",
+                                "parent_code": "88499250019060593456",
+                                "status": "S"
+                            },
+                            {
+                                "code": "88499250019060032563",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019066720965",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019064911482",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019066898814",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019062180119",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019064453503",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019067232093",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019067043127",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019063194208",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019068896793",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019068735195",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019060412939",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "O"
+                            },
+                            {
+                                "code": "88499250019059192187",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019062394913",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019066150777",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019059754020",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019067171764",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019067619472",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019062505994",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499250019060593456",
+                                "code_level": "2",
+                                "code_pack_level": "2",
+                                "parent_code": "88499240001007515211",
+                                "status": "I"
+                            },
+                            {
+                                "code": "88499240001007515211",
+                                "code_level": "1",
+                                "code_pack_level": "3",
+                                "parent_code": {},
+                                "status": "I"
+                            }
+                        ]
+                    },
+                    "is_smallest": "Y",
+                    "pkg_info_d_t_o": {
+                        "code_list": {
+                            "string": "81467280204494488595"
+                        }
+                    },
+                    "produce_info_list": {
+                        "produce_info_dto": {
+                            "batch_no": "260102",
+                            "code": "81467280204494488595",
+                            "expire_date": "20280113",
+                            "original_expire_date": "2028-01-13",
+                            "original_produce_date": "2026-01-14",
+                            "pkg_amount": "1",
+                            "produce_date": "2026-01-14 00:00:00"
+                        }
+                    }
+                }
+            },
+            "msg_code": "SUCCESS",
+            "msg_info": "调用成功",
+            "response_success": "true"
+        },
+        "request_id": "15rple5z490ma"
+    },
+    "error": "",
+    "is_network_error": false
+}

@@ -20,8 +20,11 @@
  * "最小溯源单位"系数 pkg_amount（大包装码=100、最小单位码=1），Σ pkg_amount 与
  * 第 1 级 actual（跨子单 min_pkg_count 累加）同口径对比——本地零售规格 ≠ 平台
  * 注册规格的结构性口径差异（青霉素钠 20 瓶 vs 1 盒等，ADR 0004 遗留硬伤）在此
- * 消除。判定: 双方案都有差异 → 真问题写 '数量不符'（expected=Σ pkg_amount 码级
- * 折算，response 存 {djbh, rq, expected, actual, sub_bills, stopped_early}）；
+ * 消除。码基线来自 wms_dzjg 现查（TaskFetcher::fetchWmsCodesByDjbhList，2026-08-26
+ * 加固——batch_check 快照缺采集后手持补录的大包装箱码，实测 25/25 判定全为假阳性，
+ * 现查为空回退快照基线），判定: 双方案都有差异 → 真问题写 '数量不符'
+ * （expected=Σ pkg_amount 码级折算，response 存 {djbh, rq, expected, actual,
+ * sub_bills, stopped_early, code_source, codes_checked, base_codes}）；
  * 单方案有差异（第 2 级相等）→ 规格口径噪声，不写库 → Web 失败记录页零噪声；
  * 码查询失败/无 pkg_amount（理论不存在，实测零次）→ 无法核对，跳过不写库（不误报）。
  * "超过即停"优化: 累计 Σ pkg_amount 一旦 > actual 即确定"本地多于平台"立即停
@@ -92,9 +95,9 @@ echo "[check_quantity] 开始数量对账，日期: {$date}\n";
 
 try {
     // ── 基线: check_bill_status 已检查过且状态是"上传成功"的单据（不写库查询） ──
-    // 带 trace_codes：第 2 级码级精查需要本地码列表（batch_check 基线同源，取最长一条，
-    // 与 tests/singlerelation_test.php 探针基线一致）；PHP 侧按 djbh 聚合（ent_name/rq
-    // 取首行、trace_codes 取字符数最长——码列表覆盖最全）
+    // trace_codes 保留仅为第 2 级现查（wms_dzjg）失败时的回退基线——batch_check 快照
+    // 缺采集后手持补录的大包装箱码（假阳性实证，见 2026-08-26 复核会话）；
+    // PHP 侧按 djbh 聚合（ent_name/rq 取首行、trace_codes 取字符数最长——码列表覆盖最全）
     $db = Database::getInstance();
     $successRows = $db->query(
         "SELECT djbh, ent_name, rq, trace_codes FROM upload_logs WHERE source = ? AND response_status = ? AND rq = ?",
@@ -271,11 +274,23 @@ try {
     // == searchbill.detail 的 min_pkg_count（最小溯源单位口径）——码级口径无规格差异
     if (!empty($suspects)) {
         $sCount = count($suspects);
-        echo "\n[check_quantity] 第 2 级码级精查: {$sCount} 个嫌疑单，逐码调 singlerelation（限速 500ms/次）\n";
+        // 码基线现查（2026-08-26 加固）: batch_check 快照缺采集后手持补录的大包装
+        // 箱码（实测 25/25 "数量不符"全为此类假阳性），改用 wms_dzjg 现查——21:10
+        // 运行必然晚于发货补录，天然规避；现查为空（码全删/视图无行）回退快照基线
+        $wmsCodesMap = $fetcher->fetchWmsCodesByDjbhList(array_column($suspects, 'djbh'));
+        echo "\n[check_quantity] 第 2 级码级精查: {$sCount} 个嫌疑单，码基线来自 wms_dzjg 现查（" . count($wmsCodesMap) . "/{$sCount} 单命中），逐码调 singlerelation（限速 500ms/次）\n";
         foreach ($suspects as $si => $suspect) {
             $djbh = $suspect['djbh'];
-            // 码列表来自 batch_check 基线（最长一条，与探针同源）；去重防止重复调用
-            $codes = array_values(array_unique(array_filter(array_map('trim', explode(',', $suspect['trace_codes'] ?? '')))));
+            // 现查优先；现查无码回退 batch_check 快照基线（数据异常防御）
+            $baseCodes = array_values(array_unique(array_filter(array_map('trim', explode(',', $suspect['trace_codes'] ?? '')))));
+            $wmsCodes = $wmsCodesMap[$djbh] ?? [];
+            if (!empty($wmsCodes)) {
+                $codes = $wmsCodes;
+                $codeSource = 'wms_dzjg 现查';
+            } else {
+                $codes = $baseCodes;
+                $codeSource = 'batch_check 快照（现查无码回退）';
+            }
             if (empty($codes)) {
                 $level2Skipped++;
                 echo "[第2级 {$si}/{$sCount}] {$djbh} → 无追溯码基线，跳过\n";
@@ -345,7 +360,8 @@ try {
                 continue;
             }
 
-            // 双方案都有差异 → 真问题，写 '数量不符'（expected 改为码级折算 Σ pkg_amount）
+            // 双方案都有差异 → 真问题，写 '数量不符'（expected 改为码级折算 Σ pkg_amount；
+            // code_source/codes_checked/base_codes 附加基线来源与码数，便于识别假阳性）
             $confirmedMismatch++;
             $respJson = json_encode([
                 'djbh' => $djbh,
@@ -354,11 +370,14 @@ try {
                 'actual' => $suspect['actual'],
                 'sub_bills' => $suspect['sub_bills'],
                 'stopped_early' => $stoppedEarly,
+                'code_source' => $codeSource,
+                'codes_checked' => count($codes),
+                'base_codes' => count($baseCodes),
             ], JSON_UNESCAPED_UNICODE);
 
             writeCheckLog($logWriter, $djbh, $suspect['rq'], $suspect['ent_name'], RESPONSE_STATUS_MISMATCH, $respJson);
 
-            echo "\n[第2级 {$si}/{$sCount}] {$djbh} → 数量不符（码级折算 {$sum}，平台申报 {$suspect['actual']}）" . ($stoppedEarly ? '（超过即停）' : '') . "\n";
+            echo "\n[第2级 {$si}/{$sCount}] {$djbh} → 数量不符（码级折算 {$sum}，平台申报 {$suspect['actual']}）" . ($stoppedEarly ? '（超过即停）' : '') . " [{$codeSource}]\n";
         }
     }
 
