@@ -1,0 +1,2185 @@
+{
+    "success": true,
+    "data": {
+        "result": {
+            "model_list": {
+                "code_relation_dto": {
+                    "base_infos_d_t_o": {
+                        "base_info_list": {
+                            "base_info_dto": {
+                                "approve_no": "国药准字Z36020138",
+                                "exprie_date": "2028-03-08",
+                                "original_expire_date": "2028-03-08",
+                                "original_produce_date": "2026-03-09",
+                                "physic_info": "复方当归注射液 注射剂 2ml",
+                                "physic_name": "复方当归注射液",
+                                "physic_type": "3",
+                                "pkg_ratio": "1:300",
+                                "pkg_spec": "10支/盒",
+                                "prepn_spec": "2ml",
+                                "prepn_type": "注射剂",
+                                "prod_id": "2c9194c61ea9ec76011eb8dd4bb7659c",
+                                "produce_batch_no": "260303",
+                                "produce_date": "2026-03-09",
+                                "product_code": "9111209",
+                                "ref_ent_id": "e12b8afe344743f0a34af9e2e461c607",
+                                "sub_type_no": "9111209001"
+                            }
+                        }
+                    },
+                    "code": "81000180481094256056",
+                    "code_active_info_d_t_o": {
+                        "active_count": "46956",
+                        "active_date": "2026-04-10 09:05:33",
+                        "code_active_info_id": "272c9387a485487cb96daed823320a66",
+                        "crt_date_string": "2026-04-10",
+                        "oper_ic_code": "500007345",
+                        "other_num": "156",
+                        "process_count": "1",
+                        "process_date": "2026-04-10 09:05:33",
+                        "process_end_date": "2026-04-10 09:06:03",
+                        "process_flag": "3",
+                        "relation_type": "2",
+                        "small_num": "46800",
+                        "upload_file_name": "复方当归注射液260303(TaskCode)_260303_9111209001_盒10支__2026-03-17+101836328_001.xml",
+                        "upload_file_path": "codefile/360000/361000/361023/e12b8afe344743f0a34af9e2e461c607/20260410"
+                    },
+                    "code_relation_list": {
+                        "code_info": [
+                            {
+                                "code": "81000180481187821392",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483997950516",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483238644033",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484016000281",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484355797170",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481388083157",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484054392060",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479336766619",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483962847318",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479971641583",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482352245115",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481385215883",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484865485075",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482146353799",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484018850426",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480285775675",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483791219438",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481722117558",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484353520590",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483774745631",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480573779780",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481196660264",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484482863741",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481410709849",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483651957500",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481239895951",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480784534372",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480390564754",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483799683892",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479800875025",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480474580430",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480382564660",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480787616252",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479932177209",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479926457424",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480713392764",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484042908687",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484532862695",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482530603235",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483641176137",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480850909024",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480698693751",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481105632625",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481732143899",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481678313826",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479979175432",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484373472734",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479839180515",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479752941269",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484500513040",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482481642107",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484192986516",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480841968416",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481373980713",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484345187875",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480927334797",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484942125761",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479747263713",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481669394531",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482642589723",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480335380302",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484338981765",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482649210840",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480395307627",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480765244408",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483227583892",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481708074738",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483658235056",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481393280008",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483651185268",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484953954257",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483900320110",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479796393239",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481379334332",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480857710142",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484471132190",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482158908922",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481400843833",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482620562671",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484484514305",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479841904745",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480832262444",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480564271132",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481674512933",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480661620556",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483891640204",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482337372718",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479834435685",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481694355114",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479956710032",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480708723939",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480695066383",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484354262833",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483853601485",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483836934869",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482340482859",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484516011426",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479843775215",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484479172801",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483823638550",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480068192800",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481884103427",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484047532812",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484489653835",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483993195827",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480778996628",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480241403500",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484525543259",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480651633000",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479795811406",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480378044876",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480834301504",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484051923940",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480826133149",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484958314304",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480863216581",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483830241549",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481890563850",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484346924713",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483858704805",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483213381683",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483814424555",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484340006277",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480371571539",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484332137452",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483230132388",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483650485902",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480466150712",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482163235068",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480868481881",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481387674162",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481247812943",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483635200568",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483960681020",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479787603521",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484221746046",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484036821825",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480557263623",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481895265260",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479621374322",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484345955794",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480072246043",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483953983746",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480344329702",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479786073380",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481395050290",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484488472143",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480922153857",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481376224285",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483231739579",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483627970074",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481265616186",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483947194874",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481811888364",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480847165499",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484531541191",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481111264082",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480251090492",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479412986337",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482335485820",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481902229584",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481810733711",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480638732812",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480838582303",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482333779251",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481730297330",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481112840557",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484486715484",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481660905283",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479989023270",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483895945750",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483852244174",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480340280960",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484738586094",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484752598773",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483844608357",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479420359251",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481658162040",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483844762049",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482344613846",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480348494961",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483883798382",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484936796090",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479424676807",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481879782816",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483904732695",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479807000137",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484368873627",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481096780228",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483241713516",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482169370462",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480836564233",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483731058718",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480673688904",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481820471079",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480664121261",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481824362348",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483951584451",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484493400028",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483856036326",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483804764555",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480351165660",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479963703980",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483631742095",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484951561672",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483814608888",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480773478591",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480405041893",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482148677512",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479592705403",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483239552529",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480651290556",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483970043558",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483998929728",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484349963679",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483857120122",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484338734384",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481099667936",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484946564539",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480658295285",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480352426465",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483965416942",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481700311072",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484049550650",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483868405745",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483812072796",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480399704149",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482151363094",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484348572329",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481256322849",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479607223899",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479779138315",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482350202812",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481380151624",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483864394946",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481652314061",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484521684152",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484945885808",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479455161307",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484189142991",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480363670740",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482657443049",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479945190300",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480233892466",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480359001295",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479758290987",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483832990122",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480751302434",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481817706719",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484178421581",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480841995264",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484483456471",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484360714055",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484007513434",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483834475527",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482487118922",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484743114402",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481667653732",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484367643909",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484526973729",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481881796247",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481179711862",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482162069298",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481898731406",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480635777230",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484057465303",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483820051386",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483779448921",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480350201430",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482639596245",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483729602205",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479948321099",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481273761392",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483881903212",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480224438952",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483814506059",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482572240838",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480334575895",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480644538452",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484006400939",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479610733852",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479830559116",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483838312999",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483893810157",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484527521285",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481101124270",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480872408931",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480667670491",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180480716581401",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483805032561",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180481094256056",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483998139497",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483841534980",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482652282908",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482642823566",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180484339536969",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180479850611549",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180482654403754",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483644050873",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483822406952",
+                                "code_level": "2",
+                                "code_pack_level": "1",
+                                "parent_code": "81000180483408347085",
+                                "status": "O"
+                            },
+                            {
+                                "code": "81000180483408347085",
+                                "code_level": "1",
+                                "code_pack_level": "2",
+                                "parent_code": {},
+                                "status": "I"
+                            }
+                        ]
+                    },
+                    "is_smallest": "Y",
+                    "pkg_info_d_t_o": {
+                        "code_list": {
+                            "string": "81000180481094256056"
+                        }
+                    },
+                    "produce_info_list": {
+                        "produce_info_dto": {
+                            "batch_no": "260303",
+                            "code": "81000180481094256056",
+                            "expire_date": "20280308",
+                            "original_expire_date": "2028-03-08",
+                            "original_produce_date": "2026-03-09",
+                            "pkg_amount": "1",
+                            "produce_date": "2026-03-09 00:00:00"
+                        }
+                    }
+                }
+            },
+            "msg_code": "SUCCESS",
+            "msg_info": "调用成功",
+            "response_success": "true"
+        },
+        "request_id": "16km1dlv98w0l"
+    },
+    "error": "",
+    "is_network_error": false
+}

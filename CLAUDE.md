@@ -33,7 +33,7 @@ root/
 │   ├── Config.php                # .env 配置加载
 │   ├── Database.php              # SQLite 数据库封装（单例）
 │   ├── Auth.php                  # 单用户 session 认证
-│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索），区分网络/业务错误
+│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算），区分网络/业务错误
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合）
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）
 │   ├── TraceSplitter.php         # 导出拆行：追溯码按字符数拆多行（每行 ≤32000 字符）
@@ -73,7 +73,7 @@ root/
 │   ├── upload_pending.php        # cron 批量上传队列中等待中的任务
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
-│   ├── check_quantity.php        # 上传检查：核对单据是否已上传到平台（只查是否上传，不比对数量，只检查不补传）
+│   ├── check_quantity.php        # 数量对账两级流水线（第 1 级 shl 粗筛嫌疑单 → 第 2 级 singlerelation 码级精查，双差异才写"数量不符"）
 │   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志与已完成任务
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列）
 │   ├── init_db.php               # 初始化 SQLite 数据库及表结构
@@ -85,7 +85,7 @@ root/
 │   ├── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php）
 │   ├── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
-│   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ pkg_amount == min_pkg_count 核心等式（设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
+│   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ pkg_amount == min_pkg_count 核心等式（2026-08-26 实测成立，设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
 ├── logs/                         # API 日志 JSONL 文件
 ├── upload_test.php               # 原始上传脚本（旧版，保留参考）
@@ -149,8 +149,16 @@ root/
 
 覆盖保证：任何单据最终都会被查到平台状态（等待上传 ≤30 分钟 / 失败记录 ≤24h / SQL Server 全量 ≤24h）。check_quantity 与 check_failed_logs 不得改到 8-20 点窗口内运行（与 check_bill_status 并发调同一 AppKey 立即触发平台限流）。
 
-### 数量对账（check_quantity.php）
-定位：外部系统负责上传时，本项目只检查上传情况、不补传。**查询范围仅针对 check_bill_status 已检查过且状态是"上传成功"的单据**（upload_logs `source='batch_check' AND response_status='上传成功'`，按 rq 筛选）——未上传的单据由 check_bill_status 以任务状态（等待上传）反映，数量对账不重复查询/告警。逐单依次查询平台原始单号 → `_1` → `_2`...（上限 10 次），跨拆分子单累加平台申报数量（`ApiClient::sumBillDetailCount()`：累加 `min_pkg_count`），与本地应有数量对比（`TaskFetcher::fetchBillQuantitiesByCodes()`：明细视图 `SUM(shl)` 聚合，轻量查询不写库）。**比较口径统一为最小包装单位数**：本地 `shl` 即"已展开的最小包装单位数"（整件行 `shl = baozhshl × jlgg`、零散行 `shl = lingsshl`，见 ADR 0004——推翻早期"两数量纲无法统一"结论）。**基线剔除本地非药品行**（jixing 含商品/食品/消杀/用品/器械/化妆品/消毒剂/敷料/试剂/材料/设备等，spkfk 查不到剂型的行保守保留）——平台是药品追溯平台，外部系统按平台规则不申报非药品（实测 08-15 有 16 条"数量不符"纯属此类）。**查询策略"相等即停，不等查尽"**：原始单号查到且数量相等即停（未拆分大头单 1 次调用）；原始单号查不到或数量不等继续查子单，防止"原单号+拆分并存"漏计。**判定**：`actual ≠ expected` → `数量不符`（非成功状态，Web 失败记录页天然可见，response 存 `{djbh, rq, expected, actual, sub_bills:[{djbh, count}]}`）；相等 → 传齐零记录；全序列查不到 → `信息不存在`（防御分支：batch_check 已确认上传成功但平台查不到）。**已知假阳性类别（运维看到"数量不符"时优先怀疑）**：本地零售规格 ≠ 平台生产规格的药品——企业内部最小销售单位（按盒卖）与平台最小销售单位（按支/瓶，**尤其是注射剂，大概率对不上**；如青霉素钠 20 瓶 vs 平台 1 盒 20瓶/盒、氨咖黄敏胶囊 本地 10粒/盒 → 50 盒 vs 平台 500粒/盒 → 1、脑得生片 30 大盒 vs 90 小盒）。本地 shl 按本地最小包装（零售规格）计数、平台按注册规格（生产包装）申报，同数量不同包装数，机制本身已验证精确（实测单 19 行中 18 行逐行相等）。本阶段无更优解（药品级规格映射列入 backlog），"数量不符"为疑似差异告警，以 response 的 expected/actual/sub_bills 人工复核。**无法核对跳过**（不写任何记录）：本地 `SUM(shl)` 为 NULL（明细视图无行）、平台响应解析失败（`sumBillDetailCount` 返回 null）——不误报。**幂等**：每轮先清理目标日期全部 quantity_check 记录再按新判定写入（限流熔断后下次运行重查不产生重复/残留记录，历史"数量不符"误报随重跑自动清除）。API 间隔 1s；平台限流（App Call Limited）时**本轮熔断**，剩余单据下次运行自动重查。**运行时机**：必须避开 check_bill_status（8-20 点每 5 分钟一轮）的调用窗口，否则并发触发平台限流，cron 配 21:10 每天一次（详见上方 cron 时间表），默认检查昨天（参数可指定日期）。该检查顺带修正 check_bill_status 的盲区：外部系统拆分上传后原始单号查不到被误判"未上传"的场景，数量对账的运行时子单查询能识别子单已传齐。
+### 数量对账（check_quantity.php，两级流水线）
+定位：外部系统负责上传时，本项目只检查上传情况、不补传。**查询范围仅针对 check_bill_status 已检查过且状态是"上传成功"的单据**（upload_logs `source='batch_check' AND response_status='上传成功'`，按 rq 筛选）——未上传的单据由 check_bill_status 以任务状态（等待上传）反映，数量对账不重复查询/告警。
+
+**第 1 级（快，全量，SQL Server 聚合）**：逐单依次查询平台原始单号 → `_1` → `_2`...（上限 10 次），跨拆分子单累加平台申报数量（`ApiClient::sumBillDetailCount()`：累加 `min_pkg_count`），与本地应有数量对比（`TaskFetcher::fetchBillQuantitiesByCodes()`：明细视图 `SUM(shl)` 聚合，轻量查询不写库）。**比较口径统一为最小包装单位数**：本地 `shl` 即"已展开的最小包装单位数"（整件行 `shl = baozhshl × jlgg`、零散行 `shl = lingsshl`，见 ADR 0004——推翻早期"两数量纲无法统一"结论）。**基线剔除本地非药品行**（jixing 含商品/食品/消杀/用品/器械/化妆品/消毒剂/敷料/试剂/材料/设备等，spkfk 查不到剂型的行保守保留）——平台是药品追溯平台，外部系统按平台规则不申报非药品。**查询策略"相等即停，不等查尽"**：原始单号查到且数量相等即停（未拆分大头单 1 次调用）；原始单号查不到或数量不等继续查子单，防止"原单号+拆分并存"漏计。**"数量不符"嫌疑单仅收集在内存（不写库）**，其余分支照旧：相等 → 传齐零记录；全序列查不到 → `信息不存在`（防御分支：batch_check 已确认上传成功但平台查不到）；无法核对跳过（不写任何记录）——本地 `SUM(shl)` 为 NULL（明细视图无行）、平台响应解析失败（`sumBillDetailCount` 返回 null），不误报。
+
+**第 2 级（慢，精查，仅嫌疑单，singlerelation 码级口径）**：逐码调 `ApiClient::searchSingleRelation()` 把本地追溯码折算成平台"最小溯源单位"系数 `pkg_amount`（`ApiClient::sumPkgAmount()` 解析；大包装码=100、最小单位码=1），Σ pkg_amount 与第 1 级 actual（跨子单 min_pkg_count 累加）同口径对比——**本地零售规格 ≠ 平台注册规格的结构性口径差异（青霉素钠 20 瓶 vs 1 盒、氨咖黄敏胶囊 10粒/盒 vs 500粒/盒等，ADR 0004 判定的"本阶段无更优解"遗留硬伤）在此消除**。核心等式 `Σ singlerelation(本地每个追溯码).pkg_amount == min_pkg_count` 2026-08-26 探针实测成立（50/50、240/240 全等），设计见 `.scratch/quantity-check/singlerelation-tier2.md`。判定：**双方案都有差异 → 真问题**，写 `数量不符`（expected=Σ pkg_amount 码级折算，response 存 `{djbh, rq, expected, actual, sub_bills:[{djbh, count}], stopped_early}`）；**单方案有差异（第 2 级相等）→ 规格口径噪声，不写库** → Web 失败记录页零噪声；**码查询失败/无 pkg_amount（理论不存在，实测零次）→ 无法核对，跳过不写库**（Σ 不完整判定不可信，不误报）。**"超过即停"优化**：累计 Σ pkg_amount 一旦 > actual 即确定"本地多于平台"立即停（所有码系数 >0 不可能回落相等；只有相等/偏少才需查完全部码，嫌疑单平均 ~16 码）。第 2 级限速 500ms/次（1 秒 2 次，spec 实测确认；与 searchbill.detail 同 AppKey 限流池）。
+
+**2026-08-15 全量实测**（589 单）：传齐 527 / 第 1 级差异 62 → 码级精查后**真问题 17 / 规格噪声排除 45** / 无法核对 0 / 异常 0。**实测方向经验：17 条真问题全部为"平台申报 > 本地码折算"方向**（差 1-5，多为 1，无一条"漏传（平台少）"）——本地码全部可查、折算正确，平台统计了本地码列表之外的 1-5 个单位（外部系统多传/混入他单码，或本地单据在 ERP 之外还有码）。运维看到"数量不符"且 expected < actual 时优先怀疑**外部系统多传/混码**；spec 曾断言"多传检测不到"，两级流水线通过数量方向自然暴露该异常，属设计外额外收获。
+
+**幂等**：每轮先清理目标日期全部 quantity_check 记录再按新判定写入（限流熔断后下次运行重查不产生重复/残留记录，历史"数量不符"误报随重跑自动清除）。第 1 级 API 间隔 1s；两级任一处平台限流（App Call Limited）时**本轮熔断**，剩余单据下次运行自动重查。**运行时机**：必须避开 check_bill_status（8-20 点每 5 分钟一轮）的调用窗口，否则并发触发平台限流，cron 配 21:10 每天一次（详见上方 cron 时间表），默认检查昨天（参数可指定日期）。该检查顺带修正 check_bill_status 的盲区：外部系统拆分上传后原始单号查不到被误判"未上传"的场景，数量对账的运行时子单查询能识别子单已传齐。
 
 ### 手动上传（Web 端）
 
@@ -269,7 +277,9 @@ php /usr/share/nginx/mashangfangxin/scripts/init_db.php
 php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "SELECT * FROM upload_tasks ORDER BY id DESC LIMIT 10"
 php /usr/share/nginx/mashangfangxin/scripts/sqlite_query.php "UPDATE upload_tasks SET task_status='已处理' WHERE id=1"
 
-# 数量对账：核对指定日期单据申报数量是否传齐（默认昨天；三分支判定：传齐零记录/数量不符/未上传）
+# 数量对账（两级流水线）：核对指定日期单据申报数量是否传齐（默认昨天）
+# 第 1 级 shl 粗筛嫌疑单 → 第 2 级 singlerelation 码级精查（Σ pkg_amount vs min_pkg_count），
+# 双方案都有差异才写"数量不符"，规格口径噪声不写库（2026-08-15 实测 62 嫌疑 → 17 真问题/45 排除）
 # 注意: 只能在 20:00 后运行（避开 check_bill_status 8-20 点的调用窗口，否则并发触发平台限流；cron 已配 21:10）
 php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php
 php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php 2026-08-16
@@ -282,7 +292,7 @@ php /usr/share/nginx/mashangfangxin/tests/quantity_check_test.php
 php /usr/share/nginx/mashangfangxin/tests/search_bill_test.php XSOWMS00997501
 
 # 码级对账探针：逐码调 singlerelation 验证 Σ pkg_amount == searchbill.detail min_pkg_count
-#（设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
+#（核心等式 2026-08-26 实测成立；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 php /usr/share/nginx/mashangfangxin/tests/singlerelation_test.php XSOWMS00997406
 
 # 网页访问（需要登录，密码见 .env ADMIN_PASSWORD）

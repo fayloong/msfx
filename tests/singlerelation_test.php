@@ -53,11 +53,11 @@ $billCode = null;
 $limit = DEFAULT_LIMIT;
 $showDetail = true;
 
-foreach ($args as $arg) {
-    if ($arg === '--limit') {
-        continue;
-    }
-    if (preg_match('/^--limit=(\d+)$/', $arg, $m)) {
+for ($ai = 0; $ai < count($args); $ai++) {
+    $arg = $args[$ai];
+    if ($arg === '--limit' && isset($args[$ai + 1])) {
+        $limit = (int)$args[++$ai];
+    } elseif (preg_match('/^--limit=(\d+)$/', $arg, $m)) {
         $limit = (int)$m[1];
     } elseif ($arg === '--no-detail') {
         $showDetail = false;
@@ -122,7 +122,8 @@ foreach ($codes as $i => $code) {
         continue;
     }
 
-    $pkgAmount = extractPkgAmount($result['data']);
+    $respArr = json_decode(json_encode($result['data'], JSON_UNESCAPED_UNICODE), true);
+    $pkgAmount = is_array($respArr) ? ApiClient::sumPkgAmount($respArr) : null;
     if ($pkgAmount === null) {
         // 码查不到或响应结构异常——记录下来验证"batch_check 成功单的码必然可查"的假设
         $exitCode = 1;
@@ -203,54 +204,11 @@ if ($sum === $actual) {
 exit($exitCode);
 
 /**
- * 从 singlerelation 响应中提取单个追溯码的 pkg_amount。
- *
- * 响应结构按 SDK DTO 推断：result.model.drug_infos[].code_info_list_dto_list[].pkg_amount，
- * 但真实结构未验证——首个响应会存档 tests/singlerelation_<单号>.json，
- * 若解析返回 null 请以存档为准修正此函数。
- *
- * @param mixed $respData ApiClient::execute 的 data（TopClient 返回对象）
- * @return int|null 无法解析/无 pkg_amount 时为 null
+ * 注: pkg_amount 解析逻辑已收敛到 App\ApiClient::sumPkgAmount（单一事实源，
+ * check_quantity.php 第 2 级精查复用），本探针不再维护独立解析函数。
+ * 响应结构（2026-08-26 实测确认，存档 tests/singlerelation_<单号>.json）：
+ *   result.model_list.code_relation_dto.produce_info_list.produce_info_dto.pkg_amount
+ * 实测样本（6片/盒氯雷他定片盒码）：is_smallest="Y"（该码即最小溯源单位）、
+ * pkg_amount="1"（系数 1，与"最小单位码=1"的 spec 语义一致）。
+ * code_relation_dto 与 produce_info_dto 均兼容单条（关联数组）/多条（列表）两种形态。
  */
-function extractPkgAmount($respData): ?int
-{
-    $arr = json_decode(json_encode($respData, JSON_UNESCAPED_UNICODE), true);
-    if (!is_array($arr)) {
-        return null;
-    }
-
-    $model = $arr['result']['model'] ?? null;
-    if (!is_array($model)) {
-        return null;
-    }
-
-    // drug_infos: 单药品=关联数组、多药品=列表
-    $drugs = $model['drug_infos'] ?? null;
-    if (isset($drugs['code_info_list_dto_list'])) {
-        $drugs = [$drugs];
-    }
-    if (!is_array($drugs)) {
-        return null;
-    }
-
-    $sum = 0;
-    foreach ($drugs as $drug) {
-        if (!is_array($drug)) {
-            continue;
-        }
-        $codes = $drug['code_info_list_dto_list'] ?? null;
-        if (isset($codes['pkg_amount'])) {
-            $codes = [$codes];
-        }
-        if (!is_array($codes)) {
-            continue;
-        }
-        foreach ($codes as $info) {
-            if (is_array($info) && isset($info['pkg_amount']) && is_numeric($info['pkg_amount'])) {
-                $sum += (int)$info['pkg_amount'];
-            }
-        }
-    }
-
-    return $sum > 0 ? $sum : null;
-}

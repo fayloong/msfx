@@ -16,7 +16,9 @@
 
 - **单号 (Bill Code)**：单据编号，如 `JHGWMS00061116`。cron 上传时前 3 位标识单据类型（XSO/XST/JHG/JHO）；手动上传时单据类型由用户从下拉菜单独立选择。拆分时衍生为 `单号_1, 单号_2...`。
 
-- **最小包装数 (Min Package Count)**：药品申报数量的统一量纲，即"已展开到最小包装单位"的数量（如盒装药品的最小包装数是盒内的最小销售单位数）。平台 `searchbill.detail` 返回的 `min_pkg_count` 即此量纲；本地对应 SQL Server 明细视图（出库 `v_pf_phlrmx`、入库 `v_sjdmx_mx`）的 `shl` 字段——整件行 `shl = baozhshl(包装数) × jlgg(件规格)`、零散行 `shl = lingsshl(零散数量)`。数量对账（check_quantity.php）以此为比较口径，与追溯码数不同量纲（件码按件内盒数展开，1 件码=5/10/200 盒）。详见 ADR 0004。
+- **最小包装数 (Min Package Count)**：药品申报数量的统一量纲，即"已展开到最小包装单位"的数量（如盒装药品的最小包装数是盒内的最小销售单位数）。平台 `searchbill.detail` 返回的 `min_pkg_count` 即此量纲；本地对应 SQL Server 明细视图（出库 `v_pf_phlrmx`、入库 `v_sjdmx_mx`）的 `shl` 字段——整件行 `shl = baozhshl(包装数) × jlgg(件规格)`、零散行 `shl = lingsshl(零散数量)`。数量对账（check_quantity.php）**第 1 级**以此为比较口径（见 ADR 0004），与追溯码数不同量纲（件码按件内盒数展开，1 件码=5/10/200 盒）。
+
+- **最小溯源单位 (Min Traceability Unit)**：平台码库中追溯码的固有折算单位，每个追溯码都携带一个"折算成最小溯源单位的系数"（`pkg_amount`，singlerelation 接口返回）：本身就是最小溯源单位的码系数为 1、大包装码系数为其内含最小溯源单位数（如 100）。平台 `min_pkg_count` 即按此口径统计的申报总数。与"最小包装数"的区别：后者是**本地**口径（按本地零售规格展开，如青霉素钠按瓶卖），前者是**平台注册规格**口径——两者在本地零售规格 ≠ 平台注册规格的药品上不一致（差 19 的青霉素钠假阳性即源于此）。数量对账**第 2 级**以 `Σ pkg_amount`（把本地追溯码逐码折算后求和）与平台 `min_pkg_count` 对比，从根上消除规格口径差异。详见 `.scratch/quantity-check/singlerelation-tier2.md` 与 ADR 0005。
 
 ### 核心流程
 

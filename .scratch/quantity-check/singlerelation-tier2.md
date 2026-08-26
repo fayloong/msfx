@@ -1,4 +1,4 @@
-**Status:** design（探针已就绪，2026-08-26 待实测验证核心等式）
+**Status:** verified（2026-08-26 实测核心等式成立，两级流水线已实现并通过 08-15 全量实测；实现见 scripts/check_quantity.php + src/ApiClient.php）
 
 # 数量对账第二级：singlerelation 码级精查（两级流水线）
 
@@ -64,16 +64,33 @@
    {djbh, rq, expected, actual, sub_bills}，expected 改为 Σ pkg_amount）
 7. 非药品码跳过语义：以码库查询结果为准（查不到 → 记明细，不按 0 计）
 
-## Verification Plan（2026-08-26 实测）
+## Verification（2026-08-26 实测完成）
 
 探针：`tests/singlerelation_test.php <单号> [--limit N]`（避开 8-20 点窗口）
 
-| 样本 | 单号 | 码数 | 验证目标 |
-|------|------|------|----------|
-| 规格差异单 | XSOWMS00997406 | 213 | 新口径下 Σ pkg_amount == min_pkg_count（青霉素钠差 19 的假阳性被消除） |
-| 传齐样本 | XSOWMS00998311 | 50 | Σ pkg_amount == 50 == min_pkg_count（等式对传齐单成立） |
+| 样本 | 单号 | 码数 | 验证目标 | 结果 |
+|------|------|------|----------|------|
+| 传齐样本 | XSOWMS00998311 | 50 | Σ pkg_amount == 50 == min_pkg_count | ✓ 50 == 50 |
+| 规格差异单 | XSOWMS00997406 | 213 | Σ pkg_amount == min_pkg_count（青霉素钠差 19 假阳性消除） | ✓ 240 == 240（旧口径 259 vs 240 差 19） |
 
-通过 → 按本 spec 实现 check_quantity.php 两级流水线；核心等式被推翻 → 回 grilling 重新设计。
+**核心等式成立，按 spec 实现**。关键实测事实：
+- `pkg_amount` 真实路径 `result.model_list.code_relation_dto.produce_info_list.produce_info_dto.pkg_amount`（与 SDK DTO 推断不同，探针存档确认；解析已收敛到 `ApiClient::sumPkgAmount` 单一事实源）
+- `is_smallest="Y"` 字段确认查询码是否即最小溯源单位；213 码 → Σ 240 证明存在系数 >1 的大包装码
+- 263/263 码全部可查（"batch_check 成功单的码必然可查"假设成立），接口权限无问题
+
+### 全量实测（check_quantity.php 2026-08-15，589 单）
+
+```
+传齐 527 / 第1级差异 62（码级精查后: 真问题 17 / 规格噪声排除 45 / 无法核对 0） / 信息不存在 0 / 异常 0
+```
+
+- **45 条规格口径噪声被第 2 级消除**（第 1 级差异但码级相等），Web 失败记录页从 62 条降到 17 条真问题
+- 17 条真问题全部为**"平台申报 > 本地码折算"方向**（差 1-5，多为 1），无一条"漏传（平台少）"方向——
+  与预想相反：本地码全部可查、折算正确，平台统计了本地码列表之外的 1-5 个单位
+  （外部系统多传/混入他单码，或本地单据在 ERP 之外还有码）。**两级流水线设计外的额外
+  能力**：spec Out of Scope 曾断言"多传检测不到"，但数量方向自然暴露"平台多于本地"。
+  处置：按"疑似多传/混码"告警保留，人工复核优先怀疑外部系统上传了非本地单据的码
+- 幂等验证：每轮先 DELETE 目标日期 quantity_check 再写入（代码层确认，未单独重跑）
 
 ## Out of Scope
 
