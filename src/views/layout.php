@@ -1,18 +1,22 @@
 <?php
+
 /**
  * 全局布局组件 — 左侧可折叠菜单 + 右侧内容区
  *
  * 用法: layout($pageTitle, $activeMenu) { ... 页面内容 ... }
  */
-function layout(string $title, string $activeMenu = 'dashboard'): void {
+function layout(string $title, string $activeMenu = 'dashboard'): void
+{
     $menuItems = [
         'dashboard' => ['icon' => 'house', 'label' => '首页', 'href' => 'index.php?page=dashboard'],
         'upload' => [
-            'icon' => 'cloud-upload', 'label' => '单据上传',
+            'icon' => 'cloud-upload',
+            'label' => '单据上传',
             'children' => [
                 'upload-tasks' => ['icon' => 'arrow-up-circle', 'label' => '上传任务', 'href' => 'index.php?page=upload-tasks'],
                 'task-records' => [
-                    'icon' => 'clock-history', 'label' => '任务记录',
+                    'icon' => 'clock-history',
+                    'label' => '任务记录',
                     'children' => [
                         'uploaded' => ['icon' => 'check-circle', 'label' => '上传成功', 'href' => 'index.php?page=uploaded'],
                         'failed' => ['icon' => 'x-circle', 'label' => '失败记录', 'href' => 'index.php?page=failed'],
@@ -24,7 +28,7 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
     ];
 
     // 递归检查 $activeMenu 是否在某个菜单项的子树中
-    $isActiveInTree = function(string $active, array $item) use (&$isActiveInTree): bool {
+    $isActiveInTree = function (string $active, array $item) use (&$isActiveInTree): bool {
         if (!isset($item['children'])) return false;
         foreach ($item['children'] as $k => $child) {
             if ($k === $active) return true;
@@ -35,164 +39,286 @@ function layout(string $title, string $activeMenu = 'dashboard'): void {
 
     $svgIcons = [
         'house' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L2 8.207V13.5A1.5 1.5 0 0 0 3.5 15h9a1.5 1.5 0 0 0 1.5-1.5V8.207l.646.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.707 1.5Z"/></svg>',
-        'cloud-upload' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4.406 1.342A5.53 5.53 0 0 1 8 0c2.69 0 4.923 2 5.166 4.579C14.758 4.804 16 6.137 16 7.773 16 9.569 14.502 11 12.687 11H10a.5.5 0 0 1 0-1h2.688C13.979 10 15 8.988 15 7.773c0-1.216-1.02-2.228-2.313-2.228h-.5v-.5C12.188 2.825 10.328 1 8 1a4.53 4.53 0 0 0-2.941 1.1c-.757.652-1.153 1.438-1.153 2.055v.448l-.445.049C2.064 4.805 1 5.952 1 7.318 1 8.785 2.23 10 3.781 10H6a.5.5 0 0 1 0 1H3.781C1.708 11 0 9.366 0 7.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383Z"/></svg>',
-        'plus-circle' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>',
-        'arrow-up-circle' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/><path fill-rule="evenodd" d="M8 12a.5.5 0 0 0 .5-.5V5.707l2.146 2.147a.5.5 0 0 0 .708-.708l-3-3a.5.5 0 0 0-.708 0l-3 3a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5z"/></svg>',
-        'clock-history' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/><path d="M7.5 4a.5.5 0 0 1 .5.5V8h2.5a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 .5-.5z"/></svg>',
-        'check-circle' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/><path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/></svg>',
-        'x-circle' => '<svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z"/><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>',
+        'cloud-upload' => '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-cloud-upload" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M4.406 1.342A5.53 5.53 0 0 1 8 0c2.69 0 4.923 2 5.166 4.579C14.758 4.804 16 6.137 16 7.773 16 9.569 14.502 11 12.687 11H10a.5.5 0 0 1 0-1h2.688C13.979 10 15 8.988 15 7.773c0-1.216-1.02-2.228-2.313-2.228h-.5v-.5C12.188 2.825 10.328 1 8 1a4.53 4.53 0 0 0-2.941 1.1c-.757.652-1.153 1.438-1.153 2.055v.448l-.445.049C2.064 4.805 1 5.952 1 7.318 1 8.785 2.23 10 3.781 10H6a.5.5 0 0 1 0 1H3.781C1.708 11 0 9.366 0 7.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383"/> <path fill-rule="evenodd" d="M7.646 4.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 5.707V14.5a.5.5 0 0 1-1 0V5.707L5.354 7.854a.5.5 0 1 1-.708-.708z"/> </svg>',
+        'plus-circle' => '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-hand-index-thumb" viewBox="0 0 16 16"> <path d="M6.75 1a.75.75 0 0 1 .75.75V8a.5.5 0 0 0 1 0V5.467l.086-.004c.317-.012.637-.008.816.027.134.027.294.096.448.182.077.042.15.147.15.314V8a.5.5 0 0 0 1 0V6.435l.106-.01c.316-.024.584-.01.708.04.118.046.3.207.486.43.081.096.15.19.2.259V8.5a.5.5 0 1 0 1 0v-1h.342a1 1 0 0 1 .995 1.1l-.271 2.715a2.5 2.5 0 0 1-.317.991l-1.395 2.442a.5.5 0 0 1-.434.252H6.118a.5.5 0 0 1-.447-.276l-1.232-2.465-2.512-4.185a.517.517 0 0 1 .809-.631l2.41 2.41A.5.5 0 0 0 6 9.5V1.75A.75.75 0 0 1 6.75 1M8.5 4.466V1.75a1.75 1.75 0 1 0-3.5 0v6.543L3.443 6.736A1.517 1.517 0 0 0 1.07 8.588l2.491 4.153 1.215 2.43A1.5 1.5 0 0 0 6.118 16h6.302a1.5 1.5 0 0 0 1.302-.756l1.395-2.441a3.5 3.5 0 0 0 .444-1.389l.271-2.715a2 2 0 0 0-1.99-2.199h-.581a5 5 0 0 0-.195-.248c-.191-.229-.51-.568-.88-.716-.364-.146-.846-.132-1.158-.108l-.132.012a1.26 1.26 0 0 0-.56-.642 2.6 2.6 0 0 0-.738-.288c-.31-.062-.739-.058-1.05-.046zm2.094 2.025"/> </svg>',
+        'arrow-up-circle' => '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-card-checklist" viewBox="0 0 16 16"> <path d="M14.5 3a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5zm-13-1A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2z"/> <path d="M7 5.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5m-1.496-.854a.5.5 0 0 1 0 .708l-1.5 1.5a.5.5 0 0 1-.708 0l-.5-.5a.5.5 0 1 1 .708-.708l.146.147 1.146-1.147a.5.5 0 0 1 .708 0M7 9.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5m-1.496-.854a.5.5 0 0 1 0 .708l-1.5 1.5a.5.5 0 0 1-.708 0l-.5-.5a.5.5 0 0 1 .708-.708l.146.147 1.146-1.147a.5.5 0 0 1 .708 0"/> </svg>',
+        'clock-history' => '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clock-history" viewBox="0 0 16 16"> <path d="M8.515 1.019A7 7 0 0 0 8 1V0a8 8 0 0 1 .589.022zm2.004.45a7 7 0 0 0-.985-.299l.219-.976q.576.129 1.126.342zm1.37.71a7 7 0 0 0-.439-.27l.493-.87a8 8 0 0 1 .979.654l-.615.789a7 7 0 0 0-.418-.302zm1.834 1.79a7 7 0 0 0-.653-.796l.724-.69q.406.429.747.91zm.744 1.352a7 7 0 0 0-.214-.468l.893-.45a8 8 0 0 1 .45 1.088l-.95.313a7 7 0 0 0-.179-.483m.53 2.507a7 7 0 0 0-.1-1.025l.985-.17q.1.58.116 1.17zm-.131 1.538q.05-.254.081-.51l.993.123a8 8 0 0 1-.23 1.155l-.964-.267q.069-.247.12-.501m-.952 2.379q.276-.436.486-.908l.914.405q-.24.54-.555 1.038zm-.964 1.205q.183-.183.35-.378l.758.653a8 8 0 0 1-.401.432z"/> <path d="M8 1a7 7 0 1 0 4.95 11.95l.707.707A8.001 8.001 0 1 1 8 0z"/> <path d="M7.5 3a.5.5 0 0 1 .5.5v5.21l3.248 1.856a.5.5 0 0 1-.496.868l-3.5-2A.5.5 0 0 1 7 9V3.5a.5.5 0 0 1 .5-.5"/> </svg>',
+        'check-circle' => '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-journal-check" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M10.854 6.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7.5 8.793l2.646-2.647a.5.5 0 0 1 .708 0"/> <path d="M3 0h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-1h1v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v1H1V2a2 2 0 0 1 2-2"/> <path d="M1 5v-.5a.5.5 0 0 1 1 0V5h.5a.5.5 0 0 1 0 1h-2a.5.5 0 0 1 0-1zm0 3v-.5a.5.5 0 0 1 1 0V8h.5a.5.5 0 0 1 0 1h-2a.5.5 0 0 1 0-1zm0 3v-.5a.5.5 0 0 1 1 0v.5h.5a.5.5 0 0 1 0 1h-2a.5.5 0 0 1 0-1z"/> </svg>',
+        'x-circle' => '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-journal-x" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M6.146 6.146a.5.5 0 0 1 .708 0L8 7.293l1.146-1.147a.5.5 0 1 1 .708.708L8.707 8l1.147 1.146a.5.5 0 0 1-.708.708L8 8.707 6.854 9.854a.5.5 0 0 1-.708-.708L7.293 8 6.146 6.854a.5.5 0 0 1 0-.708"/> <path d="M3 0h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-1h1v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v1H1V2a2 2 0 0 1 2-2"/> <path d="M1 5v-.5a.5.5 0 0 1 1 0V5h.5a.5.5 0 0 1 0 1h-2a.5.5 0 0 1 0-1zm0 3v-.5a.5.5 0 0 1 1 0V8h.5a.5.5 0 0 1 0 1h-2a.5.5 0 0 1 0-1zm0 3v-.5a.5.5 0 0 1 1 0v.5h.5a.5.5 0 0 1 0 1h-2a.5.5 0 0 1 0-1z"/> </svg>',
     ];
 ?>
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($title) ?> — 码上放心</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link href="/assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="/assets/css/bootstrap-icons.css" rel="stylesheet">
-    <link href="/assets/css/flatpickr.min.css" rel="stylesheet">
-    <script src="/assets/js/flatpickr.min.js"></script>
-    <script src="/assets/js/zh.js"></script>
-    <style>
-        :root {
-            --sidebar-width: 240px;
-            --sidebar-collapsed-width: 56px;
-            --transition-speed: 0.25s;
-        }
-        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-        .sidebar {
-            position: fixed; top: 0; left: 0; bottom: 0; z-index: 1000;
-            width: var(--sidebar-width); background: #1e293b; color: #cbd5e1;
-            transition: width var(--transition-speed) ease;
-            overflow-x: hidden; overflow-y: auto; white-space: nowrap;
-            display: flex; flex-direction: column;
-        }
-        .sidebar .logout-link { margin-top: auto; color: #f87171; }
-        .sidebar .logout-link:hover { color: #fff; background: rgba(248, 113, 113, 0.25); }
-        .sidebar.collapsed { width: var(--sidebar-collapsed-width); }
-        .sidebar .brand {
-            display: flex; align-items: center; height: 56px; padding: 0 16px;
-            font-weight: 700; font-size: 1.1rem; color: #fff; border-bottom: 1px solid #334155;
-        }
-        .sidebar .brand-text { transition: opacity var(--transition-speed); }
-        .sidebar.collapsed .brand-text { opacity: 0; width: 0; overflow: hidden; }
-        .sidebar .brand #toggle-sidebar { cursor: pointer; opacity: 0.85; border-radius: 4px; padding: 2px; transition: opacity 0.15s, background 0.15s; }
-        .sidebar .brand #toggle-sidebar:hover { opacity: 1; background: rgba(96, 165, 250, 0.2); }
-        .sidebar .nav-link {
-            display: flex; align-items: center; padding: 10px 16px; color: #94a3b8;
-            text-decoration: none; border-radius: 0; transition: background 0.15s;
-            gap: 12px; cursor: pointer;
-        }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: #334155; }
-        .sidebar .nav-link svg { flex-shrink: 0; }
-        .sidebar .nav-label { transition: opacity var(--transition-speed); }
-        .sidebar.collapsed .nav-label { opacity: 0; width: 0; overflow: hidden; }
-        .sidebar .submenu { padding-left: 16px; }
-        .sidebar .submenu .nav-link { padding-left: 32px; font-size: 0.9rem; }
-        .sidebar .submenu .submenu { padding-left: 0; }
-        .sidebar .submenu .submenu .nav-link { padding-left: 48px; }
-        .sidebar.collapsed .submenu { display: none; }
-        .main-content {
-            margin-left: var(--sidebar-width); padding: 24px;
-            transition: margin-left var(--transition-speed) ease;
-        }
-        .sidebar.collapsed ~ .main-content { margin-left: var(--sidebar-collapsed-width); }
-        @media (max-width: 768px) {
-            .sidebar { width: var(--sidebar-collapsed-width); }
-            .sidebar .brand-text, .sidebar .nav-label { opacity: 0; width: 0; overflow: hidden; }
-            .sidebar .submenu { display: none; }
-            .main-content { margin-left: var(--sidebar-collapsed-width); }
-        }
-    </style>
-</head>
-<body>
-<aside class="sidebar" id="sidebar">
-    <div class="brand">
-        <svg id="toggle-sidebar" width="24" height="24" fill="#60a5fa" viewBox="0 0 16 16" style="flex-shrink:0" title="收起/展开菜单"><path d="M2.5 3.5a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1h-11zm0 3a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1h-7zm0 3a.5.5 0 0 1 0-1h9a.5.5 0 0 1 0 1h-9zm0 3a.5.5 0 0 1 0-1h5a.5.5 0 0 1 0 1h-5z"/></svg>
-        <span class="brand-text ms-2">码上放心</span>
-    </div>
-    <nav class="mt-2">
-        <?php foreach ($menuItems as $key => $item): ?>
-            <?php if (isset($item['children'])): ?>
-                <!-- 一级子菜单 -->
-                <a class="nav-link <?= $isActiveInTree($activeMenu, $item) ? 'active' : '' ?>"
-                   data-bs-toggle="collapse" href="#submenu-<?= $key ?>" role="button">
-                    <?= $svgIcons[$item['icon']] ?? '' ?>
-                    <span class="nav-label"><?= htmlspecialchars($item['label']) ?></span>
-                </a>
-                <div class="collapse submenu <?= $isActiveInTree($activeMenu, $item) ? 'show' : '' ?>"
-                     id="submenu-<?= $key ?>">
-                    <?php foreach ($item['children'] as $childKey => $child): ?>
-                        <?php if (isset($child['children'])): ?>
-                            <!-- 二级子菜单（可折叠） -->
-                            <a class="nav-link <?= $isActiveInTree($activeMenu, $child) ? 'active' : '' ?>"
-                               data-bs-toggle="collapse" href="#submenu-<?= $childKey ?>" role="button">
-                                <?= $svgIcons[$child['icon']] ?? '' ?>
-                                <span class="nav-label"><?= htmlspecialchars($child['label']) ?></span>
-                            </a>
-                            <div class="collapse submenu <?= $isActiveInTree($activeMenu, $child) ? 'show' : '' ?>"
-                                 id="submenu-<?= $childKey ?>">
-                                <?php foreach ($child['children'] as $grandKey => $grandChild): ?>
-                                    <a class="nav-link <?= $activeMenu === $grandKey ? 'active' : '' ?>"
-                                       href="<?= $grandChild['href'] ?>">
-                                        <?= $svgIcons[$grandChild['icon']] ?? '' ?>
-                                        <span class="nav-label"><?= htmlspecialchars($grandChild['label']) ?></span>
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title><?= htmlspecialchars($title) ?> — 码上放心</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+        <link href="/assets/css/bootstrap.min.css" rel="stylesheet">
+        <link href="/assets/css/bootstrap-icons.css" rel="stylesheet">
+        <link href="/assets/css/flatpickr.min.css" rel="stylesheet">
+        <script src="/assets/js/flatpickr.min.js"></script>
+        <script src="/assets/js/zh.js"></script>
+        <style>
+            :root {
+                --sidebar-width: 240px;
+                --sidebar-collapsed-width: 56px;
+                --transition-speed: 0.25s;
+            }
+
+            body {
+                margin: 0;
+                padding: 0;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            }
+
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                bottom: 0;
+                z-index: 1000;
+                width: var(--sidebar-width);
+                background: #1e293b;
+                color: #cbd5e1;
+                transition: width var(--transition-speed) ease;
+                overflow-x: hidden;
+                overflow-y: auto;
+                white-space: nowrap;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .sidebar .logout-link {
+                margin-top: auto;
+                color: #f87171;
+            }
+
+            .sidebar .logout-link:hover {
+                color: #fff;
+                background: rgba(248, 113, 113, 0.25);
+            }
+
+            .sidebar.collapsed {
+                width: var(--sidebar-collapsed-width);
+            }
+
+            .sidebar .brand {
+                display: flex;
+                align-items: center;
+                height: 56px;
+                padding: 0 16px;
+                font-weight: 700;
+                font-size: 1.1rem;
+                color: #fff;
+                border-bottom: 1px solid #334155;
+            }
+
+            .sidebar .brand-text {
+                transition: opacity var(--transition-speed);
+            }
+
+            .sidebar.collapsed .brand-text {
+                opacity: 0;
+                width: 0;
+                overflow: hidden;
+            }
+
+            .sidebar .brand #toggle-sidebar {
+                cursor: pointer;
+                opacity: 0.85;
+                border-radius: 4px;
+                padding: 2px;
+                transition: opacity 0.15s, background 0.15s;
+            }
+
+            .sidebar .brand #toggle-sidebar:hover {
+                opacity: 1;
+                background: rgba(96, 165, 250, 0.2);
+            }
+
+            .sidebar .nav-link {
+                display: flex;
+                align-items: center;
+                padding: 10px 16px;
+                color: #94a3b8;
+                text-decoration: none;
+                border-radius: 0;
+                transition: background 0.15s;
+                gap: 12px;
+                cursor: pointer;
+            }
+
+            .sidebar .nav-link:hover,
+            .sidebar .nav-link.active {
+                color: #fff;
+                background: #334155;
+            }
+
+            .sidebar .nav-link svg {
+                flex-shrink: 0;
+            }
+
+            .sidebar .nav-label {
+                transition: opacity var(--transition-speed);
+            }
+
+            .sidebar.collapsed .nav-label {
+                opacity: 0;
+                width: 0;
+                overflow: hidden;
+            }
+
+            .sidebar .submenu {
+                padding-left: 16px;
+            }
+
+            .sidebar .submenu .nav-link {
+                padding-left: 32px;
+                font-size: 0.9rem;
+            }
+
+            .sidebar .submenu .submenu {
+                padding-left: 0;
+            }
+
+            .sidebar .submenu .submenu .nav-link {
+                padding-left: 48px;
+            }
+
+            .sidebar.collapsed .submenu {
+                display: none;
+            }
+
+            .main-content {
+                margin-left: var(--sidebar-width);
+                padding: 24px;
+                transition: margin-left var(--transition-speed) ease;
+            }
+
+            .sidebar.collapsed~.main-content {
+                margin-left: var(--sidebar-collapsed-width);
+            }
+
+            @media (max-width: 768px) {
+                .sidebar {
+                    width: var(--sidebar-collapsed-width);
+                }
+
+                .sidebar .brand-text,
+                .sidebar .nav-label {
+                    opacity: 0;
+                    width: 0;
+                    overflow: hidden;
+                }
+
+                .sidebar .submenu {
+                    display: none;
+                }
+
+                .main-content {
+                    margin-left: var(--sidebar-collapsed-width);
+                }
+            }
+        </style>
+    </head>
+
+    <body>
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <svg id="toggle-sidebar" width="24" height="24" fill="#60a5fa" viewBox="0 0 16 16" style="flex-shrink:0" title="收起/展开菜单">
+                    <path d="M2.5 3.5a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1h-11zm0 3a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1h-7zm0 3a.5.5 0 0 1 0-1h9a.5.5 0 0 1 0 1h-9zm0 3a.5.5 0 0 1 0-1h5a.5.5 0 0 1 0 1h-5z" />
+                </svg>
+                <span class="brand-text ms-2">码上放心</span>
+            </div>
+            <nav class="mt-2">
+                <?php foreach ($menuItems as $key => $item): ?>
+                    <?php if (isset($item['children'])): ?>
+                        <!-- 一级子菜单 -->
+                        <a class="nav-link <?= $isActiveInTree($activeMenu, $item) ? 'active' : '' ?>"
+                            data-bs-toggle="collapse" href="#submenu-<?= $key ?>" role="button">
+                            <?= $svgIcons[$item['icon']] ?? '' ?>
+                            <span class="nav-label"><?= htmlspecialchars($item['label']) ?></span>
+                        </a>
+                        <div class="collapse submenu <?= $isActiveInTree($activeMenu, $item) ? 'show' : '' ?>"
+                            id="submenu-<?= $key ?>">
+                            <?php foreach ($item['children'] as $childKey => $child): ?>
+                                <?php if (isset($child['children'])): ?>
+                                    <!-- 二级子菜单（可折叠） -->
+                                    <a class="nav-link <?= $isActiveInTree($activeMenu, $child) ? 'active' : '' ?>"
+                                        data-bs-toggle="collapse" href="#submenu-<?= $childKey ?>" role="button">
+                                        <?= $svgIcons[$child['icon']] ?? '' ?>
+                                        <span class="nav-label"><?= htmlspecialchars($child['label']) ?></span>
                                     </a>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php else: ?>
-                            <a class="nav-link <?= $activeMenu === $childKey ? 'active' : '' ?>"
-                               href="<?= $child['href'] ?>">
-                                <?= $svgIcons[$child['icon']] ?? '' ?>
-                                <span class="nav-label"><?= htmlspecialchars($child['label']) ?></span>
-                            </a>
-                        <?php endif; ?>
-                    <?php endforeach; ?>
-                </div>
-            <?php else: ?>
-                <a class="nav-link <?= $activeMenu === $key ? 'active' : '' ?>" href="<?= $item['href'] ?>">
-                    <?= $svgIcons[$item['icon']] ?? '' ?>
-                    <span class="nav-label"><?= htmlspecialchars($item['label']) ?></span>
-                </a>
-            <?php endif; ?>
-        <?php endforeach; ?>
-    </nav>
-    <a class="nav-link logout-link" href="index.php?page=login&action=logout" title="退出登录">
-        <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"/><path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/></svg>
-        <span class="nav-label">退出</span>
-    </a>
-</aside>
+                                    <div class="collapse submenu <?= $isActiveInTree($activeMenu, $child) ? 'show' : '' ?>"
+                                        id="submenu-<?= $childKey ?>">
+                                        <?php foreach ($child['children'] as $grandKey => $grandChild): ?>
+                                            <a class="nav-link <?= $activeMenu === $grandKey ? 'active' : '' ?>"
+                                                href="<?= $grandChild['href'] ?>">
+                                                <?= $svgIcons[$grandChild['icon']] ?? '' ?>
+                                                <span class="nav-label"><?= htmlspecialchars($grandChild['label']) ?></span>
+                                            </a>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <a class="nav-link <?= $activeMenu === $childKey ? 'active' : '' ?>"
+                                        href="<?= $child['href'] ?>">
+                                        <?= $svgIcons[$child['icon']] ?? '' ?>
+                                        <span class="nav-label"><?= htmlspecialchars($child['label']) ?></span>
+                                    </a>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <a class="nav-link <?= $activeMenu === $key ? 'active' : '' ?>" href="<?= $item['href'] ?>">
+                            <?= $svgIcons[$item['icon']] ?? '' ?>
+                            <span class="nav-label"><?= htmlspecialchars($item['label']) ?></span>
+                        </a>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </nav>
+            <a class="nav-link logout-link" href="index.php?page=login&action=logout" title="退出登录">
+                <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z" />
+                    <path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z" />
+                </svg>
+                <span class="nav-label">退出</span>
+            </a>
+        </aside>
 
-<div class="main-content">
+        <div class="main-content">
+        <?php
+    }
+
+    function layoutEnd(): void
+    {
+        ?>
+        </div><!-- .main-content -->
+        <div class="modal fade" id="globalModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content" id="globalModalContent"></div>
+            </div>
+        </div>
+        <script src="/assets/js/bootstrap.bundle.min.js"></script>
+        <script>
+            document.getElementById('toggle-sidebar').addEventListener('click', () => {
+                document.getElementById('sidebar').classList.toggle('collapsed');
+                localStorage.setItem('sidebar-collapsed', document.getElementById('sidebar').classList.contains('collapsed'));
+            });
+            if (localStorage.getItem('sidebar-collapsed') === 'true') {
+                document.getElementById('sidebar').classList.add('collapsed');
+            }
+        </script>
+    </body>
+
+    </html>
 <?php
-}
+    }
 
-function layoutEnd(): void {
-?>
-</div><!-- .main-content -->
-<div class="modal fade" id="globalModal" tabindex="-1">
-    <div class="modal-dialog"><div class="modal-content" id="globalModalContent"></div></div>
-</div>
-<script src="/assets/js/bootstrap.bundle.min.js"></script>
-<script>
-document.getElementById('toggle-sidebar').addEventListener('click', () => {
-    document.getElementById('sidebar').classList.toggle('collapsed');
-    localStorage.setItem('sidebar-collapsed', document.getElementById('sidebar').classList.contains('collapsed'));
-});
-if (localStorage.getItem('sidebar-collapsed') === 'true') {
-    document.getElementById('sidebar').classList.add('collapsed');
-}
-</script>
-</body>
-</html>
-<?php
-}
-
-// 处理退出
-if (isset($_GET['action']) && $_GET['action'] === 'logout') {
-    \App\Auth::logout();
-    header('Location: index.php?page=login');
-    exit;
-}
+    // 处理退出
+    if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+        \App\Auth::logout();
+        header('Location: index.php?page=login');
+        exit;
+    }
