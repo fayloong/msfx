@@ -277,7 +277,7 @@ class TaskFetcher
         FROM skwms_new.dbo.v_pf_phlrhz a
         JOIN skwms_new.dbo.mchk c ON c.dwbh = a.dwbh
         JOIN hyyy_zyscm.dbo.businessdoc bd ON bd.businessid = c.entdwbh
-        WHERE a.rq >= '{$date}' AND a.rq <= '{$date}'
+        WHERE a.is_zx = '是' AND a.rq >= '{$date}' AND a.rq <= '{$date}'
 
         UNION ALL
 
@@ -286,7 +286,7 @@ class TaskFetcher
         JOIN skwms_new.dbo.mchk c ON c.dwbh = a.dwbh
         JOIN hyyy_zyscm.dbo.businessdoc bd ON bd.businessid = c.entdwbh
         JOIN skwms_new.dbo.v_sjdmx_mx d ON d.ysdjbh = a.djbh
-        WHERE a.rq >= '{$date}' AND a.rq <= '{$date}'
+        WHERE a.is_zx = '是' AND a.rq >= '{$date}' AND a.rq <= '{$date}'
 
         IF OBJECT_ID('tempdb..#task_detail') IS NOT NULL
             DROP TABLE #task_detail
@@ -326,7 +326,7 @@ class TaskFetcher
         FROM skwms_new.dbo.v_pf_phlrhz a
         JOIN skwms_new.dbo.mchk c ON c.dwbh = a.dwbh
         JOIN hyyy_zyscm.dbo.businessdoc bd ON bd.businessid = c.entdwbh
-        WHERE a.rq >= '{$date}' AND a.rq <= '{$date}'
+        WHERE a.is_zx = '是' AND a.rq >= '{$date}' AND a.rq <= '{$date}'
 
         UNION ALL
 
@@ -335,7 +335,7 @@ class TaskFetcher
         JOIN skwms_new.dbo.mchk c ON c.dwbh = a.dwbh
         JOIN hyyy_zyscm.dbo.businessdoc bd ON bd.businessid = c.entdwbh
         JOIN skwms_new.dbo.v_sjdmx_mx d ON d.ysdjbh = a.djbh
-        WHERE a.rq >= '{$date}' AND a.rq <= '{$date}'
+        WHERE a.is_zx = '是' AND a.rq >= '{$date}' AND a.rq <= '{$date}'
 
         SELECT * FROM #bill_list
         ";

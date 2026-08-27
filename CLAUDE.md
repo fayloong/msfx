@@ -64,7 +64,7 @@ root/
 │       └── manual_upload.php     # 手动上传（在线表单 + xlsx 导入）
 ├── config/
 │   ├── .env                      # 数据库连接 + API 凭证 + 管理员密码
-│   └── sql.php                   # SQL Server 原始查询（参考用）
+│   └── sql.php                   # SQL Server 原始查询（参考用；采集口径含 a.is_zx='是' 已执行单据过滤，2026-08-27）
 ├── public/
 │   ├── index.php                 # Web 单入口（page 参数分发路由）
 │   └── favicon.svg               # SVG 网站图标
@@ -119,7 +119,7 @@ root/
 
 采集和上传解耦为两个独立脚本，可分别设 cron 规则。
 
-**采集（fetch_bills.php）**：启动时轻量查询 SALEOUTMT/PURINMT 当天单据计数，与 `data/fetch_bill_counter.json` 基线比较——同一日期且计数相同则跳过采集（避免重视图查询空转），基线只在采集成功（视图查询 + SQLite 写入全部完成）后更新；然后 SQL Server 查询当天单据 → 按 `djbh` 去重（跳过 `upload_tasks` 中已存在的任务，以及 `upload_logs` 中已上传成功/单据重复的单据）→ 写入 SQLite `upload_tasks`（source=cron, task_status=等待上传, bill_type=单据号前缀）
+**采集（fetch_bills.php）**：启动时轻量查询 SALEOUTMT/PURINMT 当天单据计数，与 `data/fetch_bill_counter.json` 基线比较——同一日期且计数相同则跳过采集（避免重视图查询空转），基线只在采集成功（视图查询 + SQLite 写入全部完成）后更新；然后 SQL Server 查询当天单据（**仅取已执行单据 `a.is_zx='是'`**，作废/未执行单据不采集，口径与 `config/sql.php` 一致）→ 按 `djbh` 去重（跳过 `upload_tasks` 中已存在的任务，以及 `upload_logs` 中已上传成功/单据重复的单据）→ 写入 SQLite `upload_tasks`（source=cron, task_status=等待上传, bill_type=单据号前缀）
 
 **上传（upload_pending.php）**：读取 `upload_tasks` 中所有 `task_status='等待上传'` 的任务（不限来源）→ 查 SQLite `ent_list` 缓存 → 缓存未命中调码上放心 API 获取 `ent_id` → 超过 3500 追溯码自动拆分为 `单号_1, 单号_2...` → 调 API 上传 → 结果写入 JSONL + SQLite `upload_logs`（关联 task_id）→ 更新 `upload_tasks` 状态 → 重试 3 次（仅网络错误，间隔 30s）→ API 间隔 0.33s → flock 文件锁防并发
 

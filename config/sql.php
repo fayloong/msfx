@@ -20,6 +20,7 @@ from skwms_new.dbo.v_pf_phlrhz a
 join skwms_new.dbo.mchk c on c.dwbh = a.dwbh
 join hyyy_zyscm.dbo.businessdoc bd on bd.businessid=c.entdwbh
 where 1=1 
+and a.is_zx='是'
 and a.rq >='2026-07-25' and a.rq<='2026-07-25'
 
 union ALL
@@ -30,7 +31,7 @@ join skwms_new.dbo.mchk c on c.dwbh=a.dwbh
 join hyyy_zyscm.dbo.businessdoc bd on bd.businessid=c.entdwbh
 join skwms_new.dbo.v_sjdmx_mx d on d.ysdjbh=a.djbh  
 where 1=1 
-
+and a.is_zx='是'
 and a.rq >='2026-07-25' and a.rq<='2026-07-25'
 
 
@@ -46,6 +47,7 @@ join skwms_new.dbo.wms_dzjg b on b.djbh = a.djbh
 join skwms_new.dbo.mchk c on c.dwbh = a.dwbh
 join hyyy_zyscm.dbo.businessdoc bd on bd.businessid=c.entdwbh
 where 1=1
+and a.is_zx='是'
 and exists(select  * from #bill_list x where x.djbh=a.djbh)
 
 UNION ALL
@@ -57,6 +59,7 @@ join hyyy_zyscm.dbo.businessdoc bd on bd.businessid=c.entdwbh
 join skwms_new.dbo.v_sjdmx_mx d on d.ysdjbh=a.djbh  
 join skwms_new.dbo.wms_dzjg_rk b on b.djbh=d.ysdjbh and b.dj_sn=d.ydj_sn and b.spid=d.spid
 where 1=1
+and a.is_zx='是'
 AND exists(select  * from #bill_list x where x.djbh=a.djbh)
 
 

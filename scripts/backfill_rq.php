@@ -82,11 +82,11 @@ if (empty($remainingDjbhs)) {
         $sql = "
             SELECT DISTINCT a.djbh, a.rq
             FROM skwms_new.dbo.v_pf_phlrhz a
-            WHERE a.djbh IN ({$placeholders})
+            WHERE a.is_zx = '是' AND a.djbh IN ({$placeholders})
             UNION
             SELECT DISTINCT a.djbh, a.rq
             FROM skwms_new.dbo.v_jzorder_hz a
-            WHERE a.djbh IN ({$placeholders})
+            WHERE a.is_zx = '是' AND a.djbh IN ({$placeholders})
         ";
 
         $ssRows = $ss->query($sql, $params);
