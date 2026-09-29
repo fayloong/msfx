@@ -12,7 +12,13 @@
 
 - **追溯码 (Trace Code)**：药品电子监管码，字符串类型。一个单据对应多个追溯码，以英文逗号分隔拼接为长文本。API 限制单次上传最多 3500 个追溯码，超出时自动拆分为 `单号_1, 单号_2...`（**上传拆分**）。导出 xlsx 时因 Excel 单格字符上限（32767），按字符数（32000）再次拆行（**导出拆行**），每行一个分片、单号加 `_N` 后缀（已带后缀的单号追加后缀，如 `单号_1` → `单号_1_1`）；3500 码 ≈ 73500 字符，故导出拆行不能按 3500 码粒度。
 
-- **往来单位 (Partner Enterprise)**：单据的对方企业（供应商或客户）。具有 `ent_name`（企业名称）、`ent_id`（阿里健康企业 ID）、`ref_ent_id`（企业编码）属性。首次遇到的往来单位通过 API 在线查询并缓存到本地 SQLite `ent_list` 表。
+- **所属企业 (Company)**：**上传这张单的申报主体**——河药批发企业，或零售连锁的某家门店（形如"`<城市>` `<品牌>` 药房有限公司 `<门店>` 分店"，实际名单由部署配置提供）。以**中文企业名**作为标识（存在 `upload_tasks` / `upload_logs` 的 `company` 列）。所属企业决定用哪套凭据（见"凭据"）调哪个平台接口，因此它是多企业支持下的**路由主体**。零售门店名来自源表 `zsm_ls.oper_ic_name`，与配置里的门店名**精确相等**匹配；匹配不上的单据照常入库但标为 **`未识别`**，并在页面显著提示、禁用补传（丢单比错标更危险，必须能看见"有单没被认领"）。
+
+- **凭据 (Credential)**：一套平台接入身份，含 `appkey`、`secretkey`、`ref_ent_id`、`ent_id`、`label`（人读标签，如"零售主体"，供页面下拉显示）、`bill_types`（该凭据适用的单据类型白名单，缺省全集）。**门店与凭据是 1:N**——一个门店可能存在多套凭据（对应多个平台主体），所以"用哪套凭据"不能从门店名推导，须显式指定；落库记录因此需要 `credential` 列，去重键是 `(company, credential, djbh)` 三元组（主体 A 传成功不代表主体 B 传成功）。凭据明文存 `config/enterprises.local.php`（不入 git），结构存 `config/enterprises.php`。
+
+  注：**平台侧要的是两种不同的 ID**——`ref_user_id` / `ref_ent_id` 是**企业编码**，`from_user_id` / `to_user_id` / `ent_id` 是**阿里健康企业 ID**。同一个凭据两者都有，不能混用。
+
+- **往来单位 (Partner Enterprise)**：**单据的对方企业**（供应商或客户），**不是申报主体**——与"所属企业"是正交的两个维度：所属企业答"这张单是谁报的"，往来单位答"这张单是对谁报的"。具有 `ent_name`（企业名称）、`ent_id`（阿里健康企业 ID）、`ref_ent_id`（企业编码）属性。首次遇到的往来单位通过 API 在线查询并缓存到本地 SQLite `ent_list` 表（该缓存**按所属企业隔离**，唯一约束是 `UNIQUE(company, ent_name)`）。**零售单据不使用往来单位缓存**——`from_user_id` / `to_user_id` 直接来自源表 `zsm_ls`。
 
 - **单号 (Bill Code)**：单据编号，如 `JHGWMS00061116`。cron 上传时前 3 位标识单据类型（XSO/XST/JHG/JHO）；手动上传时单据类型由用户从下拉菜单独立选择。拆分时衍生为 `单号_1, 单号_2...`。
 
@@ -39,10 +45,12 @@
 ### 任务状态机
 
 ```
-等待上传 → 已处理
+批发：等待上传 → 已处理
+零售：待补传   → 已处理（仅人工触发，不会被自动上传 cron 取走）
 ```
 
-- **等待上传**：任务已创建，尚未发起上传
+- **等待上传**：**批发**任务已创建，尚未发起上传，`upload_pending.php` 会取走并自动上传
+- **待补传**：**零售**单据已采集入库、等待人工手动补传。**不复用"等待上传"**——零售由外部系统上传，若以"等待上传"落库会被 `upload_pending.php` 用河药凭据、走批发接口误传到河药主体名下（不可逆的平台数据错误）
 - **已处理**：上传完成（不论成功或失败），具体结果见 `request_status` 和 `response_status` 字段
 
 `request_status`（请求状态）：请求成功 / 请求失败
@@ -64,8 +72,9 @@
 
 ### 外部系统
 
-- **SQL Server (192.168.2.133)**：ERP 数据库，`hyyy_zyscm` 库 + `skwms_new` 库。cron 定时查询源。通过 `TaskFetcher` 访问。
-- **码上放心 API (gw.api.taobao.com)**：阿里健康药品追溯平台，通过 TOP SDK 调用。凭据配置在 `config/.env`（APPKEY_HYYY / SECRETKEY_HYYY / ENTID_HYYY / REFENTID_HYYY）。
+- **SQL Server (192.168.2.133)**：**批发**的 ERP 数据库，`hyyy_zyscm` 库 + `skwms_new` 库。cron 定时查询源。通过 `TaskFetcher` 访问。
+- **dyt 链接服务器**：**零售连锁**的单据来源。`dyt.msfx.dbo.zsm_ls`（单据头）+ `zsm_ls_code`（追溯码，按 `bill_code` 关联）；上游还有 `dyt.bs_msfx.dbo.update_state`（单号 + 上传状态两列），是**外部系统的私有状态**，本项目**不读也不写**——它能过滤出"尚未上传的单"，但本项目的核对需要一个不含该过滤的全量基准面。见 ADR 0007。
+- **码上放心 API (gw.api.taobao.com)**：阿里健康药品追溯平台，通过 TOP SDK 调用。**批发与零售走不同接口族**：批发 `alibaba.alihealth.drug.kyt.*`（`uploadinoutbill`、`searchbill.detail`、`listparts`、`singlerelation`）；零售 `alibaba.alihealth.drugtrace.top.lsyd.*`（`uploadinoutbill` 用于 104/203 调拨、`uploadretail` 用于 321/116 零售场景）。凭据按所属企业取，不再只有一套。
 - **SQLite (本地 data/msfx.db)**：存放上传任务、上传日志、往来单位缓存。Web 查询和写入选 SQLite，cron 写入 SQLite。
 
 ### 系统架构
