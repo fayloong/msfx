@@ -1,7 +1,7 @@
 # 04: 把 lsyd 请求类并入 top_sdk/
 
 - Type: task
-- Status: ready-for-agent
+- Status: done（2026-09-30）
 - Blocked by: None（可与 02/03 并行）
 - 关联：spec.md §4
 
@@ -23,6 +23,60 @@
 
 ## 验收
 
-- [ ] 两个 lsyd 请求类能实例化，`getApiMethodName()` 分别为 `alibaba.alihealth.drugtrace.top.lsyd.uploadinoutbill` 与 `alibaba.alihealth.drugtrace.top.lsyd.uploadretail`
-- [ ] `php tests/trace_splitter_test.php` 与 `php tests/quantity_check_test.php` 全绿
-- [ ] 批发上传路径无改动：`UploadService` 的 kyt 请求类仍能正常构造并取到参数
+- [x] 两个 lsyd 请求类能实例化，`getApiMethodName()` 分别为 `alibaba.alihealth.drugtrace.top.lsyd.uploadinoutbill` 与 `alibaba.alihealth.drugtrace.top.lsyd.uploadretail`
+- [x] `php tests/trace_splitter_test.php` 与 `php tests/quantity_check_test.php` 全绿
+- [x] 批发上传路径无改动：`UploadService` 的 kyt 请求类仍能正常构造并取到参数
+
+## Comments
+
+### 2026-09-30 比对结论（工单 04 执行）
+
+**票面的分支条件没有触发，且触发后也无法执行**——走的是主分支：只并入两个 lsyd 请求类，`top_sdk/` 既有文件一个字节没动（`git status` 只有两个 `??` 新增文件）。
+
+**文件级事实**（与票面有出入的已标出）：同名文件 **68**（票面写 67）——完全相同 37 / 内容不同 **31** ✓；仅旧包有 **40**；仅新包有 260（188 request + 71 domain + `OapiTest.php`）。
+
+**31 个差异文件逐项结论**：
+
+- `top/TopClient.php`：唯一差异 `sdkVersion`（`top-sdk-php-20260203` → `top-sdk-php-20260929`）。按约定未动。
+- **9 个 domain：纯注释差异**（`token_get_all` 剥注释后代码逐字节相同，只是注释文案/示例值变了）：`BillDealStatusSearchDo`、`CodeActiveInfoDto`、`CodeInfoListDto`、`CodeStatusTypeDto`、`PSynonymUserEntInfoDTO`、`PUserEntDto`、`Page`、`ResPSynonymDTO`、`ResultModel`
+- **17 个 domain：只有新增属性**（无删除、无改名；21 个真代码差异文件的方法名集合全部一致）：
+  | 文件 | 新增属性 |
+  |---|---|
+  | `CodeRelationDto` | `query_code_mix_flag`、`top_code_mix_flag` |
+  | `AddEntReqDto` | `partner_id` |
+  | `BaseInfoDto` / `DrugEntBaseDto` | `approval_licence_date`、`approval_licence_expiry`、`approval_licence_expiry_old`、`approval_licence_no_old` |
+  | `BillChkInOutDo` | `crt_date` |
+  | `BillInOutDetailDto` | `bill_out_id`、`codes`、`dis_ent_info_list` |
+  | `BillUpOutDetailDo` | `approval_licence_no`、`ass_ent_id`、`ass_ent_name`、`ass_ref_ent_id`、`bill_detail_id`、`bill_upload_time`、`check_date`、`crt_date`、`mod_date`、`prepn_type_desc`、`prepn_unit_desc` |
+  | `BillUpOutDetailDto` | `order_code` |
+  | `BillUpstreamDTO` | `ass_ent_id`、`ass_ent_name`、`ass_ref_ent_id`、`bill_out_id`、`code_str` |
+  | `CodeFullInfoDto` | `code_mix_flag`、`pkg_ratio` |
+  | `Codeandparentlist` | `has_parent_code` |
+  | `DrugInfosDto` | `approval_no`、`cfda_drug_id`、`physic_name`、`physic_type`、`physic_type_name`、`pkg_unit_desc`、`prepn_type_desc` |
+  | `DrugTableDto` | `authorized_ref_name`、`produce_ref_name` |
+  | `EntExtend` | `replace_ref_ent_id` |
+  | `PEntParDto` | `org_code`、`shared` |
+  | `ProduceInfoDto` | `mah_name`、`mah_ref_ent_id` |
+  | `SubTypeList` | `approve_no_old` |
+- **4 个 domain：有属性消失/改名**（唯一"会丢东西"的一类，未采用）：
+  - `Model.php`：`add_sucess`/`check_msg`/`par_ref_ent_id` → `result`/`total_num`
+  - `PageInfoDTO.php`：`page`/`page_size`/`pages` 消失，`result` → `result_list`
+  - `Billchkinoutdetaillistdtolist.php`：`code_and_parent_list` → `code_info_list`
+  - `PUserEntInfoDto.php`：`ent_capital_name` 消失
+
+**两条推翻票面/ spec §4 前提的实测事实**：
+
+1. **整体覆盖物理上做不到**。仅旧包有的 40 个文件里，包含本项目在用的**全部 34 个接口方法的请求类**；新包的 kyt 类全是 `drug.kyt.wes.*`（另一 API 世代，方法名不同）。覆盖 = `ApiClient` 的 `new \AlibabaAlihealthDrugKytSearchbillDetailRequest` 等立刻 Fatal error。
+2. **"`CodeRelationDto` 这类码级对账已在用的 domain"这个前提不成立**。domain 类在本项目里完全惰性：`TopClient` 里没有任何 domain 相关代码（`$format="xml"` → `execute()` 把响应 `simplexml_load_string` 成 stdClass 直接返回；`exec()` 只按方法名反推 request 类）；`src/` `scripts/` `tests/` `config/` `public/` 对 30 个 domain 类零引用。故 `query_code_mix_flag` 两个新字段对码级对账零影响。
+
+**并入产出**：`top_sdk/top/request/` 新增 2 个文件（UTF-8 无 BOM、CRLF，与既有请求类同风格，`cp -p` 逐字节拷贝，md5 与压缩包内一致）。两个类**零依赖**：不 `new` 任何 domain 类、无 `extends`，只用到 `RequestCheckUtil`（旧包已有，两包该文件逐字节相同），故**没有 domain 类需要一并拷入**（票面"及其依赖 domain 类"实为空集）。
+
+**验收**（一次性命令核对，未新增测试接缝）：
+
+- 两个类经 SDK `Autoloader` 可加载、可实例化，`getApiMethodName()` 分别为 `alibaba.alihealth.drugtrace.top.lsyd.uploadinoutbill` / `...uploadretail`；塞满必填项后 `check()` 通过，`getApiParas()` 分别为 9 项 / 5 项（键名与工单 05 的断言口径一致）
+- 批发回归：`new \AlibabaAlihealthDrugKytUploadinoutbillRequest`（同 `UploadService.php:177`）取到 `bill_code`/`to_user_id`/`from_user_id`/`dis_ent_id` 等 12 项，`ApiClient` 在用的三个查询类 `class_exists` 通过——全程本地构造，**未发任何平台请求**
+- `php tests/trace_splitter_test.php`、`php tests/quantity_check_test.php`、`php tests/enterprise_config_test.php` 三个自包含测试全绿
+
+**边界**：本票未验证"用这两个类真调平台的返回"——那要等工单 05 的装配接缝与门店凭据（且首调是**真实申报**，需用户批准）。
+
+**顺带产出**：决策落 `docs/adr/0009`（含排除方案与"跟进新版 SDK 只能逐类挑"的后果）；`CLAUDE.md` 的 `top_sdk/` 段与 `spec.md` §4 同步修订。
