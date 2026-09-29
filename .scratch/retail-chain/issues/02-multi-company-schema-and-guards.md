@@ -82,4 +82,18 @@
 - **`tasks_retry` / `tasks_batch_retry` 的异常恢复分支**原先把任务状态一律写回 `等待上传`。守卫是 fail-closed，抛错时零售任务会被推成 `等待上传`（语义是"cron 会来取走"，与 `待补传` 冲突）。改为**恢复为调用前的状态**（单条取该行原值，批量逐条取各自原值）
 - **`check_quantity` 写入的日志必须带 `company`**：它的幂等清理是 `DELETE ... WHERE source='quantity_check' AND rq=? AND company=?`，若写入不带 company，清理就删不到，记录会逐轮堆积
 - **`ApiClient` 的查询类凭据**（`searchBillDetail` / `queryEntInfo` / `searchSingleRelation`）仍读 `.env`，按票面留债；因本服务只放行批发单据，与传入凭据一致
-- **`Enterprise::wholesaleSubject()`**（新增）：批发链路取"本项目自动上传主体"的唯一入口，避免各脚本硬编码企业名与凭据键；**批发企业不是恰好一家时抛异常**，不静默取第一个。已在 `tests/enterprise_config_test.php`（既有接缝）补 5 项断言，未新增测试接缝
+- **`Enterprise::wholesaleSubject()`**（新增）：批发链路取"本项目自动上传主体"的唯一入口，避免各脚本硬编码企业名与凭据键；**批发企业不是恰好一家时抛异常**，不静默取第一个。返回键用 `credential_key`（**键**）以免与 `Enterprise::credential()` 返回的**凭据数组**混用。已在 `tests/enterprise_config_test.php`（既有接缝）补 8 项断言，未新增测试接缝
+- **`init_db.php` 用 PRAGMA 探测而非票面写的 try/catch 逐列加列**：PHP 8.1 的 SQLite3 默认不抛异常，`ALTER` 失败只返回 false，try 块里后续的"回填"语句会照常执行——回填一旦重复执行就会把零售的合法取值（`company='未识别'`、`credential` 为空表示待配凭据）误标成河药。改探测后"回填只在列刚加时做一次"才真正成立
+
+## code-review 后的收口（同日）
+
+两轴审查（Standards / Spec）提出后逐条处理：
+
+- **ADR 0007 修订同步**（硬性规范）：决策已改为"零售记录保留在失败记录页"，ADR 仍写"也不出现在 `api/failed.php`"——按 `docs/adr/0006` 的内联批注体例补了修订说明
+- **`init_db.php` 半迁移态可自愈**（真实隐患）：原先只按 `company` 一列判断整块跳过，一旦第一列加成功、第二列加失败就永久跳过，而 `LogWriter` 无条件 INSERT `credential` → 该库所有上传日志写入失败。改为两列各自独立判断；已用"`company` 有、`credential` 无"的库实测自愈
+- **`api/failed.php` / `api/export.php` 的 `NOT EXISTS` 补 company 限定**：票面要求"其他按 djbh 判重的地方一律限定河药"，这两处仍是裸 `djbh`——裸判重会让零售失败记录被同号批发成功单顶掉，而"零售失败记录必然可见"正是本票的另一条要求（两处同时改，保证页面与导出口径一致）
+- **`scripts/backfill_rq.php` 限定批发主体**：Step 2 的 `JOIN ... ON l.djbh = t.djbh` 与 Step 3 的 `UPDATE ... WHERE djbh = ?` 都是裸 djbh，零售落库后会跨企业串 rq（Step 1 走 task_id 主键，无须限定）
+- **`check_failed_logs.php` 的 JSONL 记录补 `credential`**：与 `check_bill_status.php` 的同名记录对齐
+- **`Enterprise::wholesaleSubject()` 返回键 `credential` → `credential_key`**：同一文件里 `credential` 既指键（wholesaleSubject）又指数组（Enterprise::credential），消除歧义
+- **测试补 2 项断言钉住"配置里的批发主体 == 迁移回填常量"**：两者不一致时历史行会被 company 白名单静默漏掉、批发链路整条停摆，原先只有代码注释没有断言
+- **未采纳（记录理由）**：`failed.php` / `export.php` 判重里 `quantity_check` 豁免只在页面有、导出没有，是既有不一致（`spec.md` 已归工单 08 的筛选与导出）；`fetch_bills.php` 与三个检查脚本里 `AND company = ?` 的分散写法，抽公共查询层超出本票范围，同样留待工单 08 一并处理

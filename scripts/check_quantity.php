@@ -76,7 +76,7 @@ const RESPONSE_STATUS_MISMATCH = '数量不符';
 const PLATFORM_LIMIT_ERROR = 'App Call Limited';
 
 /** 写 quantity_check 判定记录（JSONL + SQLite 双写，task_id 恒为 0） */
-function writeCheckLog(LogWriter $logWriter, string $company, string $credential, string $djbh, string $rq, string $entName, string $status, string $respJson): void
+function writeCheckLog(LogWriter $logWriter, string $company, string $credentialKey, string $djbh, string $rq, string $entName, string $status, string $respJson): void
 {
     $logWriter->write([
         'task_id' => 0,
@@ -88,7 +88,7 @@ function writeCheckLog(LogWriter $logWriter, string $company, string $credential
         'response_status' => $status,
         'response' => $respJson,
         'company' => $company,
-        'credential' => $credential,
+        'credential' => $credentialKey,
     ]);
 }
 
@@ -105,7 +105,7 @@ try {
     // 且零售本轮不做平台对账（见 docs/adr/0007）
     $wholesale = Enterprise::wholesaleSubject();
     $company = $wholesale['name'];
-    $credential = $wholesale['credential'] ?? '';
+    $credentialKey = $wholesale['credential_key'] ?? '';
 
     $db = Database::getInstance();
     $successRows = $db->query(
@@ -250,7 +250,7 @@ try {
                 'status' => '未上传',
             ], JSON_UNESCAPED_UNICODE);
 
-            writeCheckLog($logWriter, $company, $credential, $djbh, $bill['rq'] ?? '', $bill['ent_name'] ?? '', RESPONSE_STATUS_NOT_FOUND, $respJson);
+            writeCheckLog($logWriter, $company, $credentialKey, $djbh, $bill['rq'] ?? '', $bill['ent_name'] ?? '', RESPONSE_STATUS_NOT_FOUND, $respJson);
 
             echo "[{$n}/{$total}] {$djbh} → 未上传（平台无记录）\n";
             continue;
@@ -385,7 +385,7 @@ try {
                 'base_codes' => count($baseCodes),
             ], JSON_UNESCAPED_UNICODE);
 
-            writeCheckLog($logWriter, $company, $credential, $djbh, $suspect['rq'], $suspect['ent_name'], RESPONSE_STATUS_MISMATCH, $respJson);
+            writeCheckLog($logWriter, $company, $credentialKey, $djbh, $suspect['rq'], $suspect['ent_name'], RESPONSE_STATUS_MISMATCH, $respJson);
 
             echo "\n[第2级 {$si}/{$sCount}] {$djbh} → 数量不符（码级折算 {$sum}，平台申报 {$suspect['actual']}）" . ($stoppedEarly ? '（超过即停）' : '') . " [{$codeSource}]\n";
         }

@@ -87,7 +87,9 @@ if ($type === 'tasks') {
         $where[] = "upload_logs.response_status IN ('上传成功', '单据重复')";
     } else {
         $where[] = "(upload_logs.request_status = '请求失败' OR upload_logs.response_status NOT IN ('上传成功', '单据重复'))";
-        $where[] = "NOT EXISTS (SELECT 1 FROM upload_logs ok WHERE ok.djbh = upload_logs.djbh AND ok.response_status IN ('上传成功', '单据重复'))";
+        // 判重限定同一企业（去重键 (company, djbh)），与 api/failed.php 的页面口径保持一致：
+        // 导出必须与页面看到的行集完全相同，否则操作者按导出的数据核对会对不上
+        $where[] = "NOT EXISTS (SELECT 1 FROM upload_logs ok WHERE ok.djbh = upload_logs.djbh AND ok.company = upload_logs.company AND ok.response_status IN ('上传成功', '单据重复'))";
     }
 
     if (!empty($_GET['search'])) {

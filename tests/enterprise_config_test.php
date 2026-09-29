@@ -244,16 +244,16 @@ Enterprise::reset();
 Enterprise::load($structure, $local);
 $w = Enterprise::wholesaleSubject();
 check('批发主体：唯一批发企业', $w['key'] === 'ws' && $w['name'] === '批发企业', json_encode($w, JSON_UNESCAPED_UNICODE));
-check('批发主体：带 primary 凭据键', $w['credential'] === 'main', (string)$w['credential']);
+check('批发主体：带 primary 凭据键', $w['credential_key'] === 'main', (string)$w['credential_key']);
 
 // 凭据位已声明、密钥还没到手（"待配凭据"是合法状态）→ credential 仍预填该凭据位键，
 // 由调用方用 credentialConfigured() 判定后拒传（与 claim() 的语义一致，见用例 3）
 Enterprise::reset();
 Enterprise::load($structure, ['ids' => $local['ids'], 'credentials' => []]);
 $w = Enterprise::wholesaleSubject();
-$cred = Enterprise::credential($w['name'], $w['credential'] ?? '');
+$cred = Enterprise::credential($w['name'], $w['credential_key'] ?? '');
 check('批发主体：凭据位已声明但密钥未配 → 预填该键、凭据未填齐',
-    $w['credential'] === 'main' && $cred !== null && !Enterprise::credentialConfigured($cred),
+    $w['credential_key'] === 'main' && $cred !== null && !Enterprise::credentialConfigured($cred),
     json_encode($w, JSON_UNESCAPED_UNICODE));
 
 // 结构里连凭据位都没声明 → credential 为 null
@@ -262,7 +262,7 @@ $noCredentialSlot['companies'][0]['credentials'] = [];
 Enterprise::reset();
 Enterprise::load($noCredentialSlot, ['ids' => $local['ids'], 'credentials' => []]);
 $w = Enterprise::wholesaleSubject();
-check('批发主体：连凭据位都没声明 → credential 为 null', $w['credential'] === null, json_encode($w, JSON_UNESCAPED_UNICODE));
+check('批发主体：连凭据位都没声明 → credential 为 null', $w['credential_key'] === null, json_encode($w, JSON_UNESCAPED_UNICODE));
 
 // 两家批发企业 → 必须拒绝而不是取第一个：那是"把单据申报到错误主体"的经典路径
 $twoWholesale = $structure;
@@ -301,6 +301,14 @@ if (is_file($localPath)) {
         $companies = Enterprise::all();
         check('真实配置载入通过自检', true);
         check('真实配置企业数 16（1 批发 + 15 门店）', count($companies) === 16, '实际 ' . count($companies));
+
+        // 钉住迁移回填常量（scripts/init_db.php 的 BACKFILL_COMPANY / BACKFILL_CREDENTIAL）与
+        // 配置里批发主体的一致性：不一致时历史行的 company/credential 会被 upload_pending 与
+        // 三个检查脚本的 company 白名单静默漏掉——批发链路整条停摆。改企业名或换凭据键时，
+        // 这两处常量与历史数据要一起动（见 init_db.php 顶部说明）。
+        $ws = Enterprise::wholesaleSubject();
+        check('配置批发主体名 == 迁移回填常量', $ws['name'] === '河药医药（河源）有限公司', $ws['name']);
+        check('配置批发主体凭据键 == 迁移回填常量', $ws['credential_key'] === 'main', (string)$ws['credential_key']);
 
         $retail = array_filter($companies, fn($c) => $c['type'] === Enterprise::TYPE_RETAIL);
         check('真实配置 15 家零售门店', count($retail) === 15, '实际 ' . count($retail));

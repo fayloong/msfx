@@ -149,7 +149,7 @@ try {
     // xlsx 导入目前只服务批发主体（零售不提供从零录入，见 .scratch/retail-chain/spec.md §11）
     $wholesale = Enterprise::wholesaleSubject();
     $company = $wholesale['name'];
-    $credential = $wholesale['credential'] ?? '';
+    $credentialKey = $wholesale['credential_key'] ?? '';
 
     $successCount = 0;
     $totalGroups = count($groups);
@@ -168,7 +168,7 @@ try {
         // 写入 upload_tasks
         $db->execute(
             "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'manual', ?, ?, datetime('now','localtime'), datetime('now','localtime'))",
-            [$group['rq'], $djbh, $group['ent_name'], $allCodes, $group['bill_type'], $company, $credential]
+            [$group['rq'], $djbh, $group['ent_name'], $allCodes, $group['bill_type'], $company, $credentialKey]
         );
         $taskId = $db->lastInsertId();
 
@@ -182,7 +182,7 @@ try {
                 'task_id' => $taskId,
                 'source' => 'manual',
                 'company' => $company,
-                'credential' => $credential,
+                'credential' => $credentialKey,
             ]], function (array $progress) {
                 echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
                 flush();

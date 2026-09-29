@@ -202,14 +202,16 @@ class Enterprise
     }
 
     /**
-     * 批发申报主体：['key' => 配置 key, 'name' => 企业全名, 'credential' => primary 凭据键]。
+     * 批发申报主体：['key' => 配置 key, 'name' => 企业全名, 'credential_key' => primary 凭据位键]。
      *
      * 批发链路（采集落库 / cron 取数 / 手动上传 / 检查脚本）取"本项目的自动上传主体"的唯一入口，
      * 免得各脚本各自硬编码企业名与凭据键。当前只有河药一家批发企业，故按类型取唯一那家；
      * **出现第二家批发企业时抛异常而不是静默取第一个**——那正是"把单据申报到错误主体"的经典路径，
      * 必须由人显式选择主体后再改这里（见 docs/adr/0006）。
      *
-     * 无凭据的企业 credential 为 null（照常返回，由调用方决定拒到什么程度）。
+     * 注意 credential_key 是**键**不是凭据数组（凭据数组由 Enterprise::credential() 按该键取）；
+     * 键是落库到 upload_tasks.credential 列的值，也是 upload_logs.credential 的审计值。
+     * 该企业连凭据位都没声明时 credential_key 为 null（照常返回，由调用方决定拒到什么程度）。
      *
      * @throws \RuntimeException 批发企业不是恰好一家
      */
@@ -237,7 +239,7 @@ class Enterprise
         return [
             'key' => $key,
             'name' => $matched[$key]['name'],
-            'credential' => self::primaryCredentialKey($key),
+            'credential_key' => self::primaryCredentialKey($key),
         ];
     }
 

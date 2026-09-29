@@ -56,7 +56,7 @@ try {
     // 白名单而非排除法——新增来源漏改条件时宁可不查，也不能拿错凭据去查（见 docs/adr/0007）
     $wholesale = Enterprise::wholesaleSubject();
     $company = $wholesale['name'];
-    $credential = $wholesale['credential'] ?? '';
+    $credentialKey = $wholesale['credential_key'] ?? '';
 
     // ── 来源: upload_tasks（等待上传，且上次查询已过期） ──
     echo "[check_bill_status] 正在从 upload_tasks 拉取等待上传的记录...\n";
@@ -131,7 +131,7 @@ try {
                     'rq' => $rec['rq'],
                     'source' => 'batch_check',
                     'company' => $company,
-                    'credential' => $credential,
+                    'credential' => $credentialKey,
                 ]);
 
                 echo "[{$n}/{$total}] {$djbh} → 已上传\n";

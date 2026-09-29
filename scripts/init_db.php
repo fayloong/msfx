@@ -123,18 +123,36 @@ try {
     try { $db->exec("ALTER TABLE upload_logs ADD COLUMN last_checked_at TEXT DEFAULT NULL"); } catch (\Exception $e) {}
 
     // ── 多企业：company / credential 两列 + 历史行回填 ──
-    // 回填与加列绑定：列已存在说明上次已迁移并回填过，再跑一次会把零售行误标成河药
+    // 两列**各自独立**补齐：DDL 逐条自动提交，若只按 company 一列判断，一旦第一列加成功、
+    // 第二列加失败就留下无法自愈的半迁移态（credential 永不补上，而 LogWriter 无条件 INSERT
+    // 该列 → 所有上传日志写入失败）。
     foreach (['upload_tasks', 'upload_logs'] as $table) {
-        if (hasColumn($db, $table, 'company')) {
+        $addCompany = !hasColumn($db, $table, 'company');
+        $addCredential = !hasColumn($db, $table, 'credential');
+
+        if (!$addCompany && !$addCredential) {
             continue;
         }
-        $db->exec("ALTER TABLE {$table} ADD COLUMN company TEXT DEFAULT ''");
-        $db->exec("ALTER TABLE {$table} ADD COLUMN credential TEXT DEFAULT ''");
-        $stmt = $db->prepare("UPDATE {$table} SET company = :company, credential = :credential");
-        $stmt->bindValue(':company', BACKFILL_COMPANY, SQLITE3_TEXT);
-        $stmt->bindValue(':credential', BACKFILL_CREDENTIAL, SQLITE3_TEXT);
-        $stmt->execute();
-        echo "{$table}: 新增 company/credential 列，历史行回填 " . $db->changes() . " 条\n";
+
+        if ($addCompany) {
+            $db->exec("ALTER TABLE {$table} ADD COLUMN company TEXT DEFAULT ''");
+            // 回填只针对**本次刚加的列**：列早已存在说明上次已回填过，再填一次会把零售的
+            // 合法取值（company='未识别'）误标成河药
+            $stmt = $db->prepare("UPDATE {$table} SET company = :v WHERE company IS NULL OR company = ''");
+            $stmt->bindValue(':v', BACKFILL_COMPANY, SQLITE3_TEXT);
+            $stmt->execute();
+            echo "{$table}: 新增 company 列，回填 " . $db->changes() . " 条\n";
+        }
+
+        if ($addCredential) {
+            $db->exec("ALTER TABLE {$table} ADD COLUMN credential TEXT DEFAULT ''");
+            // 同上；注意 retail 的"待配凭据"行 credential 本来就是空，值本身区分不出，
+            // 半迁移态叠加"零售已上线"才需人工核对（当前零售尚未落库，无此风险）
+            $stmt = $db->prepare("UPDATE {$table} SET credential = :v WHERE credential IS NULL OR credential = ''");
+            $stmt->bindValue(':v', BACKFILL_CREDENTIAL, SQLITE3_TEXT);
+            $stmt->execute();
+            echo "{$table}: 新增 credential 列，回填 " . $db->changes() . " 条\n";
+        }
     }
 
     // 往来单位缓存表

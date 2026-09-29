@@ -59,12 +59,12 @@ $db = Database::getInstance();
 // 手动上传目前只服务批发主体（按企业切换表单在工单 07 落地）
 $wholesale = Enterprise::wholesaleSubject();
 $company = $wholesale['name'];
-$credential = $wholesale['credential'] ?? '';
+$credentialKey = $wholesale['credential_key'] ?? '';
 
 // 写入 upload_tasks
 $db->execute(
     "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'manual', ?, ?, datetime('now','localtime'), datetime('now','localtime'))",
-    [$rq, $djbh, $entName, $traceCodes, $billType, $company, $credential]
+    [$rq, $djbh, $entName, $traceCodes, $billType, $company, $credentialKey]
 );
 $taskId = $db->lastInsertId();
 
@@ -88,7 +88,7 @@ try {
         'task_id' => $taskId,
         'source' => 'manual',
         'company' => $company,
-        'credential' => $credential,
+        'credential' => $credentialKey,
     ]], function (array $progress) {
         echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
         flush();

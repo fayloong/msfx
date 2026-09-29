@@ -99,7 +99,7 @@ try {
     // 本脚本采集的视图是批发单据，落库主体固定为批发主体（App\Enterprise 是唯一入口）
     $wholesale = Enterprise::wholesaleSubject();
     $company = $wholesale['name'];
-    $credential = $wholesale['credential'] ?? '';
+    $credentialKey = $wholesale['credential_key'] ?? '';
 
     // 批量查询已存在的 djbh，构建查找集合（分块查询，规避 SQLite 999 参数上限）
     // 除 upload_tasks 中的任务外，upload_logs 已上传成功/单据重复的单据也不采集，
@@ -136,7 +136,7 @@ try {
 
         $db->execute(
             "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'cron', ?, ?, ?, ?)",
-            [$bill['rq'], $bill['djbh'], $bill['ent_name'], $bill['sn'], $bill['type'], $company, $credential, $now, $now]
+            [$bill['rq'], $bill['djbh'], $bill['ent_name'], $bill['sn'], $bill['type'], $company, $credentialKey, $now, $now]
         );
         $insertCount++;
     }

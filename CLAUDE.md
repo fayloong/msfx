@@ -49,7 +49,7 @@ root/
 │   │   ├── tasks_batch_delete.php # 批量删除上传任务
 │   │   ├── tasks_batch_retry.php  # 批量重传
 │   │   ├── uploaded.php          # 已上传记录列表（upload_logs success=1）
-│   │   ├── failed.php            # 失败记录列表（排除该单号已有上传成功/单据重复记录的日志行；quantity_check 来源记录豁免——数量对账仅查已上传成功单，若不豁免会被 NOT EXISTS 全隐藏，告警出口失效）
+│   │   ├── failed.php            # 失败记录列表（排除**同一企业内**该单号已有上传成功/单据重复记录的日志行——去重键是 (company, djbh)，裸 djbh 会让零售失败记录被同号批发成功单顶掉；quantity_check 来源记录豁免——数量对账仅查已上传成功单，若不豁免会被 NOT EXISTS 全隐藏，告警出口失效）
 │   │   ├── logs_delete.php       # 删除单条日志记录
 │   │   ├── logs_batch_delete.php # 批量删除日志记录
 │   │   ├── manual_create.php     # 手动创建任务并立即上传
@@ -82,7 +82,7 @@ root/
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
 │   ├── check_quantity.php        # 数量对账两级流水线（第 1 级 shl 粗筛嫌疑单 → 第 2 级 singlerelation 码级精查，双差异才写"数量不符"）
 │   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志与已完成任务
-│   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列）
+│   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列；按 djbh 关联处一律限定批发主体——djbh 不是跨企业唯一的）
 │   ├── init_db.php               # 初始化/迁移 SQLite 数据库及表结构（幂等；含 company/credential 列、历史回填、ent_list 唯一键重建）
 │   └── sqlite_query.php          # 调试工具：直接传 SQL 查询/操作 SQLite（表格输出）
 ├── data/
@@ -150,7 +150,7 @@ root/
 
 循环内"已确认在平台跳过"（SQLite 已有上传成功/单据重复记录，按 `(company, djbh)` 判重）时不调 API：check_bill_status 对任务直接标记"已处理"（任务目标已达成，避免停留在"等待上传"被反复拉取/重传）；check_failed_logs 保留历史记录不动。
 
-**零售记录刻意留在失败记录页**（`api/failed.php` **不加** company 过滤）：零售的 `upload_logs` 只可能由人工补传产生（三个检查脚本写不出零售日志），所以失败页上出现的零售记录必然是人工补传失败——那是操作者唯一能看见"补传没成功"的聚合出口。见 `docs/adr/0007`。
+**零售记录刻意留在失败记录页**（`api/failed.php` **不加** company 过滤）：零售的 `upload_logs` 只可能由人工补传产生（三个检查脚本写不出零售日志），所以失败页上出现的零售记录必然是人工补传失败——那是操作者唯一能看见"补传没成功"的聚合出口。见 `docs/adr/0007`。页面与导出（`api/export.php` 的 `type=failed`）的判重口径一致，都限定同一企业。
 
 `last_checked_at` 更新规则（两脚本一致）：API 查询成功（含"信息不存在"）和"已确认在平台跳过"（标记任务已处理时）都会 touch；仅 API 异常不 touch，下次 cron 自动重查。新采集/新建任务的 `last_checked_at` 为 NULL，天然立即查。
 
@@ -268,7 +268,9 @@ root/
 - **待配凭据**：门店有名字与平台 ID 但没密钥时，单据照常认领，页面标"待配凭据"并禁用补传（15 家中当前已配 5 家）
 - 接口路由 `(企业类型, 单据类型)`：零售 `104`/`203` → `lsyd.uploadinoutbill`（码上限 10000）、`321`/`116` → `lsyd.uploadretail`（3500）；批发一律 kyt `uploadinoutbill`（3500）
 - `App\Enterprise` 是唯一入口：`loadFromFiles()` 载入并**强制自检**（平台 ID 不得跨企业重复、凭据的 `ref_ent_id`/`ent_id` 必须属于本企业、多凭据须恰一套 `primary`…），违反即抛异常——这些都是"违反了就会静默把单据传到错误主体"的错误
-- **批发主体入口 `Enterprise::wholesaleSubject()`**：返回 `['key' => 配置key, 'name' => 企业全名, 'credential' => primary 凭据键]`，批发链路（采集落库 / cron 取数 / 手动上传 / 三个检查脚本）取"本项目的自动上传主体"的唯一入口，免得各脚本各自硬编码企业名与凭据键。**批发企业不是恰好一家时抛异常**而不是静默取第一个——那正是"把单据申报到错误主体"的经典路径
+- **批发主体入口 `Enterprise::wholesaleSubject()`**：返回 `['key' => 配置key, 'name' => 企业全名, 'credential_key' => primary 凭据位键]`，批发链路（采集落库 / cron 取数 / 手动上传 / 三个检查脚本）取"本项目的自动上传主体"的唯一入口，免得各脚本各自硬编码企业名与凭据键。**批发企业不是恰好一家时抛异常**而不是静默取第一个——那正是"把单据申报到错误主体"的经典路径。
+  - `credential_key` 是**键**（落库到 `upload_tasks.credential` 的值），凭据数组由 `Enterprise::credential(企业名, 键)` 取——两者形状不同，别混用
+  - 它与 `scripts/init_db.php` 的迁移回填常量（`BACKFILL_COMPANY` / `BACKFILL_CREDENTIAL`）必须一致，否则历史行会被各处 `company` 白名单静默漏掉；`tests/enterprise_config_test.php` 有断言钉住这个等式，改企业名或换凭据键时两处 + 历史数据要一起动
 - **`company`/`credential` 已落库（2026-09-29，工单 02）**：`upload_tasks` / `upload_logs` 两列 + `ent_list` 的 `company` 列与 `UNIQUE(company, ent_name)` 已在生产库完成迁移，历史行回填为河药批发主体。上传侧的 fail-closed 守卫见"核心数据流 → 上传守卫"
 - **迁移期**：河药批发凭据仍从 `.env` 读取（`enterprises.local.php` 的 `heyao` 条目引用 `Config::get`，刻意不复制明文以免两份不一致）。待 `ApiClient` 全面改读本配置后，删除 `.env` 的 `APPKEY_HYYY`/`SECRETKEY_HYYY`/`REFENTID_HYYY`/`ENTID_HYYY`
 

@@ -53,7 +53,9 @@ try {
     // 只查批发主体：本脚本用河药凭据查平台。零售的失败记录只可能来自人工补传，
     // 拿河药凭据去查门店单号必然"信息不存在"，白烧调用还可能把状态翻错（见 docs/adr/0007）；
     // 零售的记录保留在失败记录页可见，由人去处理
-    $company = Enterprise::wholesaleSubject()['name'];
+    $wholesale = Enterprise::wholesaleSubject();
+    $company = $wholesale['name'];
+    $credentialKey = $wholesale['credential_key'] ?? '';
 
     // ── 拉取未上传成功的记录（失败/信息不存在等，且上次查询已过期） ──
     $logs = $db->query(
@@ -150,6 +152,7 @@ try {
                     'task_id' => $rec['task_id'] ?? 0,
                     'source' => 'batch_check',
                     'company' => $company,
+                    'credential' => $credentialKey,
                 ]);
 
                 echo "[{$n}/{$total}] {$djbh} → 已上传\n";
