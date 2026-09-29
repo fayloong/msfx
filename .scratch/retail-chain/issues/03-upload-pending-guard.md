@@ -13,8 +13,8 @@
 ## 实现
 
 - 零售单据落库用 `待补传`（不要用 `等待上传`）——依赖 02
-- `upload_pending.php` 取数口径加企业过滤（二选一：`AND company = '<河药批发>'` 或 `AND source != 'retail'`），并同步更新文件头注释里的"处理所有来源"说明
-- `UploadService` 按任务所属企业取凭据与请求类（依赖 01）
+- `upload_pending.php` 取数口径加 **白名单**过滤：`AND company = '河药医药（河源）有限公司'`（用户 2026-09-29 定案；排除法 `source != 'retail'` 被否——它 fail-open，将来任何新增来源漏改条件就是把门店单据报到河药名下）。同时更新文件头注释里"处理所有来源"的说明
+- `UploadService` 按任务所属企业取凭据与请求类，并加**兜底断言**：按 `company` 取不到凭据就抛错拒绝上传，**不回落到默认凭据**——不能只靠 cron 的 SQL 写对，将来任何脚本直接 `new UploadService()` 都会绕过它。依赖 01，`App\Enterprise::route($company, $billType)` 已就绪（返回请求类 + 码上限）
 
 ## 验收
 

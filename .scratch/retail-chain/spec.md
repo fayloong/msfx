@@ -1,4 +1,4 @@
-**Status:** designing（2026-09-29 grilling 会话完成设计树，实现未开始；见 Comments 的开放问题）
+**Status:** implementing（工单 01 已实现并测试通过：`src/Enterprise.php` + `config/enterprises{,.example,.local}.php` + `tests/enterprise_config_test.php`；工单 02 起待做。开放问题 A–F **已全部有答**，见 Comments）
 
 # 零售连锁门店接入（多企业支持）
 
@@ -53,15 +53,18 @@ Company（门店，中文名）  1 ──── N  Credential（AppKey/SecretKey
 
 ### 1. 多企业模型：凭据是路由主体，门店 1:N 凭据
 
-**实测事实**：门店凭据草稿（本地文件 `tests/company.txt`，未入仓，用户声明数据不准确待更新）显示 9 家门店中 8 家曾共用同一个 AppKey——但用户明确最终形态是**"每个门店的 appkey、SECRETKEY 都不相同，每个门店也可能存在多套 appkey、SECRETKEY"**。故**不按 AppKey 建模，也不假设门店与凭据 1:1**。
+**实测事实**：门店凭据文件（本地 `tests/company.txt`，未入仓）现含 **5 家门店**的 AppKey/SECRETKEY/refEntId/entId；用户确认连锁共 **15 家门店**，最终形态是**"每个门店的 appkey、SECRETKEY 都不相同"**。故**不按 AppKey 建模，也不假设门店与凭据 1:1**。
 
 ```
-Credential = { appkey, secretkey, ref_ent_id, ent_id, label, bill_types? }
-Company    = { name(中文名), credentials: Credential[], source_names?: string[] }
+Credential = { key, label, primary?, appkey, secretkey, ref_ent_id, ent_id }
+Company    = { key(稳定 slug), name(中文全名), type(wholesale|retail), ids: 平台ID[], credentials: Credential[] }
 ```
 
-- `label`：给下拉框显示的人读标签（如"主主体"/"零售主体"）；门店仅一套凭据时可省略
-- `bill_types`：该凭据适用的单据类型白名单，缺省为全集。**本轮不实现自动分发规则**——零售只有人工手动补传会真正用到凭据，让用户在页面显式选择比猜规则可靠
+- `key`：企业稳定标识（ASCII slug），用于把结构文件与凭据文件对上、把门店改名与凭据解耦；落库的 `company` 值用的是 `name`
+- `label`：给下拉框显示的人读标签（如"主授权"）；门店仅一套凭据时可省略
+- `primary`：一个门店有多套凭据时哪套是默认，**声明在结构文件 `config/enterprises.php` 里**（"哪套是默认授权"是结构性事实，不随密钥是否到手变化）；单套凭据可省略
+- `ids`：该门店的**全部**平台 ID（含历史 ID、源库错值），是采集认领的键（见 §6）。**门店可以在没有凭据时先有 ids** —— 单据照常认领，只是不能补传（**待配凭据**状态，见 §8）
+- **`bill_types` 已删除**：多套凭据的成因是"限流时顶替"，与单据类型无关，留成死字段比缺字段更危险。路由由 `(企业类型, 单据类型)` 决定，与选哪套凭据无关（ADR 0008）
 
 ### 2. 配置分三文件，凭据绝不入仓
 
@@ -91,7 +94,9 @@ Company    = { name(中文名), credentials: Credential[], source_names?: string
 | 码上限 | **10000** | 3500 |
 | 可选 | warehouseId, destUserId, operIcCode/Name, ignorePartSuccessFlag, drugListJson 等 | fromUserId, operIcCode/Name, physicType, userName/userTel/customerId/customerIdType, medicDoctor/medicDispenser/userAgent, networkBillFlag, remarks |
 
-注意 `refUserId` 是 **ref_ent_id**，而 `fromUserId` / `toUserId` 是 **entId**（用户已确认 `zsm_ls` 三列语义与此一致）。
+注意 `refUserId` 是 **ref_ent_id**，而 `fromUserId` / `toUserId` 是 **entId**。
+
+**⚠️ 探测推翻了原先"`zsm_ls` 三列语义与入参一致"的说法**（2026-09-29，见 `probe-findings-2026-09-29.md`）：源表 `ref_ent_id` 列是**全表单一值**（总部主体），**不是门店的**——上传时的 `refUserId` 必须取**凭据里**该门店的 `ref_ent_id`。而源表 `from_user_id` / `to_user_id` 确实是门店的平台 ID（实测与凭据的 `entId`/`refEntId` 吻合，20/20 命中），它们的作用是**采集认领键**（§6），不是上传入参的直接来源。
 
 ### 4. SDK 集成：只挑 lsyd 类并入现有 `top_sdk/`
 
@@ -105,36 +110,73 @@ Company    = { name(中文名), credentials: Credential[], source_names?: string
 
 ### 5. 零售采集口径
 
-源：`dyt` 链接服务器（用户确认是 linked server 名，不是同实例跨库）的 `dyt.msfx.dbo.zsm_ls` left join `dyt.msfx.dbo.zsm_ls_code`（`co.bill_code = ls.bill_code`）。参考 SQL 已存入 `config/sql.php` 的 `$get_up_task_retail`。
+源：`dyt` 链接服务器（用户确认是 linked server 名，不是同实例跨库）的 `dyt.msfx.dbo.zsm_ls`（单据头）+ `dyt.msfx.dbo.zsm_ls_code`（追溯码，按 `bill_code` 关联）。参考 SQL 在 `config/sql.php` 的 `$get_up_task_retail`（**只是调试残留，别照抄**：它写死单一 `bill_type='203'`、无日期范围、无去重）。
 
-采集 SQL 定稿口径：
+**连接（开放问题 C，已实测答）**：同一条 `SqlSrvHelper` 连接可直接查 4 段式链接服务器名 `dyt.msfx.dbo.zsm_ls`，**不需要任何新连接封装**（`COUNT(*)` 全表 638ms）。
+
+**表结构与索引（开放问题 D，已实测答）**：
+
+- `zsm_ls`（119,522 行）：`bill_time` 是 **`varchar(10)` 纯日期 `YYYY-MM-DD`**（全表长度均为 10，非 datetime）；`bill_type`/`physic_type` 是 int（`physic_type` 全表恒为 3）；`states` / `relation_states` **全表恒为 0**（无可用状态过滤）；索引 `(bill_code, bill_type, from_user_id, to_user_id, ref_ent_id)`，**`bill_time` 无索引** → 按日期范围采集是全表扫描（~0.6s，可接受）
+- `zsm_ls_code`（298,430 行）：`trace_codes` **每行只存 1 个码**（varchar(200) 但实测最长 20 字符），`bs` 全表恒为 1，**无排序列**；一单的码数 = 该 `bill_code` 的行数，实测 **1 ~ 1,718**；索引以 `bill_code` 打头，按单号取码高效
+- **两张表都没有任何数量列** → 零售数量对账在源库侧**没有本地基线**（比"暂时没找到办法"更硬的否定结论）
+
+**采集 SQL 定稿口径**（两步，先头后码）：
 
 ```sql
-select ls.bill_code, ls.bill_time, ls.bill_type, ls.from_user_id, ls.to_user_id,
-       ls.ref_ent_id, ls.oper_ic_name, co.trace_codes
-from dyt.msfx.dbo.zsm_ls ls
-left join dyt.msfx.dbo.zsm_ls_code co on co.bill_code = ls.bill_code
-where ls.bill_type in ('104','203','321','116')   -- 写死四种（用户确认）
-  and ls.bill_time >= ? and ls.bill_time < ?       -- 按日期范围
-order by ls.bill_time desc
+-- 第一步：单据头。必须先按 bill_code 去重——321 存在完全重复行（同一 bill_code 最多 120 行，
+-- 14 列值全同、无任何区分列），不去重会让下一步按单号取码时追溯码被放大最多 120 倍
+select bill_code, min(bill_time) as bill_time, min(bill_type) as bill_type,
+       min(from_user_id) as from_user_id, min(to_user_id) as to_user_id,
+       min(oper_ic_name) as oper_ic_name
+from dyt.msfx.dbo.zsm_ls
+where bill_type in (104, 203, 321, 116)      -- 写死四种，int 比较；999 不采（用户判定，语义未明）
+  and bill_time >= ? and bill_time < ?       -- 'YYYY-MM-DD' 字符串比较即日期比较（ISO 格式）
+group by bill_code
+
+-- 第二步：按单号批量取码（group by 去重 + order by 保证拼接结果确定——表里没有排序列）
+select bill_code, trace_codes
+from dyt.msfx.dbo.zsm_ls_code
+where bill_code in (...)
+group by bill_code, trace_codes
+order by bill_code, trace_codes
 ```
+
+**不设采集门卫**：批发那套 `fetch_bill_counter.json` 计数门卫是为"重视图查询空转"设计的；零售是一次 ~0.6s 的全表扫 + `(company, djbh)` 去重保证幂等，门卫只省 0.6s 却多一份要维护的状态文件。
+
+**不需要拆单**：实测单张单据码数上限 1,718 < 3,500，零售暂不会触发拆分（但路由表已按接口带上限：`lsyd.uploadinoutbill` 10000 / `lsyd.uploadretail` 3500，见 §12）。
 
 **去掉 `NOT EXISTS(dyt.bs_msfx.dbo.update_state)`**（关键决策，见 ADR 0007）：该过滤会把"外部系统已上传的单"全部隐藏，而对账/核对恰恰需要看见它们。`update_state` 是外部系统的私有状态表（实测只有单号 + 上传状态两列，**无企业列**，跨门店单号重复时它自身就会串），不能拿它当本项目的采集门卫。
 
-### 6. 门店认领：`oper_ic_name` 精确相等，匹配不上归"未识别"
+### 6. 门店认领：平台 ID 优先，名字回退，未识别兜底
 
-用户确认：`zsm_ls.oper_ic_name` 就是门店名称，与配置里的门店名**精确相等**匹配。配置里每家门店保留 `source_names` 数组以容纳源系统别名（防静默失败）。
+**⚠️ 本节已被实测推翻并重写**（原设计是"`oper_ic_name` 精确相等"，见 ADR 0008）。`oper_ic_name` 在 `321`/`116` 两类消费级单据上**全空**（101,288 行、占全表 84.7%），只有 `104`/`203`（8,153 行）有门店名——照原设计实现会让 85% 的单据认领不到。
 
-匹配不上 → **照常入库**，`company = '未识别'`，页面显著提示，且**禁用该记录的手动补传**（不知道用哪套凭据）。理由：丢单比错标更危险，必须能看见"有单没被认领"。
+三分支判定（`App\Enterprise::claim()`）：
 
-`oper_ic_name` 与配置门店名的权威清单由**用户提供**（用户 2026-09-29 承诺"会给出具体名称"）。建议下一步先跑 `SELECT DISTINCT oper_ic_name FROM dyt.msfx.dbo.zsm_ls` 拿初稿核对。
+| 分支 | 依据 | 结果 |
+|---|---|---|
+| 1 | 按单据类型取 ID 列（`321`/`116` → `from_user_id`，`104`/`203` → `to_user_id`），命中该门店登记过的**任一**平台 ID | 认领为该门店，`matched_by='id'` |
+| 2 | ID 为空或未命中 → `oper_ic_name` 与配置门店名**精确相等** | 认领为该门店，`matched_by='name'` |
+| 3 | 都不命中 | `company='未识别'`，**照常入库** + 页面显著提示 + 禁用补传 |
 
-### 7. 数据模型：`company` + `credential` 两列，去重键三元组
+几条实测支撑与脏数据处理：
 
-- `upload_tasks` / `upload_logs` 各加**两列**：`company`（门店中文名，页面"所属企业"列）、`credential`（凭据标识，存 `label` 或 AppKey；页面不单独显示，重传/去重/日志用它区分）
-- **去重键从 `(company, djbh)` 细化为 `(company, credential, djbh)`**：一门店多主体时，主体 A 传成功不代表主体 B 传成功，否则会出现"B 主体漏传但被 A 主体的成功记录挡住"
+- **20/20 命中**：321/116 的 20 个非空 `from_user_id` 全部能由 `104` 的「`oper_ic_name` ↔ `to_user_id`」对照认到门店——一张对照表覆盖全部四种单据类型
+- **一家门店登记多个 ID**：新江分店 2 个（旧 entId 用到 2025-07、新 refEntId 自 2024-03 起）、雅居乐分店 4 个（含源库把数字 `0` 写成字母 `o` 的错值）；ID 清单在该门店的 `ids` 里
+- **名字降级为显示 + 回退**：凭据文件的门店名原先 5/5 都因半角/全角括号差异不命中源库，改用 ID 认领后这个坑失效；但配置里的名字仍应与源库**一字不差**（全角括号），因为它还承担 ID 缺失时的回退
+- **ID 命中而名字对不上任何门店**时置 `name_unmatched` 警告位（采集记 JSONL 日志，不改判定）——用于发现源库错名/已关店/改名
+- **`未识别` 是真异常信号**：它现在只该出现在"配置漏了门店"或"源库改了名"时；"门店还没拿到凭据"不是它——那是**待配凭据**（§8）
+
+权威门店清单（15 家）与平台 ID 由 2026-09-29 探测直接生成，见 `probe-findings-2026-09-29.md`；已关店（大同/帝景/黄村，末单 3~24 个月前）不入配置。
+
+### 7. 数据模型：`company` + `credential` 两列，去重键 `(company, djbh)`
+
+- `upload_tasks` / `upload_logs` 各加**两列**：`company`（门店**中文全名**，页面"所属企业"列的值与筛选键）、`credential`（该企业的 **primary 凭据键**，如 `main`；页面不单独显示，只作审计）
+- **去重键 = `(company, djbh)`**（原三元组已废弃，见 ADR 0008）：多套凭据实为**限流备用**而非"两个主体各传一遍"，故不存在"B 主体需另传一次"；三元组不但不提供保护，反而**允许同一张单被传两次**——平台侧重复申报，恰是备用凭据永远不该做的事
+- `credential` **不参与任何键**：采集时预填 primary 键（表达"默认会用哪套"），补传时若人工切到备用凭据则由补传流程覆盖该行——它只回答"这次实际用了哪套"
 - **`ent_list` 加 `company` 列**，唯一约束 `ent_name UNIQUE` → `UNIQUE(company, ent_name)`，现有数据回填河药。零售**不使用** `ent_list`（`from/toUserId` 直接来自源表，`uploadretail` 只要门店自己的 `refUserId`）。选择在只有一家批发企业时改这张表，是因为**此时成本最低**——第二个批发主体进来时再改就要停机洗数据
-- 历史数据（`upload_tasks` / `upload_logs` 现有行）回填河药批发
+- 历史数据（`upload_tasks` / `upload_logs` 现有行）回填 **`河药医药（河源）有限公司`**（批发主体全名，取自平台响应的 `from_ent_name`/`to_ent_name`，全角括号）
+- `config/enterprises.local.php` 的 `ids` 里，河药登记 `REFENTID_HYYY` + `ENTID_HYYY`；零售 15 家门店登记探测得到的平台 ID
 
 ### 8. 零售任务状态：新值 `待补传`，且必须给 `upload_pending.php` 排雷
 
@@ -150,6 +192,8 @@ FROM upload_tasks WHERE task_status = '等待上传'
 **无任何企业过滤**，且第 61 行 `new UploadService()` 凭据写死河药。零售单据一旦以 `等待上传` 落库，该 cron 就会**用河药 AppKey 走 kyt 接口把门店单据申报到河药主体名下**——这是传到平台上的不可逆错误。两种候选改法（择一，实现时定）：`AND company = '<河药批发>'` 或 `AND source != 'retail'`。
 
 `task_status` 取值集合因此变为：`等待上传`（批发，cron 会取）/ `待补传`（零售，仅人工作用）/ `已处理`。
+
+**另有企业级状态「待配凭据」（不是 task_status）**：该门店有名字与平台 ID、能正常认领单据，但 AppKey/SECRETKEY 未到手（凭据四字段没填齐）。页面标"待配凭据"并**禁用补传**。它与 `未识别` 的区别是：后者说明**配置漏了门店或源库改了名**（真异常，要人去查），前者只是**授权还没拿到**（预期内的正常状态）。15 家门店中当前有 5 家已配凭据、10 家待配。
 
 ### 9. 三个检查脚本一律排除零售
 
@@ -229,13 +273,26 @@ FROM upload_tasks WHERE task_status = '等待上传'
 7. **搁置**：对账功能（含平台状态查询）——"暂时没有很好的办法可以对账"
 8. **仓库边界**：SDK zip 不进 git；凭据不进 git；花名册归位/废弃
 
-**开放问题（下次会话起点）**：
+**开放问题已全部有答**（2026-09-29 探测轮 + 用户答复）：
 
-| # | 问题 | 阻塞什么 |
+| # | 问题 | 结论 |
 |---|------|---------|
-| A | **权威门店清单**（用户承诺提供具体名称） | 门店认领与凭据配置的最终形态 |
-| B | **各门店的 SECRETKEY**（现有草稿无此列） | 任何门店 API 调用（含手动补传） |
-| C | `dyt` 链接服务器能否被现有 `SqlSrvHelper` 连接复用 | 采集脚本实现方式 |
-| D | `zsm_ls` / `zsm_ls_code` 的列与索引（是否含数量列、`bill_time` 类型与索引） | 采集 SQL 定稿、未来数量对账可行性 |
-| E | 多套凭据的**成因**（多主体 / 按单据类型分 / 历史遗留 / 其他）、同一张单是否需多套各传一次 | 仅影响未来的自动分发规则；本轮已用"人工选择"绕开 |
-| F | 门店二次改名时 `company` 中文名作为键的处理（用户选择中文名，代价是改名要洗数据） | 数据维护流程 |
+| A | 权威门店清单 | **15 家**（用户确认"事实就是 15 家"）；清单由探测的 `104` 对照表直接生成，见 `probe-findings-2026-09-29.md`。已关店 3 家（大同/帝景/黄村）不入配置 |
+| B | 各门店 SECRETKEY | 已到手 **5 家**（`tests/company.txt` → `config/enterprises.local.php`）；其余 10 家待授权，属"待配凭据"正常状态，不阻塞采集与展示 |
+| C | `dyt` 能否复用现有连接 | **能**（实测 4 段式查询 638ms），采集脚本无需新连接封装 |
+| D | 两张表的列与索引 | 已答，见 §5：`bill_time` 是 `varchar(10)` 纯日期且**无索引**；码一码一行、无排序列；**无任何数量列** |
+| E | 多套凭据的成因 | **门店授权给不同开发者；目前只保留 1 个授权，第二个仅在主授权被限流时顶替（数据量小，基本不会限流）** → 去重键退回二元组（ADR 0008） |
+| F | 门店改名时的键处理 | 中文全名 + `ids` 认领 + 稳定 `key`：改名只需改配置里的 `name`（`key` 不变、凭据不脱钩）；源库里出现过旧名时，旧名下的历史单据靠 `ids` 仍能认领 |
+
+**仍未定（不阻塞工单 01/02/03/05）**：
+
+- **外部系统上传用的是哪套 AppKey**？若与 `company.txt` 里这些不同，本项目补传就可能在平台上造成**重复申报**（两个主体各报一次）。需向外部系统的工程师确认；无法确认的兜底是补传加一道人工二次确认（详见 R2-Q4）
+- 其余 10 家门店的 AppKey/SECRETKEY
+
+### 2026-09-29 探测轮（第三轮会话）
+
+在用户明确授权（点名生产库）后，对 `dyt.msfx.dbo.zsm_ls` / `zsm_ls_code` 做**只读**探测（全程 SELECT，未写任何表），结论落 `probe-findings-2026-09-29.md`。
+
+**推翻了三条已定设计**：门店认领键（§6，由"名字精确匹配"改为"平台 ID 优先"）、`zsm_ls.ref_ent_id` 的门店语义（§3）、去重键三元组（§7，由用户对成因的答复推翻）。**新增两条边界**：`bill_type=999` 不采（用户判定，语义未明）；321 的完全重复行必须在采集时去重。
+
+**同时完成工单 01**（`src/Enterprise.php` + 配置三文件 + `tests/enterprise_config_test.php`，全部通过）。

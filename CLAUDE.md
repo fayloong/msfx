@@ -33,6 +33,8 @@ root/
 │   ├── Config.php                # .env 配置加载
 │   ├── Database.php              # SQLite 数据库封装（单例）
 │   ├── Auth.php                  # 单用户 session 认证
+│   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检
+│   ├── BillType.php              # 单据类型码归一化（字母前缀 ↔ 3 位数字码）
 │   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算），区分网络/业务错误
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合、fetchWmsCodesByDjbhList 第 2 级码基线现查）
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）
@@ -63,7 +65,10 @@ root/
 │       ├── failed.php            # 失败记录页
 │       └── manual_upload.php     # 手动上传（在线表单 + xlsx 导入）
 ├── config/
-│   ├── .env                      # 数据库连接 + API 凭证 + 管理员密码
+│   ├── .env                      # 数据库连接 + API 凭证（迁移期）+ 管理员密码
+│   ├── enterprises.php           # 企业结构：企业名/类型(wholesale·retail)/凭据位(label·primary) —— 入 git，无凭据
+│   ├── enterprises.example.php   # enterprises.local.php 的模板（占位符）—— 入 git
+│   ├── enterprises.local.php     # 门店平台 ID + 凭据四字段明文 —— **不入 git**（.gitignore）
 │   └── sql.php                   # SQL Server 原始查询（参考用；批发采集口径含 a.is_zx='是' 已执行单据过滤，2026-08-27；
 │                                 #  另含零售连锁采集参考 SQL `$get_up_task_retail`：dyt 链接服务器
 │                                 #  zsm_ls / zsm_ls_code，单据类型 104/203/321/116，update_state 作已上传过滤，2026-09-29）
@@ -86,6 +91,7 @@ root/
 ├── tests/
 │   ├── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php）
 │   ├── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
+│   ├── enterprise_config_test.php # App\Enterprise 自包含断言测试：配置解析/门店认领/接口路由/配置自检
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
@@ -231,6 +237,23 @@ root/
 | ref_ent_id | TEXT | 企业编码 |
 | created_at | TEXT | |
 
+## 企业配置与凭据（多企业支持，进行中）
+
+三文件分离，**凭据绝不入 git**：
+
+| 文件 | 内容 | 入 git |
+|------|------|--------|
+| `config/enterprises.php` | 企业结构：企业名 / 类型（`wholesale`·`retail`）/ 凭据位（`label`、`primary`） | ✅ |
+| `config/enterprises.local.php` | 门店平台 ID 列表 + 凭据四字段明文（`appkey`/`secretkey`/`ref_ent_id`/`ent_id`） | ❌（`.gitignore`） |
+| `config/enterprises.example.php` | 模板（占位符） | ✅ |
+
+- **凭据是路由主体**，门店与凭据 1:N（门店可授权给多个开发者）；但**同一张单只传一次**——备用凭据仅在主授权被平台限流时顶替，故去重键是 `(company, djbh)`，`credential` 列只记录"这次实际用了哪套"。见 `docs/adr/0006`、`docs/adr/0008`
+- **门店认领以平台 ID 为主键**：源表 `zsm_ls` 的 `from_user_id`（`321`/`116`）或 `to_user_id`（`104`/`203`）命中该门店登记过的任一 ID 即认领；ID 缺失才回退 `oper_ic_name` 与配置门店名精确匹配；都不命中 → `company='未识别'` 照常入库（页面提示、禁用补传）。依据：`oper_ic_name` 在 321/116 上**全空**（占全表 84.7%）。见 `docs/adr/0008`
+- **待配凭据**：门店有名字与平台 ID 但没密钥时，单据照常认领，页面标"待配凭据"并禁用补传（15 家中当前已配 5 家）
+- 接口路由 `(企业类型, 单据类型)`：零售 `104`/`203` → `lsyd.uploadinoutbill`（码上限 10000）、`321`/`116` → `lsyd.uploadretail`（3500）；批发一律 kyt `uploadinoutbill`（3500）
+- `App\Enterprise` 是唯一入口：`loadFromFiles()` 载入并**强制自检**（平台 ID 不得跨企业重复、凭据的 `ref_ent_id`/`ent_id` 必须属于本企业、多凭据须恰一套 `primary`…），违反即抛异常——这些都是"违反了就会静默把单据传到错误主体"的错误
+- **迁移期**：河药批发凭据仍从 `.env` 读取（`enterprises.local.php` 的 `heyao` 条目引用 `Config::get`，刻意不复制明文以免两份不一致）。待 `ApiClient` 全面改读本配置后，删除 `.env` 的 `APPKEY_HYYY`/`SECRETKEY_HYYY`/`REFENTID_HYYY`/`ENTID_HYYY`
+
 ## 环境配置
 
 - **Web 服务器**: Nginx，监听 `192.168.2.189:8188`，root `public/`
@@ -295,6 +318,7 @@ php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php 2026-08-16
 # 运行单元测试
 php /usr/share/nginx/mashangfangxin/tests/trace_splitter_test.php
 php /usr/share/nginx/mashangfangxin/tests/quantity_check_test.php
+php /usr/share/nginx/mashangfangxin/tests/enterprise_config_test.php
 
 # 查询单号在码上放心平台的上传状态（searchbill.detail；输出 JSON + 另存 tests/searchbill_<单号>.json）
 php /usr/share/nginx/mashangfangxin/tests/search_bill_test.php XSOWMS00997501
