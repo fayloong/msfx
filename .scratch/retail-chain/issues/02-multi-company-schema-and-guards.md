@@ -96,4 +96,5 @@
 - **`check_failed_logs.php` 的 JSONL 记录补 `credential`**：与 `check_bill_status.php` 的同名记录对齐
 - **`Enterprise::wholesaleSubject()` 返回键 `credential` → `credential_key`**：同一文件里 `credential` 既指键（wholesaleSubject）又指数组（Enterprise::credential），消除歧义
 - **测试补 2 项断言钉住"配置里的批发主体 == 迁移回填常量"**：两者不一致时历史行会被 company 白名单静默漏掉、批发链路整条停摆，原先只有代码注释没有断言
+- **`fetch_bills.php` 的两条新 SQL 单独验证**：23:00 那轮 cron 被计数门卫跳过（单据数无变化），INSERT 路径在真实 cron 下没走到，故在生产库上逐字复刻"去重 SELECT（含 company 白名单）+ INSERT（9 占位符/company/credential）"跑通后清理测试行——验证的是列名与参数绑定，不改变采集行为
 - **未采纳（记录理由）**：`failed.php` / `export.php` 判重里 `quantity_check` 豁免只在页面有、导出没有，是既有不一致（`spec.md` 已归工单 08 的筛选与导出）；`fetch_bills.php` 与三个检查脚本里 `AND company = ?` 的分散写法，抽公共查询层超出本票范围，同样留待工单 08 一并处理
