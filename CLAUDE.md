@@ -96,8 +96,8 @@ root/
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
 ├── logs/                         # API 日志 JSONL 文件
-├── upload_test.php               # 原始上传脚本（旧版，保留参考）
-├── get_ent_list_test.php         # 原始往来单位同步脚本（旧版）
+├── upload_test.php               # 原始上传脚本（旧版，保留参考；**勿运行**——include 路径失效、连的是旧库、ent_list 读写早于多企业改动）
+├── get_ent_list_test.php         # 原始往来单位同步脚本（旧版，保留参考；**勿运行**——ent_list 唯一键已改为 (company, ent_name)）
 └── bill_info_test.php            # 原始单据查询脚本（旧版）
 ```
 

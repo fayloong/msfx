@@ -1,4 +1,11 @@
 <?php
+/**
+ * 旧版往来单位同步脚本（仅作历史参考）
+ *
+ * ⚠️ 不要运行：其中的 ent_list 写入早于多企业改动——唯一键已从 ent_name 改为 (company, ent_name)，
+ * 不带 company 的写入会往缓存里塞 company='' 的孤儿行（生产路径见 src/UploadService.php
+ * 与 App\Enterprise 的批发主体入口）。
+ */
 
 include_once "top_sdk/TopSdk.php";
 

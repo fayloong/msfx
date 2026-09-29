@@ -1,4 +1,13 @@
 <?php
+/**
+ * 旧版上传脚本（已被 scripts/ + src/UploadService.php 取代，仅作历史参考）
+ *
+ * ⚠️ 不要运行：
+ *   - include 的 TopSdk.php / SqlSrvHelper.php 路径已失效（现为 top_sdk/ 与 src/，靠 composer 自动加载）
+ *   - 读的是旧库（192.168.2.82 / hyyy）的 msfx_up_task 表，不是 data/msfx.db
+ *   - 其中的 ent_list 读写早于多企业改动：唯一键已从 ent_name 改为 (company, ent_name)，
+ *     不带 company 的读写会往缓存里塞 company='' 的孤儿行。生产路径见 src/UploadService.php
+ */
 
 include_once "TopSdk.php";
 include_once "SqlSrvHelper.php";
