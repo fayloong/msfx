@@ -6,4 +6,9 @@
 /logs/*.jsonl
 /logs/*.lock
 /config/.env
+/config/enterprises.local.php
 .DS_Store
+
+# 零售连锁：SDK 来源包（仅本地提取 lsyd 类用，不进仓库）与门店凭据草稿
+/top_sdk_retail.zip
+/tests/company.txt

@@ -2,11 +2,11 @@
 include_once __DIR__.'/../src/SqlSrvHelper.php';
 
 $db=$db = new SqlSrvHelper([
-    'server'   => '192.168.2.82',
+    'server'   => '192.168.2.133',
     'port'     => '1433',
     'database' => 'hyyy',
     'username' => 'sa',
-    'password' => 'hy123.'
+    'password' => 'xty123.'
 ]);
 
 $get_up_task="
@@ -67,5 +67,23 @@ AND exists(select  * from #bill_list x where x.djbh=a.djbh)
 select * from  #task_detail
 ";
 
+
+
+
+
+
 $rows=$db->executeBatch($get_up_task);
 print_r($rows);
+
+//零售连锁门店
+$get_up_task_retail="
+select ls.bill_code,ls.bill_time,ls.bill_type,ls.from_user_id,ls.to_user_id,ls.ref_ent_id,ls.oper_ic_name,co.trace_codes
+from dyt.msfx.dbo.zsm_ls ls 
+left join dyt.msfx.dbo.zsm_ls_code co on co.bill_code=ls.bill_code
+where bill_type='203' --(104：调拨入库；203：调拨出库；321：使用出库；116：消费者退货入库)
+AND not exists(select * from dyt.bs_msfx.dbo.update_state a where a.bill_code=ls.bill_code) 
+order by bill_time DESC
+";
+
+$rows_retail=$db->executeBatch($get_up_task_retail);
+print_r($rows_retail);

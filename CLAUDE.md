@@ -64,7 +64,9 @@ root/
 │       └── manual_upload.php     # 手动上传（在线表单 + xlsx 导入）
 ├── config/
 │   ├── .env                      # 数据库连接 + API 凭证 + 管理员密码
-│   └── sql.php                   # SQL Server 原始查询（参考用；采集口径含 a.is_zx='是' 已执行单据过滤，2026-08-27）
+│   └── sql.php                   # SQL Server 原始查询（参考用；批发采集口径含 a.is_zx='是' 已执行单据过滤，2026-08-27；
+│                                 #  另含零售连锁采集参考 SQL `$get_up_task_retail`：dyt 链接服务器
+│                                 #  zsm_ls / zsm_ls_code，单据类型 104/203/321/116，update_state 作已上传过滤，2026-09-29）
 ├── public/
 │   ├── index.php                 # Web 单入口（page 参数分发路由）
 │   └── favicon.svg               # SVG 网站图标
