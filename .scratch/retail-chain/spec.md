@@ -1,6 +1,30 @@
-**Status:** implementing（工单 01 已实现并测试通过：`src/Enterprise.php` + `config/enterprises{,.example,.local}.php` + `tests/enterprise_config_test.php`；工单 02 起待做。开放问题 A–F **已全部有答**，见 Comments）
+**Status:** ready-for-agent（设计已收口，工单 02–09 可直接开工；工单 01 已完成，见下方"实施状态"）
 
 # 零售连锁门店接入（多企业支持）
+
+## 实施状态（2026-09-29）
+
+| # | 工单 | 状态 | 交付物 / 剩余范围 |
+|---|------|------|------------------|
+| 01 | 企业配置与凭据模型 | **✅ 已完成** | `src/Enterprise.php`（配置解析 / 门店认领 / 接口路由 / 配置自检）+ `config/enterprises{,.example,.local}.php` + `tests/enterprise_config_test.php`（49 项断言全绿）。提交 `2877779` |
+| 02 | SQLite 多企业改造 | ⬜ 未开始 | `upload_tasks`/`upload_logs` 各加 `company`+`credential` 两列；`ent_list` 唯一约束改 `UNIQUE(company, ent_name)`；历史数据回填 `河药医药（河源）有限公司` |
+| 03 | 【排雷】`upload_pending.php` 企业过滤 | ⬜ 未开始 | **本 feature 唯一"上线即可能污染生产数据"的点**：白名单过滤 + `UploadService` 取不到凭据即拒绝上传（不回落默认凭据）。依赖 02 |
+| 04 | SDK：lsyd 请求类并入 `top_sdk/` | ⬜ 未开始 | 解压 `top_sdk_retail.zip`、逐个比对 31 个差异 domain 类（纯注释差异 vs 字段变化）后并入 |
+| 05 | 零售单据采集 | ⬜ 未开始 | 采集 SQL 已定稿（§5，含按 `bill_code` 去重）；`App\Enterprise::claim()` 已就绪；**脚本未写** |
+| 06 | 三个检查脚本排除零售 | ⬜ 未开始 | `check_bill_status` / `check_failed_logs` / `check_quantity` + `api/failed.php` 均排除零售记录 |
+| 07 | 手动上传重构（企业下拉 + 零售补传） | ⬜ 未开始 | 页面顶部"所属企业"下拉；零售只支持重传已采集单据；依赖 04 与门店凭据 |
+| 08 | 页面：三数据页加"所属企业"列与筛选 | ⬜ 未开始 | 含导出 xlsx 加列 + 筛选参数 |
+| 09 | 文档同步收尾 | ⬜ 未开始 | 本 feature 收尾时统一复核 |
+
+**已完成的设计侧工作（非代码）**：2026-09-29 对 `dyt` 源库的**只读**探测（开放问题 C、D 有答案，见 §5），结论落 `probe-findings-2026-09-29.md`；新增 ADR 0008、修订 ADR 0006；CLAUDE.md、CONTEXT.md 同步。
+
+**外部依赖**（不阻塞上方工单开工，但阻塞对应功能可用）：
+
+| 依赖 | 阻塞什么 | 现状 |
+|------|---------|------|
+| 10 家门店的 AppKey/SECRETKEY | 这 10 家的**手动补传**（采集与展示不受影响，状态为"待配凭据"） | 已有 5 家：宝源店、埔前立信分店、新江分店、徐洞分店、大湖分店 |
+| 外部系统上传用的是哪套 AppKey | 补传**是否会在平台上造成重复申报**（两个主体各报一次） | 待向外部系统工程师确认；兜底是补传加人工二次确认 |
+| 指定日期的采集口径人工核对 | 工单 05 上线前的数据验收 | 需在生产库跑一次采集并与源库去重单号数比对 |
 
 ## Problem Statement
 
@@ -20,9 +44,11 @@
 引入**企业（Company）**与**凭据（Credential）**两个概念，把"用哪套 AppKey 调哪个接口"从代码常量提升为数据：
 
 ```
-Company（门店，中文名）  1 ──── N  Credential（AppKey/SecretKey/ref_ent_id/ent_id/label）
-                                        │
-                                        └── bill_types 白名单 → 路由到接口类
+Company（门店：中文全名 + 稳定 key + 类型）
+    ├──  1 ──── N  Credential（appkey / secretkey / ref_ent_id / ent_id / label / primary）
+    └──  ids[]     该门店全部平台 ID —— 采集认领用（**凭据没到手也必须有**，否则单据认领不到）
+
+路由：(企业类型, 单据类型) → 请求类 + 追溯码上限     ← 与"用哪套凭据"无关
 ```
 
 - **配置**：`config/enterprises.php`（结构，进仓库）+ `config/enterprises.local.php`（凭据，gitignore）+ `config/enterprises.example.php`（模板）。河药批发一并迁入，不留两套机制
@@ -70,8 +96,8 @@ Company    = { key(稳定 slug), name(中文全名), type(wholesale|retail), ids
 
 | 文件 | 内容 | 入 git |
 |------|------|--------|
-| `config/enterprises.php` | 企业结构（门店名、凭据 label、`bill_types`、采集开关），引用 `enterprises.local.php` 取凭据 | ✅ |
-| `config/enterprises.local.php` | appkey / secretkey / ref_ent_id / ent_id 明文 | ❌（已加 `.gitignore`） |
+| `config/enterprises.php` | 企业结构：`key`（稳定 slug）、`name`（中文全名）、`type`（wholesale·retail）、凭据位（`label`、`primary`） | ✅ |
+| `config/enterprises.local.php` | 门店平台 ID 列表（`ids`）+ 凭据四字段明文（appkey/secretkey/ref_ent_id/ent_id） | ❌（`.gitignore`） |
 | `config/enterprises.example.php` | 模板，占位符 | ✅ |
 
 河药批发**一并迁入**该结构，`Config::get('APPKEY_HYYY')` 等旧写法逐步下线（`.env` 保留数据库连接与管理员密码）。
@@ -226,15 +252,17 @@ FROM upload_tasks WHERE task_status = '等待上传'
 
 ## Testing Decisions
 
-- **原则**：对齐既有风格——自包含断言脚本、无框架、失败非零退出（`tests/trace_splitter_test.php` / `tests/quantity_check_test.php`）
-- **可测接缝**（纯函数优于 IO）：
-  - **企业配置解析**：`config/enterprises.php` + local 合并后的结构（1:N 凭据、`bill_types` 缺省全集、门店名字典）
-  - **接口路由**：`(企业类型, 单据类型)` → 请求类名 的映射函数（含未知类型 → 跳过不猜）
-  - **门店认领**：`oper_ic_name` → `company` 匹配函数（精确命中 / 别名命中 / 未识别三分支）
-  - **零售请求装配**：给定一条落库零售单 → `lsyd.uploadinoutbill` / `uploadretail` 的 `getApiParas()` 断言（**这是最有价值的一个**：`refUserId` 必须是 ref_ent_id、`from/toUserId` 必须是 entId、`clientType` 必须是 `"2"`、`physicType` 必须填——混淆这几项会导致上传到错误主体）
-  - **拆分阈值**：按接口取 3500 / 10000
-- **测试禁止项**：不 mock 平台 API、不测实现细节、不在测试里连生产库
-- **新增测试文件**：`tests/enterprise_config_test.php`（配置 + 路由 + 门店认领）、`tests/retail_upload_test.php`（请求装配）
+- **原则**：对齐既有风格——自包含断言脚本、无框架、失败非零退出（`tests/trace_splitter_test.php` / `tests/quantity_check_test.php`）。只测**对外行为**，不测实现细节。
+- **禁止项**：不 mock 平台 API、不在测试里连生产库、不依赖部署机的真实凭据文件（一律用固化 fixture）。
+- **接缝：全 feature 收敛为 2 个，其中 1 个已落地**
+
+  1. **`App\Enterprise`（已落地）** —— 本 feature 的最高接缝。配置解析、门店认领、接口路由、配置自检全部收敛在这一个模块的静态方法上，输入是纯数据（结构数组 + 取值数组）、**无 IO**；测试用 fixture 驱动，生产走 `loadFromFiles()`。已由 `tests/enterprise_config_test.php` 覆盖（49 项断言）：1:N 凭据、待配凭据合法、认领三分支与"按单据类型选 ID 列"规则、历史 ID 别名、路由与码上限（含未知类型不猜）、9 类配置自检拒绝。
+     - 认领的**选列规则**（321/116 用 `from_user_id`、104/203 用 `to_user_id`）是实测支撑的（20/20 命中），测试把它钉住，防止将来"顺手改成另一列"。
+     - 配置自检（`validate()`）不是普通断言而是**载入即抛异常**：它拦的是"违反了就会静默把单据传到错误主体"的一类错误（平台 ID 跨企业重复、凭据 ID 不属于本企业、多凭据未标 primary）。
+  2. **零售请求装配（待落地，工单 07）** —— 给定一条落库零售单 + 一套凭据 → `getApiParas()` 断言，**不发起网络调用**。这是本 feature 最有价值的接缝：`refUserId` 必须取凭据的 `ref_ent_id`（**不是源表 `zsm_ls.ref_ent_id`**——那列全表单一值、属总部主体）、`fromUserId`/`toUserId` 必须取 `ent_id`、`clientType` 必须为 `"2"`、`physicType` 必须填；混淆任意一项都会把单据申报到**错误主体**，且在平台上不可逆。
+     - 拟新增 `tests/retail_upload_test.php`。**必须包含一个真实数据构造的用例**：新江分店是 15 家中唯一 `ref_ent_id ≠ ent_id` 的门店，用它断言两个字段没有互换——用 `ref_ent_id == ent_id` 的门店做用例，互换了也测不出来。
+
+- **不新增第三个接缝**：采集 SQL 的去重与码拼接、Web 页面交互都不写单元测试——前者靠"指定日期采集后与源库去重单号数比对"的人工验收（工单 05 验收标准），后者靠页面实测。为可测性再把采集拆出一层纯函数，收益不抵多一处接缝的长期成本。
 
 ## Out of Scope
 
@@ -296,3 +324,11 @@ FROM upload_tasks WHERE task_status = '等待上传'
 **推翻了三条已定设计**：门店认领键（§6，由"名字精确匹配"改为"平台 ID 优先"）、`zsm_ls.ref_ent_id` 的门店语义（§3）、去重键三元组（§7，由用户对成因的答复推翻）。**新增两条边界**：`bill_type=999` 不采（用户判定，语义未明）；321 的完全重复行必须在采集时去重。
 
 **同时完成工单 01**（`src/Enterprise.php` + 配置三文件 + `tests/enterprise_config_test.php`，全部通过）。
+
+### 2026-09-29 to-spec 收口（第四轮会话）
+
+把设计树、探测轮与工单 01 的实现结果收口为本版 spec，并在文首新增"实施状态"一节，区分**已完成（工单 01 + 设计侧探测/ADR）**与**未完成（工单 02–09 + 三项外部依赖）**。
+
+本轮**唯一新增的设计内容是把测试接缝收敛为 2 个**（`App\Enterprise` 已落地、零售请求装配待工单 07 落地），并显式声明**不为采集 SQL 与页面交互新增接缝**——理由与各自的替代验收方式见 Testing Decisions。
+
+用户在本轮明确的两条边界：**门店数量就是 15 家**（不再纠缠探测发现的 18 个店名，3 家已关店不入配置）；**`bill_type=999` 不采**（语义未明，只采 104/203/321/116 四种）。
