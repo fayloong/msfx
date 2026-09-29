@@ -32,7 +32,7 @@
 
 **落库**
 
-- `task_status='待补传'`（**不复用 `等待上传`**，语义是"cron 会来取走并上传"）、`source='retail'`、`company` 取认领结果、`credential` 取该企业 primary 凭据键（待配凭据时为 null）
+- `task_status='待补传'`（**不复用 `等待上传`**，语义是"cron 会来取走并上传"）、`source='retail'`、`company` 取认领结果、`credential` 取 `claim()` 返回的 primary 凭据键（**凭据位已声明即预填该键**——密钥还没到手的"待配凭据"门店同样有键，页面据 `credentialConfigured()` 禁用补传；仅当配置结构里连凭据位都没声明时才为 null，见 `tests/enterprise_config_test.php` 用例 3/7）
 - `ent_name`（往来单位）**零售链路用不到**：零售单据的对手方 ID 直接来自源表的 `from_user_id` / `to_user_id`，
   **不查 `ent_list`、也不需要往来单位名称**（`ent_list` 是批发 kyt 接口为了把往来单位名换成 `ent_id` 才有的缓存）。这一列留空即可
 - 幂等：按 `(company, djbh)` 去重，重复跑不产生新行

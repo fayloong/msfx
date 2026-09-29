@@ -202,6 +202,46 @@ class Enterprise
     }
 
     /**
+     * 批发申报主体：['key' => 配置 key, 'name' => 企业全名, 'credential' => primary 凭据键]。
+     *
+     * 批发链路（采集落库 / cron 取数 / 手动上传 / 检查脚本）取"本项目的自动上传主体"的唯一入口，
+     * 免得各脚本各自硬编码企业名与凭据键。当前只有河药一家批发企业，故按类型取唯一那家；
+     * **出现第二家批发企业时抛异常而不是静默取第一个**——那正是"把单据申报到错误主体"的经典路径，
+     * 必须由人显式选择主体后再改这里（见 docs/adr/0006）。
+     *
+     * 无凭据的企业 credential 为 null（照常返回，由调用方决定拒到什么程度）。
+     *
+     * @throws \RuntimeException 批发企业不是恰好一家
+     */
+    public static function wholesaleSubject(): array
+    {
+        self::ensureLoaded();
+
+        $matched = [];
+        foreach (self::$companies as $key => $company) {
+            if ($company['type'] === self::TYPE_WHOLESALE) {
+                $matched[$key] = $company;
+            }
+        }
+
+        if (count($matched) !== 1) {
+            throw new \RuntimeException(
+                '批发主体必须恰好一家，当前配置里有 ' . count($matched) . ' 家'
+                . ($matched ? '（' . implode('、', array_keys($matched)) . '）' : '')
+                . '——批发链路无法确定用哪套凭据，拒绝继续'
+            );
+        }
+
+        $key = (string)array_key_first($matched);
+
+        return [
+            'key' => $key,
+            'name' => $matched[$key]['name'],
+            'credential' => self::primaryCredentialKey($key),
+        ];
+    }
+
+    /**
      * 门店认领：平台 ID 优先 → 名字回退 → 未识别。
      *
      * 返回的 credential 是**该企业的 primary 凭据键**（表达"默认会用哪套"）；采集时据此落库，

@@ -3,7 +3,11 @@
  * 批量上传所有等待中的上传任务
  * 用法: php scripts/upload_pending.php
  *
- * 处理所有来源（cron / manual / batch_check）的 task_status='等待上传' 记录。
+ * **只处理批发主体（河药）的 task_status='等待上传' 记录**。零售单据落库时是 task_status='待补传'
+ * （语义是"仅人工补传"），本脚本不取；即便状态被误改，UploadService 的守关也会拒传。
+ * 用白名单（company = 批发主体）而非排除法（如 source != 'retail'）：排除法 fail-open，
+ * 将来任何新增来源漏改条件，就会把门店单据按河药主体申报上去。
+ *
  * 手动上传场景中，用户创建任务后立即上传，任务状态已变为已处理，不会被此脚本重复处理。
  * 建议 cron: 5 12,18 * * * 和 30 22 * * *
  */
@@ -21,6 +25,7 @@ if (!function_exists('info_log')) {
 
 use App\Config;
 use App\Database;
+use App\Enterprise;
 use App\UploadService;
 
 Config::load();
@@ -29,10 +34,13 @@ echo "[upload_pending] 开始上传...\n";
 
 try {
     $db = Database::getInstance();
+    $wholesale = Enterprise::wholesaleSubject();
 
-    // 1. 读取所有等待上传的任务
+    // 1. 读取批发主体等待上传的任务
     $tasks = $db->query(
-        "SELECT id, rq, djbh, ent_name, trace_codes, bill_type, source FROM upload_tasks WHERE task_status = '等待上传'"
+        "SELECT id, rq, djbh, ent_name, trace_codes, bill_type, source, company, credential
+         FROM upload_tasks WHERE task_status = '等待上传' AND company = ?",
+        [$wholesale['name']]
     );
 
     if (empty($tasks)) {
@@ -54,6 +62,8 @@ try {
             'sn' => $task['trace_codes'],
             'task_id' => (int)$task['id'],
             'source' => $task['source'] ?? 'cron',
+            'company' => $task['company'],
+            'credential' => $task['credential'] ?? '',
         ];
     }
 

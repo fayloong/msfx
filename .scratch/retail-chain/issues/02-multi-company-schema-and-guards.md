@@ -1,7 +1,7 @@
 # 02: 多企业落库 + 零售对自动链路不可见（排雷）
 
 - Type: task
-- Status: ready-for-agent
+- Status: done（2026-09-29）
 - Blocked by: None（工单 01 已完成）
 - 关联：spec.md §7/§8/§9、docs/adr/0006-credential-as-routing-subject.md、docs/adr/0007-retail-no-platform-reconciliation.md、docs/adr/0008-retail-claim-by-platform-id.md
 
@@ -57,10 +57,29 @@
 
 ## 验收
 
-- [ ] 迁移脚本可重复执行；回填后三个数据页与既有筛选/查询行为完全不变
-- [ ] **批发链路回归**：一条批发任务经 `upload_pending.php` 上传成功；`ent_list` 缓存命中与回填正常
-- [ ] 造一条 `company=大源堂…某门店`、`task_status=待补传`、`source=retail` 的任务，然后：
-  - 跑 `upload_pending.php` → 该任务未被取走
-  - 调一次单条重传与一次批量重传接口 → 返回明确错误，**零平台调用、零 `upload_logs` 新增**
-  - 跑三个检查脚本 → 不产生任何涉及该单号的记录
-- [ ] `ent_list` 同企业内仍唯一、跨企业可同名
+- [x] 迁移脚本可重复执行；回填后三个数据页与既有筛选/查询行为完全不变
+  - 迁移脚本在副本连跑 3 次、生产库连跑 2 次，第 2 次起零输出（幂等）；行数 41626 / 42894 / 773 前后一致，回填后无 `company=''` 残留
+  - 三个数据页 HTML、三个列表 API、手动上传页、仪表盘、导出 xlsx（限定单号 2 行 / 09-26 已上传 664 行）全部 200 且数据正常
+  - 索引复核：加 `company` 后 `idx_upload_logs_djbh_response` 仍适用（迁移前 48–69ms / 迁移后 46–56ms，无劣化），不新增索引
+- [x] **批发链路回归**：一条批发任务经 `upload_pending.php` 上传成功；`ent_list` 缓存命中与回填正常
+  - **实测改走已上传单号重传**（用户 2026-09-29 决定）：未跑全量 `upload_pending.php`——库里 311 条真实待上传单（306 条当天、均无平台成功记录）会被一起申报，与本系统"外部系统负责上传、本项目只检查不补传"的定位冲突。改用 `tasks_retry` 打 `XSOWMS01032449`（平台已验证存在）→ 平台返回"该单据号已存在（上传时间 2026-09-29 21:40:03）"→ 落库 `batch_retry / 单据重复 / 河药 / main`，凭据取用、签名、路由、装配、响应解析全链路验证
+  - `ent_list` 缓存按 `(company, ent_name)` 读写：同企业命中、跨企业不命中、`INSERT OR REPLACE` 回填正常（生产库实测，测试行已清）
+- [x] 造一条 `company=大源堂…某门店`、`task_status=待补传`、`source=retail` 的任务，然后：
+  - [x] 跑 `upload_pending.php` → 该任务未被取走
+    - 取数 SQL 等价验证（未跑脚本，理由同上）：白名单取到 311 条不含它
+    - **再加测最坏情况**：把该任务状态临时改成 `等待上传` → 不带白名单取 312 条（含它）、带白名单仍 311 条（不含）→ 证明是 `company` 白名单本身挡住的（这正是否掉 `source != 'retail'` 排除法的理由），验后状态已还原
+  - [x] 调一次单条重传与一次批量重传接口 → 返回明确错误，**零平台调用、零 `upload_logs` 新增**
+    - 两接口均返回 `{"_final":true,"error":"单号 DBSTEST0001: 企业「大源堂智慧药房（河源）有限公司宝源店」的单据类型 201 不走批发上传接口，本服务拒绝上传"}`
+    - `upload_logs` 42894 → 42894、JSONL 1331 → 1331；任务状态未被异常分支篡改（仍 `待补传`）
+  - [x] 跑三个检查脚本 → 不产生任何涉及该单号的记录
+    - `check_bill_status`（311 单 → 270 已上传 / 41 未上传 / 0 异常）、`check_failed_logs`（39 条失败记录 → 34 单复查）、`check_quantity 2026-07-30`（2 单 → 真问题 0）三份输出中 `DBSTEST0001` 出现 **0 次**，库中该单号 `upload_logs` 记录 **0 条**
+    - `check_quantity` 用 07-30 而非默认昨天：07-30 仅 2 单（09-28 有 1398 单 ≈ 23 分钟），代价最小且足以验证脚本跑通
+- [x] `ent_list` 同企业内仍唯一、跨企业可同名
+  - 生产库实测：同企业重复插入被唯一约束拒绝（`columns company, ent_name are not unique`）、跨企业同名可共存
+
+## 实现笔记（超出票面的必要处理）
+
+- **`tasks_retry` / `tasks_batch_retry` 的异常恢复分支**原先把任务状态一律写回 `等待上传`。守卫是 fail-closed，抛错时零售任务会被推成 `等待上传`（语义是"cron 会来取走"，与 `待补传` 冲突）。改为**恢复为调用前的状态**（单条取该行原值，批量逐条取各自原值）
+- **`check_quantity` 写入的日志必须带 `company`**：它的幂等清理是 `DELETE ... WHERE source='quantity_check' AND rq=? AND company=?`，若写入不带 company，清理就删不到，记录会逐轮堆积
+- **`ApiClient` 的查询类凭据**（`searchBillDetail` / `queryEntInfo` / `searchSingleRelation`）仍读 `.env`，按票面留债；因本服务只放行批发单据，与传入凭据一致
+- **`Enterprise::wholesaleSubject()`**（新增）：批发链路取"本项目自动上传主体"的唯一入口，避免各脚本硬编码企业名与凭据键；**批发企业不是恰好一家时抛异常**，不静默取第一个。已在 `tests/enterprise_config_test.php`（既有接缝）补 5 项断言，未新增测试接缝

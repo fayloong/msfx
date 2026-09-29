@@ -59,6 +59,8 @@ try {
             'sn' => $t['trace_codes'] ?? '',
             'task_id' => (int)$t['id'],
             'source' => 'batch_retry',
+            'company' => $t['company'] ?? '',
+            'credential' => $t['credential'] ?? '',
         ];
     }, $tasks);
 
@@ -70,13 +72,16 @@ try {
 
     echo json_encode(['_final' => true, 'success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE) . "\n";
 } catch (\Throwable $e) {
-    // 尝试恢复状态，忽略数据库错误（与单条重传 tasks_retry 保持一致）
+    // 尝试恢复状态，忽略数据库错误（与单条重传 tasks_retry 保持一致）。
+    // 逐条恢复为**各自调用前的状态**而不是统一写"等待上传"：零售单据是"待补传"，
+    // 统一改回"等待上传"会让它被当成待自动上传的单据
     try {
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $db->execute(
-            "UPDATE upload_tasks SET task_status = '等待上传', request_status = NULL, response_status = NULL, updated_at = datetime('now','localtime') WHERE id IN ({$placeholders})",
-            $ids
-        );
+        foreach ($tasks as $t) {
+            $db->execute(
+                "UPDATE upload_tasks SET task_status = ?, request_status = NULL, response_status = NULL, updated_at = datetime('now','localtime') WHERE id = ?",
+                [$t['task_status'] ?? '等待上传', (int)$t['id']]
+            );
+        }
     } catch (\Throwable $dbEx) {
         // 忽略
     }

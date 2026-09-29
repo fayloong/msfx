@@ -26,6 +26,7 @@ if (!function_exists('info_log')) {
 
 use App\Config;
 use App\Database;
+use App\Enterprise;
 use App\TaskFetcher;
 
 Config::load();
@@ -95,23 +96,29 @@ try {
     $db = Database::getInstance();
     $now = date('Y-m-d H:i:s');
 
+    // 本脚本采集的视图是批发单据，落库主体固定为批发主体（App\Enterprise 是唯一入口）
+    $wholesale = Enterprise::wholesaleSubject();
+    $company = $wholesale['name'];
+    $credential = $wholesale['credential'] ?? '';
+
     // 批量查询已存在的 djbh，构建查找集合（分块查询，规避 SQLite 999 参数上限）
     // 除 upload_tasks 中的任务外，upload_logs 已上传成功/单据重复的单据也不采集，
-    // 避免任务被删除后已上传单据被重新入队
+    // 避免任务被删除后已上传单据被重新入队。
+    // 去重键是 (company, djbh) 而非裸 djbh：同名单号属于别的企业时是另一条记录，不能互相顶掉
     $djbhs = array_column($bills, 'djbh');
     $existingSet = [];
     foreach (array_chunk($djbhs, 500) as $chunk) {
         $placeholders = implode(',', array_fill(0, count($chunk), '?'));
         $existing = $db->query(
-            "SELECT djbh FROM upload_tasks WHERE djbh IN ({$placeholders})",
-            $chunk
+            "SELECT djbh FROM upload_tasks WHERE djbh IN ({$placeholders}) AND company = ?",
+            array_merge($chunk, [$company])
         );
         foreach ($existing as $row) {
             $existingSet[$row['djbh']] = true;
         }
         $uploaded = $db->query(
-            "SELECT djbh FROM upload_logs WHERE djbh IN ({$placeholders}) AND response_status IN ('上传成功', '单据重复')",
-            $chunk
+            "SELECT djbh FROM upload_logs WHERE djbh IN ({$placeholders}) AND response_status IN ('上传成功', '单据重复') AND company = ?",
+            array_merge($chunk, [$company])
         );
         foreach ($uploaded as $row) {
             $existingSet[$row['djbh']] = true;
@@ -128,8 +135,8 @@ try {
         }
 
         $db->execute(
-            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'cron', ?, ?)",
-            [$bill['rq'], $bill['djbh'], $bill['ent_name'], $bill['sn'], $bill['type'], $now, $now]
+            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'cron', ?, ?, ?, ?)",
+            [$bill['rq'], $bill['djbh'], $bill['ent_name'], $bill['sn'], $bill['type'], $company, $credential, $now, $now]
         );
         $insertCount++;
     }

@@ -26,6 +26,7 @@ if (!function_exists('info_log')) {
 use App\ApiClient;
 use App\Config;
 use App\Database;
+use App\Enterprise;
 Config::load();
 
 // 新鲜度门卫：距上次成功查询超过该分钟数的记录才重新调 API
@@ -49,10 +50,15 @@ try {
     $db = Database::getInstance();
     $threshold = date('Y-m-d H:i:s', time() - CHECK_INTERVAL_MINUTES * 60);
 
+    // 只查批发主体：本脚本用河药凭据查平台。零售的失败记录只可能来自人工补传，
+    // 拿河药凭据去查门店单号必然"信息不存在"，白烧调用还可能把状态翻错（见 docs/adr/0007）；
+    // 零售的记录保留在失败记录页可见，由人去处理
+    $company = Enterprise::wholesaleSubject()['name'];
+
     // ── 拉取未上传成功的记录（失败/信息不存在等，且上次查询已过期） ──
     $logs = $db->query(
-        "SELECT id AS log_id, task_id, djbh, ent_name, trace_codes, rq FROM upload_logs WHERE (response_status IS NULL OR response_status NOT IN ('上传成功', '单据重复')) AND (last_checked_at IS NULL OR last_checked_at <= ?)",
-        [$threshold]
+        "SELECT id AS log_id, task_id, djbh, ent_name, trace_codes, rq FROM upload_logs WHERE (response_status IS NULL OR response_status NOT IN ('上传成功', '单据重复')) AND company = ? AND (last_checked_at IS NULL OR last_checked_at <= ?)",
+        [$company, $threshold]
     );
 
     $logCount = count($logs);
@@ -98,10 +104,11 @@ try {
         $djbh = $rec['djbh'];
         $n = $i + 1;
 
-        // 去重：已确认在平台存在的跳过 API 查询（同单已有上传成功/单据重复记录即视为已上传）
+        // 去重：已确认在平台存在的跳过 API 查询（同单已有上传成功/单据重复记录即视为已上传）；
+        // 按 (company, djbh) 判重——同名单号属于别的企业时与本次复查无关
         $already = $db->queryOne(
-            "SELECT id FROM upload_logs WHERE djbh = ? AND response_status IN ('上传成功', '单据重复') LIMIT 1",
-            [$djbh]
+            "SELECT id FROM upload_logs WHERE djbh = ? AND company = ? AND response_status IN ('上传成功', '单据重复') LIMIT 1",
+            [$djbh, $company]
         );
         if ($already) {
             $skipCount++;
@@ -142,6 +149,7 @@ try {
                     'rq' => $rec['rq'],
                     'task_id' => $rec['task_id'] ?? 0,
                     'source' => 'batch_check',
+                    'company' => $company,
                 ]);
 
                 echo "[{$n}/{$total}] {$djbh} → 已上传\n";

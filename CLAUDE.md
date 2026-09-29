@@ -33,11 +33,11 @@ root/
 │   ├── Config.php                # .env 配置加载
 │   ├── Database.php              # SQLite 数据库封装（单例）
 │   ├── Auth.php                  # 单用户 session 认证
-│   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检
+│   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检、批发主体入口（wholesaleSubject）
 │   ├── BillType.php              # 单据类型码归一化（字母前缀 ↔ 3 位数字码）
 │   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算），区分网络/业务错误
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合、fetchWmsCodesByDjbhList 第 2 级码基线现查）
-│   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）
+│   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传
 │   ├── TraceSplitter.php         # 导出拆行：追溯码按字符数拆多行（每行 ≤32000 字符）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
 │   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载）
@@ -77,13 +77,13 @@ root/
 │   └── favicon.svg               # SVG 网站图标
 ├── scripts/
 │   ├── fetch_bills.php           # cron 从 SQL Server 采集单据写入上传队列
-│   ├── upload_pending.php        # cron 批量上传队列中等待中的任务
+│   ├── upload_pending.php        # cron 批量上传队列中等待中的任务（只取批发主体的"等待上传"）
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
 │   ├── check_quantity.php        # 数量对账两级流水线（第 1 级 shl 粗筛嫌疑单 → 第 2 级 singlerelation 码级精查，双差异才写"数量不符"）
 │   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志与已完成任务
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列）
-│   ├── init_db.php               # 初始化 SQLite 数据库及表结构
+│   ├── init_db.php               # 初始化/迁移 SQLite 数据库及表结构（幂等；含 company/credential 列、历史回填、ent_list 唯一键重建）
 │   └── sqlite_query.php          # 调试工具：直接传 SQL 查询/操作 SQLite（表格输出）
 ├── data/
 │   ├── msfx.db                   # SQLite 本地数据库（3 张表 + 索引）
@@ -127,21 +127,30 @@ root/
 
 采集和上传解耦为两个独立脚本，可分别设 cron 规则。
 
-**采集（fetch_bills.php）**：启动时轻量查询 SALEOUTMT/PURINMT 当天单据计数，与 `data/fetch_bill_counter.json` 基线比较——同一日期且计数相同则跳过采集（避免重视图查询空转），基线只在采集成功（视图查询 + SQLite 写入全部完成）后更新；然后 SQL Server 查询当天单据（**仅取已执行单据 `a.is_zx='是'`**，作废/未执行单据不采集，口径与 `config/sql.php` 一致）→ 按 `djbh` 去重（跳过 `upload_tasks` 中已存在的任务，以及 `upload_logs` 中已上传成功/单据重复的单据）→ 写入 SQLite `upload_tasks`（source=cron, task_status=等待上传, bill_type=单据号前缀）
+**采集（fetch_bills.php）**：启动时轻量查询 SALEOUTMT/PURINMT 当天单据计数，与 `data/fetch_bill_counter.json` 基线比较——同一日期且计数相同则跳过采集（避免重视图查询空转），基线只在采集成功（视图查询 + SQLite 写入全部完成）后更新；然后 SQL Server 查询当天单据（**仅取已执行单据 `a.is_zx='是'`**，作废/未执行单据不采集，口径与 `config/sql.php` 一致）→ 按 **`(company, djbh)`** 去重（跳过 `upload_tasks` 中已存在的任务，以及 `upload_logs` 中已上传成功/单据重复的单据；同名单号属于别的企业时是另一条记录，不能互相顶掉）→ 写入 SQLite `upload_tasks`（source=cron, task_status=等待上传, bill_type=单据号前缀, **company/credential 取 `App\Enterprise::wholesaleSubject()`**）
 
-**上传（upload_pending.php）**：读取 `upload_tasks` 中所有 `task_status='等待上传'` 的任务（不限来源）→ 查 SQLite `ent_list` 缓存 → 缓存未命中调码上放心 API 获取 `ent_id` → 超过 3500 追溯码自动拆分为 `单号_1, 单号_2...` → 调 API 上传 → 结果写入 JSONL + SQLite `upload_logs`（关联 task_id）→ 更新 `upload_tasks` 状态 → 重试 3 次（仅网络错误，间隔 30s）→ API 间隔 0.33s → flock 文件锁防并发
+**上传（upload_pending.php）**：读取 `upload_tasks` 中 `task_status='等待上传'` **且 `company` = 批发主体**的任务——**白名单取数**，不是"排除零售/其他来源"的排除法（排除法 fail-open：将来任何新增来源漏改条件，就会把门店单据按河药主体申报到平台，不可逆）→ 查 SQLite `ent_list` 缓存（按 `(company, ent_name)`）→ 缓存未命中调码上放心 API 获取 `ent_id` → 超过 3500 追溯码自动拆分为 `单号_1, 单号_2...` → 调 API 上传 → 结果写入 JSONL + SQLite `upload_logs`（关联 task_id，带 company/credential）→ 更新 `upload_tasks` 状态 → 重试 3 次（仅网络错误，间隔 30s）→ API 间隔 0.33s → flock 文件锁防并发
 
-手动上传（manual_create / manual_import）保持立即上传不变，两套上传路径并存。
+**上传守卫（UploadService::resolveContext，2026-09-29 多企业排雷）**：`upload()` 在取锁与任何平台调用**之前**逐条校验所属企业、接口族与凭据，任一不合规**整批拒绝**（抛 `\RuntimeException`，不发一次调用、不写一条日志；混合批次"传一半才报错"比一开始就拒绝更难收拾）：
+- `company` 必须在企业配置中（`App\Enterprise::find`）——`未识别`/空/未知企业名一律拒传
+- 该企业在该单据类型上的路由必须落在**本服务支持的批发 kyt 接口**（`Enterprise::route()` 的 class 比对）——零售走 lsyd，一律拒传（零售装配见工单 05/06）
+- 该企业必须取到**填齐的**凭据（任务行的 `credential` 列指定凭据位，取不到或残缺即拒传）；**绝不回落到默认（河药）凭据**
+
+守卫在 UploadService 而非调用方，是刻意的：`upload_pending` / `tasks_retry` / `tasks_batch_retry` 三处以及将来新增的调用方都会 `new UploadService()`，只把 SQL 写对护不住直接调用的脚本。
+
+手动上传（manual_create / manual_import）保持立即上传不变，两套上传路径并存；其落库主体同为批发主体（`Enterprise::wholesaleSubject()`，按企业切换表单见工单 07）。
 
 ### 批量查询上传状态（check_bill_status.php + check_failed_logs.php）
 
-两脚本共用同一套查询/更新语义，仅调度频率不同，各带独立 flock 锁（`logs/check_bill_status.lock`、`logs/check_failed_logs.lock`，`LOCK_EX|LOCK_NB`，锁被占用直接退出防并发）。
+两脚本共用同一套查询/更新语义，仅调度频率不同，各带独立 flock 锁（`logs/check_bill_status.lock`、`logs/check_failed_logs.lock`，`LOCK_EX|LOCK_NB`，锁被占用直接退出防并发）。**两者一律只查批发主体**（`company` 白名单，同 upload_pending 的理由）：它们用河药凭据查平台，拿门店单号去查只会得到"信息不存在"、白烧调用还可能把状态翻错。
 
-**check_bill_status.php（来源 1：等待上传任务，高频）**：查询 `upload_tasks`（task_status='等待上传'）带 `last_checked_at` 新鲜度门卫（`last_checked_at IS NULL OR last_checked_at <= 阈值`，阈值常量 `CHECK_INTERVAL_MINUTES = 30`）→ 逐个调 `ApiClient::searchBillDetail()`（API 间隔 0.5s）→ 已上传的标记任务已处理 + 写 upload_logs（source=batch_check）+ JSONL → 未上传（信息不存在）的仅更新 `updated_at` → cron: 8-20 点每 30 分钟一次（与门卫阈值一致）。每轮跑不完是可接受状态（只剩一个队列，下一轮续跑即可）。
+**check_bill_status.php（来源 1：等待上传任务，高频）**：查询 `upload_tasks`（task_status='等待上传' **且 company=批发主体**）带 `last_checked_at` 新鲜度门卫（`last_checked_at IS NULL OR last_checked_at <= 阈值`，阈值常量 `CHECK_INTERVAL_MINUTES = 30`）→ 逐个调 `ApiClient::searchBillDetail()`（API 间隔 0.5s）→ 已上传的标记任务已处理 + 写 upload_logs（source=batch_check）+ JSONL → 未上传（信息不存在）的仅更新 `updated_at` → cron: 8-20 点每 30 分钟一次（与门卫阈值一致）。每轮跑不完是可接受状态（只剩一个队列，下一轮续跑即可）。
 
-**check_failed_logs.php（来源 2：失败记录，低频）**：查询 `upload_logs`（response_status IS NULL 或 NOT IN ('上传成功','单据重复')）带同样门卫 → 按 `djbh` 去重（首次遇到胜出，同单多条失败记录只查一次 API）→ 逐个 `searchBillDetail`：平台存在 → 记录翻转为"上传成功" + 同步关联 upload_tasks（task_id>0 标已处理）+ 写 JSONL；信息不存在 → 仅更新 `updated_at`/`last_checked_at`；API 异常 → 跳过不修改 → cron: 每天 20:40。作用：外部系统补传后失败记录页自动干净（配合 failed.php 的 NOT EXISTS 逻辑）。
+**check_failed_logs.php（来源 2：失败记录，低频）**：查询 `upload_logs`（response_status IS NULL 或 NOT IN ('上传成功','单据重复') **且 company=批发主体**）带同样门卫 → 按 `djbh` 去重（首次遇到胜出，同单多条失败记录只查一次 API）→ 逐个 `searchBillDetail`：平台存在 → 记录翻转为"上传成功" + 同步关联 upload_tasks（task_id>0 标已处理）+ 写 JSONL；信息不存在 → 仅更新 `updated_at`/`last_checked_at`；API 异常 → 跳过不修改 → cron: 每天 20:40。作用：外部系统补传后失败记录页自动干净（配合 failed.php 的 NOT EXISTS 逻辑）。
 
-循环内"已确认在平台跳过"（SQLite 已有上传成功/单据重复记录）时不调 API：check_bill_status 对任务直接标记"已处理"（任务目标已达成，避免停留在"等待上传"被反复拉取/重传）；check_failed_logs 保留历史记录不动。
+循环内"已确认在平台跳过"（SQLite 已有上传成功/单据重复记录，按 `(company, djbh)` 判重）时不调 API：check_bill_status 对任务直接标记"已处理"（任务目标已达成，避免停留在"等待上传"被反复拉取/重传）；check_failed_logs 保留历史记录不动。
+
+**零售记录刻意留在失败记录页**（`api/failed.php` **不加** company 过滤）：零售的 `upload_logs` 只可能由人工补传产生（三个检查脚本写不出零售日志），所以失败页上出现的零售记录必然是人工补传失败——那是操作者唯一能看见"补传没成功"的聚合出口。见 `docs/adr/0007`。
 
 `last_checked_at` 更新规则（两脚本一致）：API 查询成功（含"信息不存在"）和"已确认在平台跳过"（标记任务已处理时）都会 touch；仅 API 异常不 touch，下次 cron 自动重查。新采集/新建任务的 `last_checked_at` 为 NULL，天然立即查。
 
@@ -160,7 +169,7 @@ root/
 覆盖保证：任何单据最终都会被查到平台状态（等待上传 ≤30 分钟 / 失败记录 ≤24h / SQL Server 全量 ≤24h）。check_quantity 与 check_failed_logs 不得改到 8-20 点窗口内运行（与 check_bill_status 并发调同一 AppKey 立即触发平台限流）。
 
 ### 数量对账（check_quantity.php，两级流水线）
-定位：外部系统负责上传时，本项目只检查上传情况、不补传。**查询范围仅针对 check_bill_status 已检查过且状态是"上传成功"的单据**（upload_logs `source='batch_check' AND response_status='上传成功'`，按 rq 筛选）——未上传的单据由 check_bill_status 以任务状态（等待上传）反映，数量对账不重复查询/告警。
+定位：外部系统负责上传时，本项目只检查上传情况、不补传。**查询范围仅针对 check_bill_status 已检查过且状态是"上传成功"的批发主体单据**（upload_logs `source='batch_check' AND response_status='上传成功' AND company=批发主体`，按 rq 筛选）——未上传的单据由 check_bill_status 以任务状态（等待上传）反映，数量对账不重复查询/告警；零售没有本地数量基线（`SUM(shl)` 来自 `skwms_new` 明细视图）也不做平台对账，故不参与（见 `docs/adr/0007`）。幂等清理同样限定 company，清理范围与写入范围一致。
 
 **第 1 级（快，全量，SQL Server 聚合）**：逐单依次查询平台原始单号 → `_1` → `_2`...（上限 10 次），跨拆分子单累加平台申报数量（`ApiClient::sumBillDetailCount()`：累加 `min_pkg_count`），与本地应有数量对比（`TaskFetcher::fetchBillQuantitiesByCodes()`：明细视图 `SUM(shl)` 聚合，轻量查询不写库）。**比较口径统一为最小包装单位数**：本地 `shl` 即"已展开的最小包装单位数"（整件行 `shl = baozhshl × jlgg`、零散行 `shl = lingsshl`，见 ADR 0004——推翻早期"两数量纲无法统一"结论）。**基线剔除本地非药品行**（jixing 含商品/食品/消杀/用品/器械/化妆品/消毒剂/敷料/试剂/材料/设备等，spkfk 查不到剂型的行保守保留）——平台是药品追溯平台，外部系统按平台规则不申报非药品。**查询策略"相等即停，不等查尽"**：原始单号查到且数量相等即停（未拆分大头单 1 次调用）；原始单号查不到或数量不等继续查子单，防止"原单号+拆分并存"漏计。**"数量不符"嫌疑单仅收集在内存（不写库）**，其余分支照旧：相等 → 传齐零记录；全序列查不到 → `信息不存在`（防御分支：batch_check 已确认上传成功但平台查不到）；无法核对跳过（不写任何记录）——本地 `SUM(shl)` 为 NULL（明细视图无行）、平台响应解析失败（`sumBillDetailCount` 返回 null），不误报。
 
@@ -191,18 +200,20 @@ root/
 
 ## SQLite 本地数据库
 
-文件：`data/msfx.db`，通过 `scripts/init_db.php` 初始化。
+文件：`data/msfx.db`，通过 `scripts/init_db.php` 初始化（幂等，可重复执行；两类操作的幂等规则不同：加列/建索引/重建表按当前结构判断，**历史行回填只在加 `company` 列那一刻做一次**——重复回填会把零售的合法取值（`company='未识别'`、`credential` 为 NULL 表示待配凭据）误标成河药）。
 
 ### upload_tasks（上传任务）
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | INTEGER PK | |
 | rq | TEXT | 单据日期（来自 SQL Server） |
-| djbh | TEXT | 单号 |
-| ent_name | TEXT | 往来单位名称 |
+| djbh | TEXT | 单号（去重键是 `(company, djbh)`，不是裸 `djbh`） |
+| ent_name | TEXT | 往来单位名称（零售不用此列——对手方 ID 来自源表 `from_user_id`/`to_user_id`） |
 | trace_codes | TEXT | 追溯码（逗号分隔） |
-| task_status | TEXT | 等待上传/已处理（上传完成后统一标记） |
-| source | TEXT | cron/manual/batch_check/batch_retry |
+| task_status | TEXT | 等待上传（批发，cron 会取）/ 待补传（零售，仅人工补传）/ 已处理 |
+| source | TEXT | cron/manual/batch_check/batch_retry/retail |
+| company | TEXT | 所属企业中文全名（页面"所属企业"列的值与筛选键；`未识别` 表示门店认领失败） |
+| credential | TEXT | 该企业 primary 凭据键（如 `main`）；只作审计，不参与任何键；零售待配凭据时为 NULL |
 | bill_type | TEXT | 单据类型码（3 位数字，兼容旧字母前缀如 XSO；读取时经 `App\BillType::normalize` 归一化） |
 | request_status | TEXT | 请求成功/请求失败 |
 | response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定（任务表不产生"数量不符"，该状态仅 quantity_check 写 upload_logs） |
@@ -220,7 +231,9 @@ root/
 | ent_name | TEXT | 往来单位名称 |
 | trace_codes | TEXT | 追溯码 |
 | rq | TEXT | 单据日期（回填自 upload_tasks 或 SQL Server） |
-| source | TEXT | cron/manual/batch_check/batch_retry/quantity_check |
+| source | TEXT | cron/manual/batch_check/batch_retry/quantity_check/retail |
+| company | TEXT | 所属企业中文全名（同 upload_tasks） |
+| credential | TEXT | 这次实际用了哪套凭据（采集时预填 primary；人工切备用凭据由补传流程覆盖）；只作审计 |
 | request_status | TEXT | 请求成功/请求失败 |
 | response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定/数量不符（quantity_check 专用） |
 | response | TEXT | API 返回内容 |
@@ -232,10 +245,13 @@ root/
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | INTEGER PK | |
-| ent_name | TEXT UNIQUE | 企业名称 |
+| company | TEXT | 所属企业中文全名 |
+| ent_name | TEXT | 企业名称（唯一键是 **`(company, ent_name)`**；同名往来单位跨企业各存一行） |
 | ent_id | TEXT | 阿里健康企业 ID |
 | ref_ent_id | TEXT | 企业编码 |
 | created_at | TEXT | |
+
+> 该表的唯一键在 2026-09-29 由 `ent_name UNIQUE` 重建为 `UNIQUE(company, ent_name)`（SQLite 改不了约束只能建新表搬数据），选择在**只有一家批发企业时**改是因为此时成本最低——第二个批发主体进来再改就要停机洗数据。
 
 ## 企业配置与凭据（多企业支持，进行中）
 
@@ -252,6 +268,8 @@ root/
 - **待配凭据**：门店有名字与平台 ID 但没密钥时，单据照常认领，页面标"待配凭据"并禁用补传（15 家中当前已配 5 家）
 - 接口路由 `(企业类型, 单据类型)`：零售 `104`/`203` → `lsyd.uploadinoutbill`（码上限 10000）、`321`/`116` → `lsyd.uploadretail`（3500）；批发一律 kyt `uploadinoutbill`（3500）
 - `App\Enterprise` 是唯一入口：`loadFromFiles()` 载入并**强制自检**（平台 ID 不得跨企业重复、凭据的 `ref_ent_id`/`ent_id` 必须属于本企业、多凭据须恰一套 `primary`…），违反即抛异常——这些都是"违反了就会静默把单据传到错误主体"的错误
+- **批发主体入口 `Enterprise::wholesaleSubject()`**：返回 `['key' => 配置key, 'name' => 企业全名, 'credential' => primary 凭据键]`，批发链路（采集落库 / cron 取数 / 手动上传 / 三个检查脚本）取"本项目的自动上传主体"的唯一入口，免得各脚本各自硬编码企业名与凭据键。**批发企业不是恰好一家时抛异常**而不是静默取第一个——那正是"把单据申报到错误主体"的经典路径
+- **`company`/`credential` 已落库（2026-09-29，工单 02）**：`upload_tasks` / `upload_logs` 两列 + `ent_list` 的 `company` 列与 `UNIQUE(company, ent_name)` 已在生产库完成迁移，历史行回填为河药批发主体。上传侧的 fail-closed 守卫见"核心数据流 → 上传守卫"
 - **迁移期**：河药批发凭据仍从 `.env` 读取（`enterprises.local.php` 的 `heyao` 条目引用 `Config::get`，刻意不复制明文以免两份不一致）。待 `ApiClient` 全面改读本配置后，删除 `.env` 的 `APPKEY_HYYY`/`SECRETKEY_HYYY`/`REFENTID_HYYY`/`ENTID_HYYY`
 
 ## 环境配置
@@ -281,11 +299,12 @@ php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php
 # 采集指定日期的单据
 php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php 2026-07-28
 
-# 批量上传队列中等待上传的任务
+# 批量上传队列中等待上传的任务（只取批发主体的记录：task_status='等待上传' AND company=批发主体）
+# 零售单据是 task_status='待补传'，本脚本不取；即便状态被误改，UploadService 的守卫也会拒传
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending.php
 
 # 批量查询单据上传状态（来源 1：等待上传任务；新鲜度门卫：距上次查询不足 30 分钟的单据自动跳过）
-# 注：日期参数仅打印在日志中，查询范围不受日期限制（按门卫规则扫描全部待查单据）
+# 注：日期参数仅打印在日志中，查询范围不受日期限制（按门卫规则扫描全部待查单据）；只查批发主体
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php
 
 # 复查失败记录（来源 2：upload_logs 未上传成功记录；每天 20:40 由 cron 调用，错峰避开 check_bill_status）
@@ -297,7 +316,9 @@ php /usr/share/nginx/mashangfangxin/scripts/cleanup_logs.php
 # 回填 upload_logs 的单据日期（首次部署后执行一次即可）
 php /usr/share/nginx/mashangfangxin/scripts/backfill_rq.php
 
-# 初始化/迁移 SQLite 数据库
+# 初始化/迁移 SQLite 数据库（幂等，可重复执行；含 company/credential 列、历史回填、ent_list 唯一键重建）
+# 生产库上跑注意属主：以 nginx 用户执行（su -s /bin/bash nginx -c "php ..."），
+# 或用 root 跑完 chown nginx:nginx data/msfx.db*——否则 php-fpm 会报 readonly database
 php /usr/share/nginx/mashangfangxin/scripts/init_db.php
 
 # 直接传 SQL 查询/操作 SQLite（调试工具，可传多条，无参数时列出表及行数）

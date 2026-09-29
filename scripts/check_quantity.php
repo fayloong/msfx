@@ -54,6 +54,7 @@ if (!function_exists('info_log')) {
 use App\ApiClient;
 use App\Config;
 use App\Database;
+use App\Enterprise;
 use App\LogWriter;
 use App\TaskFetcher;
 Config::load();
@@ -75,7 +76,7 @@ const RESPONSE_STATUS_MISMATCH = '数量不符';
 const PLATFORM_LIMIT_ERROR = 'App Call Limited';
 
 /** 写 quantity_check 判定记录（JSONL + SQLite 双写，task_id 恒为 0） */
-function writeCheckLog(LogWriter $logWriter, string $djbh, string $rq, string $entName, string $status, string $respJson): void
+function writeCheckLog(LogWriter $logWriter, string $company, string $credential, string $djbh, string $rq, string $entName, string $status, string $respJson): void
 {
     $logWriter->write([
         'task_id' => 0,
@@ -86,6 +87,8 @@ function writeCheckLog(LogWriter $logWriter, string $djbh, string $rq, string $e
         'request_status' => '请求成功',
         'response_status' => $status,
         'response' => $respJson,
+        'company' => $company,
+        'credential' => $credential,
     ]);
 }
 
@@ -98,10 +101,16 @@ try {
     // trace_codes 保留仅为第 2 级现查（wms_dzjg）失败时的回退基线——batch_check 快照
     // 缺采集后手持补录的大包装箱码（假阳性实证，见 2026-08-26 复核会话）；
     // PHP 侧按 djbh 聚合（ent_name/rq 取首行、trace_codes 取字符数最长——码列表覆盖最全）
+    // 只查批发主体：对账依赖 skwms_new 明细视图的 SUM(shl) 本地数量基线，零售没有这份基线，
+    // 且零售本轮不做平台对账（见 docs/adr/0007）
+    $wholesale = Enterprise::wholesaleSubject();
+    $company = $wholesale['name'];
+    $credential = $wholesale['credential'] ?? '';
+
     $db = Database::getInstance();
     $successRows = $db->query(
-        "SELECT djbh, ent_name, rq, trace_codes FROM upload_logs WHERE source = ? AND response_status = ? AND rq = ?",
-        [SOURCE_BATCH_CHECK, RESPONSE_STATUS_UPLOADED, $date]
+        "SELECT djbh, ent_name, rq, trace_codes FROM upload_logs WHERE source = ? AND response_status = ? AND rq = ? AND company = ?",
+        [SOURCE_BATCH_CHECK, RESPONSE_STATUS_UPLOADED, $date, $company]
     );
     $byDjbh = [];
     foreach ($successRows as $row) {
@@ -131,9 +140,10 @@ try {
 
     // 本轮判定前清理目标日期全部 quantity_check 记录（幂等：限流熔断后下次运行
     // 重查不产生残留；旧全量基线时代的"信息不存在"记录随重跑自动清除）
+    // 限定本主体：清理范围与写入范围一致，不去动别的企业的日志
     $db->execute(
-        "DELETE FROM upload_logs WHERE source = ? AND rq = ?",
-        [SOURCE_QUANTITY_CHECK, $date]
+        "DELETE FROM upload_logs WHERE source = ? AND rq = ? AND company = ?",
+        [SOURCE_QUANTITY_CHECK, $date, $company]
     );
 
     $apiClient = new ApiClient();
@@ -240,7 +250,7 @@ try {
                 'status' => '未上传',
             ], JSON_UNESCAPED_UNICODE);
 
-            writeCheckLog($logWriter, $djbh, $bill['rq'] ?? '', $bill['ent_name'] ?? '', RESPONSE_STATUS_NOT_FOUND, $respJson);
+            writeCheckLog($logWriter, $company, $credential, $djbh, $bill['rq'] ?? '', $bill['ent_name'] ?? '', RESPONSE_STATUS_NOT_FOUND, $respJson);
 
             echo "[{$n}/{$total}] {$djbh} → 未上传（平台无记录）\n";
             continue;
@@ -375,7 +385,7 @@ try {
                 'base_codes' => count($baseCodes),
             ], JSON_UNESCAPED_UNICODE);
 
-            writeCheckLog($logWriter, $djbh, $suspect['rq'], $suspect['ent_name'], RESPONSE_STATUS_MISMATCH, $respJson);
+            writeCheckLog($logWriter, $company, $credential, $djbh, $suspect['rq'], $suspect['ent_name'], RESPONSE_STATUS_MISMATCH, $respJson);
 
             echo "\n[第2级 {$si}/{$sCount}] {$djbh} → 数量不符（码级折算 {$sum}，平台申报 {$suspect['actual']}）" . ($stoppedEarly ? '（超过即停）' : '') . " [{$codeSource}]\n";
         }

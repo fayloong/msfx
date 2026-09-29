@@ -26,6 +26,7 @@ if (!function_exists('info_log')) {
 use App\ApiClient;
 use App\Config;
 use App\Database;
+use App\Enterprise;
 use App\LogWriter;
 Config::load();
 
@@ -51,11 +52,17 @@ try {
     $db = Database::getInstance();
     $threshold = date('Y-m-d H:i:s', time() - CHECK_INTERVAL_MINUTES * 60);
 
+    // 只查批发主体：本脚本用河药凭据查平台，拿它去查门店单号只会得到"信息不存在"并污染状态；
+    // 白名单而非排除法——新增来源漏改条件时宁可不查，也不能拿错凭据去查（见 docs/adr/0007）
+    $wholesale = Enterprise::wholesaleSubject();
+    $company = $wholesale['name'];
+    $credential = $wholesale['credential'] ?? '';
+
     // ── 来源: upload_tasks（等待上传，且上次查询已过期） ──
     echo "[check_bill_status] 正在从 upload_tasks 拉取等待上传的记录...\n";
     $tasks = $db->query(
-        "SELECT id AS task_id, djbh, ent_name, trace_codes, rq FROM upload_tasks WHERE task_status = '等待上传' AND (last_checked_at IS NULL OR last_checked_at <= ?)",
-        [$threshold]
+        "SELECT id AS task_id, djbh, ent_name, trace_codes, rq FROM upload_tasks WHERE task_status = '等待上传' AND company = ? AND (last_checked_at IS NULL OR last_checked_at <= ?)",
+        [$company, $threshold]
     );
     $taskCount = count($tasks);
     echo "[check_bill_status] upload_tasks 拉取到 {$taskCount} 条记录\n";
@@ -84,10 +91,11 @@ try {
         $djbh = $rec['djbh'];
         $n = $i + 1;
 
-        // 去重：已确认在平台存在的跳过 API 查询（上传成功或单据重复均视为已上传）
+        // 去重：已确认在平台存在的跳过 API 查询（上传成功或单据重复均视为已上传）；
+        // 按 (company, djbh) 判重——同名单号属于别的企业时与本次查询无关
         $already = $db->queryOne(
-            "SELECT id FROM upload_logs WHERE djbh = ? AND response_status IN ('上传成功', '单据重复') LIMIT 1",
-            [$djbh]
+            "SELECT id FROM upload_logs WHERE djbh = ? AND company = ? AND response_status IN ('上传成功', '单据重复') LIMIT 1",
+            [$djbh, $company]
         );
         if ($already) {
             $skipCount++;
@@ -122,6 +130,8 @@ try {
                     'trace_codes' => $rec['trace_codes'],
                     'rq' => $rec['rq'],
                     'source' => 'batch_check',
+                    'company' => $company,
+                    'credential' => $credential,
                 ]);
 
                 echo "[{$n}/{$total}] {$djbh} → 已上传\n";

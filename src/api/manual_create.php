@@ -5,6 +5,7 @@
 
 use App\Auth;
 use App\Database;
+use App\Enterprise;
 use App\UploadService;
 
 Auth::init();
@@ -55,10 +56,15 @@ if (!empty($errors)) {
 
 $db = Database::getInstance();
 
+// 手动上传目前只服务批发主体（按企业切换表单在工单 07 落地）
+$wholesale = Enterprise::wholesaleSubject();
+$company = $wholesale['name'];
+$credential = $wholesale['credential'] ?? '';
+
 // 写入 upload_tasks
 $db->execute(
-    "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'manual', datetime('now','localtime'), datetime('now','localtime'))",
-    [$rq, $djbh, $entName, $traceCodes, $billType]
+    "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'manual', ?, ?, datetime('now','localtime'), datetime('now','localtime'))",
+    [$rq, $djbh, $entName, $traceCodes, $billType, $company, $credential]
 );
 $taskId = $db->lastInsertId();
 
@@ -81,6 +87,8 @@ try {
         'sn' => $traceCodes,
         'task_id' => $taskId,
         'source' => 'manual',
+        'company' => $company,
+        'credential' => $credential,
     ]], function (array $progress) {
         echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
         flush();

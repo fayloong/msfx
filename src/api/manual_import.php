@@ -10,6 +10,7 @@
 
 use App\Auth;
 use App\Database;
+use App\Enterprise;
 use App\UploadService;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -145,6 +146,10 @@ try {
     // 第二遍：逐个单据上传
     $db = Database::getInstance();
     $uploadService = new UploadService();
+    // xlsx 导入目前只服务批发主体（零售不提供从零录入，见 .scratch/retail-chain/spec.md §11）
+    $wholesale = Enterprise::wholesaleSubject();
+    $company = $wholesale['name'];
+    $credential = $wholesale['credential'] ?? '';
 
     $successCount = 0;
     $totalGroups = count($groups);
@@ -162,8 +167,8 @@ try {
 
         // 写入 upload_tasks
         $db->execute(
-            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'manual', datetime('now','localtime'), datetime('now','localtime'))",
-            [$group['rq'], $djbh, $group['ent_name'], $allCodes, $group['bill_type']]
+            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '等待上传', 'manual', ?, ?, datetime('now','localtime'), datetime('now','localtime'))",
+            [$group['rq'], $djbh, $group['ent_name'], $allCodes, $group['bill_type'], $company, $credential]
         );
         $taskId = $db->lastInsertId();
 
@@ -176,6 +181,8 @@ try {
                 'sn' => $allCodes,
                 'task_id' => $taskId,
                 'source' => 'manual',
+                'company' => $company,
+                'credential' => $credential,
             ]], function (array $progress) {
                 echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
                 flush();

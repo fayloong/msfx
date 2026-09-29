@@ -56,6 +56,8 @@ try {
         'sn' => $task['trace_codes'] ?? '',
         'task_id' => (int)$task['id'],
         'source' => 'batch_retry',
+        'company' => $task['company'] ?? '',
+        'credential' => $task['credential'] ?? '',
     ]], function (array $progress) {
         echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
         flush();
@@ -63,9 +65,13 @@ try {
 
     echo json_encode(['_final' => true, 'success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE) . "\n";
 } catch (\Throwable $e) {
-    // 尝试恢复状态，忽略数据库错误
+    // 尝试恢复状态，忽略数据库错误。恢复为**调用前的状态**而不是写死"等待上传"：
+    // 零售单据是"待补传"（只能人工补传），统一改回"等待上传"会让它被当成待自动上传的单据
     try {
-        $db->execute("UPDATE upload_tasks SET task_status = '等待上传', request_status = NULL, response_status = NULL, updated_at = datetime('now','localtime') WHERE id = ?", [$id]);
+        $db->execute(
+            "UPDATE upload_tasks SET task_status = ?, request_status = NULL, response_status = NULL, updated_at = datetime('now','localtime') WHERE id = ?",
+            [$task['task_status'] ?? '等待上传', $id]
+        );
     } catch (\Throwable $dbEx) {
         // 忽略
     }

@@ -239,7 +239,60 @@ try {
 }
 check('凭据全空（待配凭据）是合法配置', $ok);
 
-// ---------- 用例 7: 真实配置文件（部署机上）能通过自检 ----------
+// ---------- 用例 7: 批发主体入口（批发链路取"本项目自动上传主体"的唯一入口） ----------
+Enterprise::reset();
+Enterprise::load($structure, $local);
+$w = Enterprise::wholesaleSubject();
+check('批发主体：唯一批发企业', $w['key'] === 'ws' && $w['name'] === '批发企业', json_encode($w, JSON_UNESCAPED_UNICODE));
+check('批发主体：带 primary 凭据键', $w['credential'] === 'main', (string)$w['credential']);
+
+// 凭据位已声明、密钥还没到手（"待配凭据"是合法状态）→ credential 仍预填该凭据位键，
+// 由调用方用 credentialConfigured() 判定后拒传（与 claim() 的语义一致，见用例 3）
+Enterprise::reset();
+Enterprise::load($structure, ['ids' => $local['ids'], 'credentials' => []]);
+$w = Enterprise::wholesaleSubject();
+$cred = Enterprise::credential($w['name'], $w['credential'] ?? '');
+check('批发主体：凭据位已声明但密钥未配 → 预填该键、凭据未填齐',
+    $w['credential'] === 'main' && $cred !== null && !Enterprise::credentialConfigured($cred),
+    json_encode($w, JSON_UNESCAPED_UNICODE));
+
+// 结构里连凭据位都没声明 → credential 为 null
+$noCredentialSlot = $structure;
+$noCredentialSlot['companies'][0]['credentials'] = [];
+Enterprise::reset();
+Enterprise::load($noCredentialSlot, ['ids' => $local['ids'], 'credentials' => []]);
+$w = Enterprise::wholesaleSubject();
+check('批发主体：连凭据位都没声明 → credential 为 null', $w['credential'] === null, json_encode($w, JSON_UNESCAPED_UNICODE));
+
+// 两家批发企业 → 必须拒绝而不是取第一个：那是"把单据申报到错误主体"的经典路径
+$twoWholesale = $structure;
+$twoWholesale['companies'][2]['type'] = 'wholesale';
+Enterprise::reset();
+try {
+    Enterprise::load($twoWholesale, $local);
+    try {
+        Enterprise::wholesaleSubject();
+        check('两家批发企业 → 拒绝（不静默取第一家）', false, '未抛异常');
+    } catch (\RuntimeException $e) {
+        check('两家批发企业 → 拒绝（不静默取第一家）', str_contains($e->getMessage(), '批发主体必须恰好一家'), $e->getMessage());
+    }
+} catch (\RuntimeException $e) {
+    check('两家批发企业 → 拒绝（不静默取第一家）', str_contains($e->getMessage(), '批发主体必须恰好一家'), '载入阶段就抛了别的错: ' . $e->getMessage());
+}
+
+// 一家批发企业都没有 → 同样拒绝
+$noWholesale = $structure;
+$noWholesale['companies'][0]['type'] = 'retail';
+Enterprise::reset();
+Enterprise::load($noWholesale, $local);
+try {
+    Enterprise::wholesaleSubject();
+    check('没有批发企业 → 拒绝', false, '未抛异常');
+} catch (\RuntimeException $e) {
+    check('没有批发企业 → 拒绝', str_contains($e->getMessage(), '批发主体必须恰好一家'), $e->getMessage());
+}
+
+// ---------- 用例 8: 真实配置文件（部署机上）能通过自检 ----------
 Enterprise::reset();
 $localPath = __DIR__ . '/../config/enterprises.local.php';
 if (is_file($localPath)) {
