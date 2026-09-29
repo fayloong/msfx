@@ -14,8 +14,8 @@
 
 三条决定性事实：
 
-1. **新包不是"同一套 SDK 的新版本"，是另一 API 世代。** 新包的 kyt 类全部是 `drug.kyt.wes.*`，旧包是 `drug.kyt.*`；本项目在用的 **34 个 `getApiMethodName()`，新包一个都没有**（`drug.kyt.*` / `kytsole.*` / `drug.bill.*` / `taobao.tmc.*` 全缺）。所谓"整体覆盖升级"实际是"删掉批发链路全部请求类"——`ApiClient` 里 `new \AlibabaAlihealthDrugKytSearchbillDetailRequest` 之类会立刻 Fatal error。
-2. **`top/domain/` 下的 DTO 类在本项目里是完全惰性的。** `TopClient` 里没有任何 domain 相关代码：`$format = "xml"`，`execute()` 把响应 `simplexml_load_string` 成 stdClass 直接返回（`exec()` 也只按方法名反推 request 类）。`src/` `scripts/` `tests/` `config/` `public/` 对这些类零引用。所以"某个 domain 有字段变化就得升级 SDK"这个触发条件不成立——31 个差异 domain 里 21 个只是增删属性（`CodeRelationDto` 新增 `query_code_mix_flag`/`top_code_mix_flag`），对运行时零影响。
+1. **新包不是"同一套 SDK 的新版本"，是另一 API 世代。** 新包的 kyt 类全部是 `drug.kyt.wes.*`，旧包是 `drug.kyt.*`；旧包 `top/request/` 的 **34 个接口方法**（批发链路在用的 `AlibabaAlihealthDrugKytUploadinoutbillRequest` / `...SearchbillDetailRequest` / `...SinglerelationRequest` / `...ListpartsRequest` 等四个请求类都在其中），**新包一个都没有**。所谓"整体覆盖升级"实际是"删掉批发链路全部请求类"——`ApiClient` 里 `new \AlibabaAlihealthDrugKytSearchbillDetailRequest` 之类会立刻 Fatal error。
+2. **`top/domain/` 下的 DTO 类在本项目里是完全惰性的。** `TopClient` 里没有任何 domain 相关代码：`$format = "xml"`，`execute()` 把响应经 `simplexml_load_string` 得到的 **`SimpleXMLElement`** 直接返回（`exec()` 也只按方法名反推 request 类）。`src/` `scripts/` `tests/` `config/` `public/` 对这些类零引用。所以"某个 domain 有字段变化就得升级 SDK"这个触发条件不成立——31 个差异 domain 里 21 个只是增删属性（`CodeRelationDto` 新增 `query_code_mix_flag`/`top_code_mix_flag`），对运行时零影响。
 3. **两个 lsyd 请求类零依赖**：不 `new` 任何 domain 类、无 `extends`，只用到 `RequestCheckUtil`（旧包已有，两包该文件逐字节相同）。
 
 ## 排除的方案

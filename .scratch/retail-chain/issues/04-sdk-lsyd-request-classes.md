@@ -66,8 +66,8 @@
 
 **两条推翻票面/ spec §4 前提的实测事实**：
 
-1. **整体覆盖物理上做不到**。仅旧包有的 40 个文件里，包含本项目在用的**全部 34 个接口方法的请求类**；新包的 kyt 类全是 `drug.kyt.wes.*`（另一 API 世代，方法名不同）。覆盖 = `ApiClient` 的 `new \AlibabaAlihealthDrugKytSearchbillDetailRequest` 等立刻 Fatal error。
-2. **"`CodeRelationDto` 这类码级对账已在用的 domain"这个前提不成立**。domain 类在本项目里完全惰性：`TopClient` 里没有任何 domain 相关代码（`$format="xml"` → `execute()` 把响应 `simplexml_load_string` 成 stdClass 直接返回；`exec()` 只按方法名反推 request 类）；`src/` `scripts/` `tests/` `config/` `public/` 对 30 个 domain 类零引用。故 `query_code_mix_flag` 两个新字段对码级对账零影响。
+1. **整体覆盖物理上做不到**。旧包 `top/request/` 的 34 个接口方法（批发链路在用的四个请求类 `AlibabaAlihealthDrugKytUploadinoutbillRequest` / `...SearchbillDetailRequest` / `...SinglerelationRequest` / `...ListpartsRequest` 都在其中），**新包一个都没有**——新包的 kyt 类全是 `drug.kyt.wes.*`（另一 API 世代，方法名不同）。覆盖 = `ApiClient` 的 `new \AlibabaAlihealthDrugKytSearchbillDetailRequest` 等立刻 Fatal error。
+2. **"`CodeRelationDto` 这类码级对账已在用的 domain"这个前提不成立**。domain 类在本项目里完全惰性：`TopClient` 里没有任何 domain 相关代码（`$format="xml"` → `execute()` 把 `simplexml_load_string` 得到的 **`SimpleXMLElement`** 直接返回；`exec()` 只按方法名反推 request 类）；`src/` `scripts/` `tests/` `config/` `public/` 对 30 个 domain 类零引用。故 `query_code_mix_flag` 两个新字段对码级对账零影响。
 
 **并入产出**：`top_sdk/top/request/` 新增 2 个文件（UTF-8 无 BOM、CRLF，与既有请求类同风格，`cp -p` 逐字节拷贝，md5 与压缩包内一致）。两个类**零依赖**：不 `new` 任何 domain 类、无 `extends`，只用到 `RequestCheckUtil`（旧包已有，两包该文件逐字节相同），故**没有 domain 类需要一并拷入**（票面"及其依赖 domain 类"实为空集）。
 
@@ -80,3 +80,13 @@
 **边界**：本票未验证"用这两个类真调平台的返回"——那要等工单 05 的装配接缝与门店凭据（且首调是**真实申报**，需用户批准）。
 
 **顺带产出**：决策落 `docs/adr/0009`（含排除方案与"跟进新版 SDK 只能逐类挑"的后果）；`CLAUDE.md` 的 `top_sdk/` 段与 `spec.md` §4 同步修订。
+
+### 2026-09-30 两轴审查（Standards / Spec）提出后逐条处理
+
+两条轴各自独立复核了本票的全部技术断言（含解包压缩包重跑比对、复跑验收命令），**未发现缺失项、漏项或越界**；提出 3 条，全部处理：
+
+- **响应类型名写错**（Spec 轴 (c) 类、Standards 轴同指）：`simplexml_load_string()` 返回 **`SimpleXMLElement`**，不是 stdClass——我原先 4 处都写成了 "simplexml → stdClass"。**承载的结论不受影响**（domain 类不参与响应解析、项目零引用，已独立核实为真），但照错的类型名写 `instanceof stdClass` 会踩。4 处（`CLAUDE.md` / `docs/adr/0009` / `spec.md` 修订注 / 本票 Comments）已改
+- **"本项目在用的 34 个 `getApiMethodName()`"措辞不实**：34 是旧包 `top/request/` 的方法名总数，项目代码真正 `new` 的只有 4 个（`grep -rn 'new \\Alibaba' src scripts tests`）。实质结论（新包与旧包 34 个方法**交集为空**）经复核为真，已把三处措辞改为"旧包 `top/request/` 的 34 个接口方法，新包一个都没有"
+- **比对数字在三处各存一份会各自漂移**：`spec.md` §4 修订注已瘦身为"结论 + 指向 ADR/本票"（不再复述 68/31/40/260），完整比对表只留本票 Comments、决策摘要留 `docs/adr/0009`
+
+**未采纳（记录理由）**：ADR 的 Consequences 复述了必填项数（9/5）与码上限（10000/3500），与票面"本票不必额外抄一份必填清单到文档里"略有张力——但它不抄字段名，且与"以 `check()` 为准"的口径一致；这两组数字是工单 05 的判据，在 ADR 里留一句交叉引用比只留路径更耐用。

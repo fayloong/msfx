@@ -128,7 +128,13 @@ Company    = { key(稳定 slug), name(中文全名), type(wholesale|retail), ids
 
 **不引入第二套 SDK**。实测事实：`top_sdk_retail.zip` 与现有 `top_sdk/` 有 **68 个同名文件**，其中 31 个内容不同（30 个 domain + `TopClient.php`），而 `TopClient.php` 的差异**只有 `sdkVersion` 一行**（`top-sdk-php-20260203` → `20260929`）。
 
-> **2026-09-30 工单 04 修订**：本节原写"即零售包是同版本 SDK 的新版，不是另一套 SDK"——**这句是错的**，比对推翻了它。零售包是**另一 API 世代**：它的 kyt 类全是 `drug.kyt.wes.*`，本项目在用的 34 个 `getApiMethodName()`（`drug.kyt.*` / `kytsole.*` / `drug.bill.*` / `taobao.tmc.*`）**一个都没有**，同时比旧包多 260 个文件、少 40 个文件。因此下面"升级为整体覆盖升级"这条兜底分支**物理上不可执行**（覆盖 = 砍掉批发链路）。另外 `top/domain/` 的 DTO 在本项目里完全惰性（`TopClient` 走 `simplexml` → stdClass，domain 类不参与响应解析，项目代码零引用），所以"某个 domain 有字段变化"这个触发条件本身也不成立。最终执行的是本条的主分支：**只并入两个 lsyd 请求类，既有文件一个字节不动**。完整比对表见工单 04 的 Comments，决策落 `docs/adr/0009`。
+> **2026-09-30 工单 04 修订两处**：
+>
+> ① **"零售包是同版本 SDK 的新版，不是另一套 SDK"是错的**，比对推翻了它。零售包是**另一 API 世代**（kyt 类全是 `drug.kyt.wes.*`），旧包 `top/request/` 的 34 个接口方法它**一个都没有**——批发链路在用的四个请求类正落在其中。因此下一条"升级为整体覆盖升级"的兜底分支**物理上不可执行**（覆盖 = 砍掉批发链路）。
+>
+> ② 本节末"及其依赖的 domain 类拷入 `top/domain/`"——**依赖实为空集**，`top/domain/` 一个文件都没动。两个请求类只用 `RequestCheckUtil`（旧包已有），不 `new` 任何 domain 类、无 `extends`；而 `top/domain/` 的 DTO 在本项目里完全惰性（`TopClient` 走 `simplexml_load_string` → `SimpleXMLElement` 直接返回，domain 类不参与响应解析，项目代码零引用），所以"某个 domain 有字段变化"这个触发条件本身也不成立。
+>
+> 最终执行的是主分支：**只新增两个 lsyd 请求类，既有文件一个字节不动**。完整比对表见工单 04 的 Comments，决策与排除方案落 `docs/adr/0009`。
 
 **排除的方案**：独立目录 `top_sdk_retail/` 会直接坏——两个 `Autoloader.php` 都声明全局 `class Autoloader`（PHP 无 namespace，重声明 Fatal error），且 `TopSdk.php` 的 `TOP_AUTOLOADER_PATH` 常量第二个 SDK 会因已定义而跳过，自动加载指向错误目录；要修就得改 SDK 文件，而项目约定 `top_sdk/` 不可修改。
 
