@@ -13,37 +13,60 @@
 这是本 feature **唯一新增的测试接缝**（第 1 个 `App\Enterprise` 已随工单 01 落地）。**不新增第三个接缝**：
 采集 SQL 的去重与码拼接、Web 页面交互都不写单元测试，前者靠"指定日期采集后与源库去重单号数比对"的人工验收（工单 03 的验收标准），后者靠页面实测。
 
-## 范围
+## 必填参数：两个接口不一样，不要互相照搬
 
-**装配（纯函数，无 IO、无网络）**
+**权威来源是请求类自己的 `check()`**（由平台的"是否必填"元数据生成，漏填就抛异常）。官方文档与之一致：
+[uploadinoutbill](https://open.fliggy.com/docs/api.htm?apiId=52555) / [uploadretail](https://doc.alidayu.com/docs/api.htm?apiId=52554)。
 
-- 输入：落库行（单号 / 日期 / 单据类型 / 追溯码）+ 一套凭据 + 路由结果 → 返回**已填充的请求对象**
-- 接口由 `(企业类型, 单据类型)` 路由决定，走 `App\Enterprise::route()`（工单 01 已就绪），**不硬编码请求类**
-- 追溯码上限也取自路由：`lsyd.uploadinoutbill` **10000** / `lsyd.uploadretail` 3500 / 批发 kyt 3500——不再用现在那个全局常量 3500
+| | `lsyd.uploadinoutbill`（104 / 203） | `lsyd.uploadretail`（321 / 116） |
+|---|---|---|
+| `check()` 强制非空 | billCode、billTime、billType、**clientType**、**fromUserId**、**physicType**、**refUserId**、**toUserId**、traceCodes | billCode、billTime、billType、**refUserId**、traceCodes |
+| 码上限（`checkMaxListSize`） | 10000 | 3500 |
+| `clientType` | 必须填 `"2"` | **这个类里根本没有这个字段**，不要设 |
+| `physicType` | 必填。docblock 写"可不填"、`check()` 却强制非空——**以 `check()` 为准** | 不填（docblock："可以随便填写，单据上传后会以实际为准"） |
+| `fromUserId` | 必填 | docblock 写明"发货企业**(可为空)**" → **不填** |
+| `toUserId` | 必填 | 这个类里没有这个字段 |
 
-**参数映射（写错任意一项都会把单据申报到错误主体，且在平台上不可逆）**
+（`billType` 在 uploadretail 上还接受 `322 疫苗接种`，但本项目只采四种单据类型，不涉及。）
 
-- `refUserId` ← **凭据里的 `ref_ent_id`**，**不是**源表 `zsm_ls.ref_ent_id`——那一列全表单一值、属总部主体
-- `fromUserId` / `toUserId` ← **源表同名列**（`zsm_ls.from_user_id` / `to_user_id`），**不是**凭据的 `ent_id`
-  - 依据：这两列不随调拨方向翻转（`104` 门店收货与 `203` 门店发货的 `from_user_id` 都只有总部一个值、`to_user_id` 才是门店），观察到的规律是 **from = 单据发起方、to = 对方主体**，与列名语义自洽；`321`/`116` 由门店发起（`from_user_id` = 门店、`to_user_id` 空）也落在这个规律里
-  - 用户 2026-09-29 定案：照搬源表同名列
-- `clientType` 恒为 `"2"`；`physicType` 必须填
-- 两个接口的必填集不同（`lsyd.uploadretail` 只要 billCode / billTime / billType / refUserId / traceCodes）——
-  **可选字段一律不填**：少填比填错安全，等与外部系统工程师对齐后再决定是否补齐
+**填值规则：只填 `check()` 强制的必填项，加上源库能直接确定的值**，其余可选字段一律不填——少填比填错安全。
+`oper_ic_code` / `oper_ic_name`（单据提交者）、地址、人名字段等都不填；等与外部系统工程师对齐后再决定是否补齐。
 
-**测试**：新增 `tests/retail_upload_test.php`
+## 参数映射（写错任意一项都会把单据申报到错误主体，且在平台上不可逆）
+
+- `refUserId` ← **凭据里的 `ref_ent_id`**，**不是**源表 `zsm_ls.ref_ent_id`（那一列全表单一值、属总部主体）。
+  SDK 的 docblock 也写死了这一点："该入参是 ref_ent_id，不是 ent_id"、"上传单据企业的单位编码（门店或医疗机构）"
+- `fromUserId` / `toUserId` ← **源表同名列**（`zsm_ls.from_user_id` / `to_user_id`），仅 `uploadinoutbill` 使用。
+  用户 2026-09-29 定案。
+  - ⚠️ **一处待确认，实现时不要自行改掉**：SDK 的 docblock 把 `fromUserId` 写作"发货企业 entId"、`toUserId` 写作"收货企业 entId"（发货/收货语义）；而源表 `104`（门店收货）与 `203`（门店发货）两类的 `from_user_id` 都只有总部一个值、`to_user_id` 才是门店，**两列不随调拨方向翻转**。若严格按发货/收货语义，`203` 的两列应当反向使用。这条**无法从代码自证**，是整个装配里唯一"错了就不可逆"的地方——建议向外部系统工程师确认（它才是真正在上传这些单的人）。确认结果直接改本票的这条断言，其余代码不用动
+- `physicType` ← 源表 `physic_type` 列（实测全表恒为 `3`）
+- `clientType` ← 常量 `"2"`（仅 `uploadinoutbill`）
+- 请求类与追溯码上限一律取自 `App\Enterprise::route()`（工单 01 已就绪），**不硬编码**；路由表里的上限应与 SDK 的 `checkMaxListSize` 一致（10000 / 3500）
+
+**零售链路不查 `ent_list`**：对手方 ID 直接来自源表的 `from_user_id` / `to_user_id`，不需要往来单位缓存，也不需要企业名。
+
+## 测试
+
+新增 `tests/retail_upload_test.php`：
 
 - 自包含断言脚本、无框架、失败非零退出，对齐 `tests/enterprise_config_test.php` 的风格
 - fixture 用**固化数组**：不连生产库、不依赖部署机的真实凭据文件（`config/enterprises.local.php`）
 - 断言 `getApiParas()`，不 mock 平台 API
+- **直接用请求类的 `check()` 当判据**：必填项填齐后 `check()` 不应抛异常；抽掉任一必填项后 `check()` 必须抛。
+  平台强制的契约由 SDK 自己表达，比在测试里手抄一份必填清单可靠（也不会随 SDK 升级而失真）
 
-**ADR**：落一条，记零售上传入参的映射规则（尤其 `refUserId` 取凭据而非源表、`from/toUserId` 照搬源表列）
+**ADR**：落一条，记零售上传入参的映射规则——两个接口各自的必填集、`refUserId` 取凭据而非源表、
+`from/toUserId` 照搬源表列（连同上面那条待确认项，标为暂定）。
 
 ## 验收
 
-- [ ] 断言 `getApiParas()`：`refUserId == 凭据.ref_ent_id`、`fromUserId`/`toUserId` == 源表对应列、`clientType == "2"`、`physicType` 非空
-- [ ] **必须包含一个 `ref_ent_id ≠ ent_id` 的用例**：把两个字段对换，测试必须变红
-  - 新江分店是 15 家里唯一这样的门店（旧 entId 用到 2025-07、新 refEntId 自 2024-03 起，两个 ID 都在源库出现）——用例的**形状**照它构造，**取值用占位符**（平台 ID 属凭据级信息，不入仓）
+- [ ] `uploadinoutbill` 用例（`104`/`203`）：`getApiParas()` 中 `client_type = "2"`、`physic_type` 非空、
+      `ref_user_id == 凭据.ref_ent_id`、`from_user_id` / `to_user_id` == 源表对应列；并通过 `check()`
+- [ ] `uploadretail` 用例（`321`/`116`）：`getApiParas()` **不含** `client_type`（该类无此字段）、
+      **不含** `from_user_id`（可为空，本轮不填）；必填项齐备并通过 `check()`
+- [ ] **必须包含一个 `ref_ent_id ≠ ent_id` 的用例**：把 `refUserId` 与 `ent_id` 对换，测试必须变红
+  - 新江分店是 15 家里唯一这样的门店（旧 entId 用到 2025-07、新 refEntId 自 2024-03 起，两个 ID 都在源库出现）——
+    用例的**形状**照它构造，**取值用占位符**（平台 ID 属凭据级信息，不入仓）
   - 用 `ref_ent_id == ent_id` 的门店做用例，互换了也测不出来，等于没测
-- [ ] 两个接口各一个用例（`104`/`203` 走 `uploadinoutbill`、`321`/`116` 走 `uploadretail`），断言路由确实按 `(企业类型, 单据类型)` 走而不是硬编码
-- [ ] 码上限断言取自路由：对 `104` 断言上限 10000（而不是全局常量 3500）
+- [ ] 两个接口各一个用例，断言路由确实按 `(企业类型, 单据类型)` 走而不是硬编码
+- [ ] 码上限断言取自路由：`104` → 10000、`321` → 3500（不是全局常量 3500）

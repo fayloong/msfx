@@ -18,6 +18,8 @@
 - `TopClient` 是通用的，走哪个 API 完全由请求类的 `getApiMethodName()` 决定——**零售接口不需要"零售 SDK"**
 - **不要**建独立目录 `top_sdk_retail/`：两个 `Autoloader.php` 都声明全局 `class Autoloader`（PHP 无 namespace，重声明 Fatal error），且 `TopSdk.php` 的 `TOP_AUTOLOADER_PATH` 常量第二个 SDK 会因已定义而跳过、自动加载指向错误目录；要修就得改 SDK 文件，而项目约定 `top_sdk/` 不可修改
 - 压缩包本身**不进 git**
+- **顺带记一笔**：并入后，两个请求类的 `check()` 就是"这个接口哪些参数必填、码上限多少"的权威表述
+  （由平台的"是否必填"元数据生成）——工单 05 的测试直接拿它当判据；本票不必额外抄一份必填清单到文档里
 
 ## 验收
 

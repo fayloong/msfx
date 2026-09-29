@@ -352,10 +352,22 @@ FROM upload_tasks WHERE task_status = '等待上传'
    `api/failed.php` 不再排除零售；`check_failed_logs.php` 仍必须排除（它拿河药凭据查门店单号只会得到"信息不存在"）
 4. **既有 bug**：`export.php` 的失败记录分支里 NOT EXISTS 无条件生效，缺了页面版 `failed.php` 的
    `source='quantity_check' OR` 豁免——失败记录页看得见的数量对账告警，导出的 xlsx 里被漏掉（工单 08 一并修）
+5. **两个 lsyd 接口的必填集不是同一套**（本版 §3 那张表只列了"必填/可选"的粗分类，容易被照搬）。
+   权威来源是请求类自己的 `check()`（由平台"是否必填"元数据生成）：
+   - `lsyd.uploadinoutbill` 强制非空：billCode、billTime、billType、**clientType**、**fromUserId**、
+     **physicType**、**refUserId**、**toUserId**、traceCodes；`checkMaxListSize(traceCodes, 10000)`
+   - `lsyd.uploadretail` 强制非空：billCode、billTime、billType、**refUserId**、traceCodes；
+     `checkMaxListSize(traceCodes, 3500)`。**这个类里没有 `clientType` 字段**；`fromUserId` 的 docblock 写明
+     "发货企业**(可为空)**"；`physicType` 连 check 都没有
+   - `uploadinoutbill` 的 `physicType` 存在 docblock（"可不填"）与 `check()`（强制非空）自相矛盾——**以 `check()` 为准**
+   - 官方文档与之一致：uploadinoutbill（apiId 52555）/ uploadretail（apiId 52554）
+   - 故：**不是所有单据都需要单位 ID**——321/116 只需要 `refUserId` 一个
 
 用户在本轮定的两条：
 
 - **零售补传入口做两处**：数据页单条补传（工单 06）+ 手动上传页选定门店后的批量补传（工单 07）
-- **lsyd 入参 `fromUserId` / `toUserId` 照搬源表同名列**（`zsm_ls.from_user_id` / `to_user_id`）——
-  依据是这两列不随调拨方向翻转（104/203 的 `from_user_id` 都只有总部一个值），观察到的规律是
-  "from = 单据发起方、to = 对方主体"；`refUserId` 仍必须取**凭据**的 `ref_ent_id`（工单 05 落 ADR 并写进测试）
+- **lsyd 入参 `fromUserId` / `toUserId` 照搬源表同名列**（`zsm_ls.from_user_id` / `to_user_id`），仅 `uploadinoutbill` 用。
+  ⚠️ 与之并存的一条待确认：SDK 的 docblock 把这两个字段写作"发货企业 entId" / "收货企业 entId"（发货/收货语义），
+  而源表 104/203 两类的 `from_user_id` 都只有总部一个值、`to_user_id` 才是门店（不随调拨方向翻转）。
+  若严格按发货/收货语义，203 应反向使用两列——这条无法从代码自证，**需向外部系统工程师确认**（工单 05 里标为暂定，
+  确认结果只改那条断言）。`refUserId` 取**凭据**的 `ref_ent_id` 则无争议（SDK docblock 写死："该入参是 ref_ent_id，不是 ent_id"）
