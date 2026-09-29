@@ -76,6 +76,11 @@ $rows=$db->executeBatch($get_up_task);
 print_r($rows);
 
 //零售连锁门店
+//
+//⚠️ 已不适用（2026-09-29 保留作探测残留）：本段写死单一 bill_type='203'、无日期范围、按 bill_code
+// 未去重（321 有完全重复行，会把追溯码放大最多 120 倍），且带 NOT EXISTS(update_state) 过滤
+// （ADR 0007 已决定去掉——那会把外部系统已上传的单全部隐藏，而对账恰恰需要看见它们）。
+// 现行采集口径见 scripts/fetch_bills_retail.php，**别照抄本段**。
 $get_up_task_retail="
 select ls.bill_code,ls.bill_time,ls.bill_type,ls.from_user_id,ls.to_user_id,ls.ref_ent_id,ls.oper_ic_name,co.trace_codes
 from dyt.msfx.dbo.zsm_ls ls 

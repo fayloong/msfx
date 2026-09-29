@@ -21,6 +21,7 @@ layout('上传任务', 'upload-tasks');
                 <label class="form-label small text-muted">任务状态</label>
                 <select class="form-select" id="filter-task-status">
                     <option value="等待上传" selected>等待上传</option>
+                    <option value="待补传">待补传</option>
                     <option value="已处理">已处理</option>
                     <option value="">全部</option>
                 </select>
@@ -45,6 +46,7 @@ layout('上传任务', 'upload-tasks');
                     <option value="manual">手动上传</option>
                     <option value="batch_check">批量核查</option>
                     <option value="batch_retry">批量重传</option>
+                    <option value="retail">零售采集</option>
                 </select>
             </div>
             <div class="col-md-2">
@@ -88,6 +90,7 @@ layout('上传任务', 'upload-tasks');
                         <th width="100">单据日期</th>
                         <th>单号</th>
                         <th width="110">单据类型</th>
+                        <th width="200">所属企业</th>
                         <th>往来单位</th>
                         <th>追溯码</th>
                         <th width="80">来源</th>
@@ -98,7 +101,7 @@ layout('上传任务', 'upload-tasks');
                     </tr>
                 </thead>
                 <tbody id="tasks-tbody">
-                    <tr><td colspan="11" class="text-center py-5 text-muted">加载中...</td></tr>
+                    <tr><td colspan="12" class="text-center py-5 text-muted">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -267,6 +270,7 @@ layout('上传任务', 'upload-tasks');
 
     const taskStatusBadges = {
         '等待上传': 'bg-secondary',
+        '待补传': 'bg-warning text-dark',
         '已处理': 'bg-primary',
     };
     const responseStatusBadges = {
@@ -282,12 +286,14 @@ layout('上传任务', 'upload-tasks');
         'manual': '手动上传',
         'batch_check': '批量核查',
         'batch_retry': '批量重传',
+        'retail': '零售采集',
     };
     const sourceBadges = {
         'cron': 'bg-primary',
         'manual': 'bg-success',
         'batch_check': 'bg-info',
         'batch_retry': 'bg-warning text-dark',
+        'retail': 'bg-dark',
     };
     const billTypeLabels = {
         '102': '采购入库', '103': '退货入库', '104': '调拨入库', '107': '供应入库', '108': '召回入库',
@@ -331,22 +337,30 @@ layout('上传任务', 'upload-tasks');
             renderPagination(data);
         } catch (e) {
             document.getElementById('tasks-tbody').innerHTML =
-                '<tr><td colspan="11" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
+                '<tr><td colspan="12" class="text-center py-5 text-danger">加载失败: ' + e.message + '</td></tr>';
         }
     }
 
     function renderTable(rows) {
         const tbody = document.getElementById('tasks-tbody');
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="11" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" class="text-center py-5 text-muted">暂无数据</td></tr>';
             return;
         }
-        tbody.innerHTML = rows.map(r => `
-            <tr>
+        tbody.innerHTML = rows.map(r => {
+            // 未识别 = 认领不到门店（配置漏了门店或源库改了名），真异常信号，整行标红提醒人去查
+            const unidentified = r.company === '未识别';
+            // 零售行的补传入口在工单 06 才落地，在此之前关掉——点了只会撞上 UploadService 的守卫并报错
+            const isRetail = r.source === 'retail';
+            return `
+            <tr${unidentified ? ' class="table-danger"' : ''}>
                 <td><input type="checkbox" class="form-check-input row-checkbox" data-id="${r.id}" ${selectedIds.has(r.id) ? 'checked' : ''}></td>
                 <td class="text-nowrap">${esc(r.rq)}</td>
                 <td><code>${esc(r.djbh)}</code></td>
                 <td>${billTypeLabels[r.bill_type] || '-'}</td>
+                <td class="text-truncate" style="max-width:200px" title="${esc(r.company || '')}">${unidentified
+                    ? '<span class="badge bg-danger">未识别</span>'
+                    : esc(r.company || '-')}</td>
                 <td class="text-truncate" style="max-width:220px" title="${esc(r.ent_name || '')}">${esc(r.ent_name)}</td>
                 <td>
                     ${r.trace_codes
@@ -363,10 +377,13 @@ layout('上传任务', 'upload-tasks');
                 <td class="text-nowrap">
                     <button class="btn btn-sm btn-outline-primary btn-edit" data-id="${r.id}">编辑</button>
                     <button class="btn btn-sm btn-outline-danger btn-delete" data-id="${r.id}">删除</button>
-                    <button class="btn btn-sm btn-outline-warning btn-retry" data-id="${r.id}">重传</button>
+                    ${isRetail
+                        ? '<span class="d-inline-block" tabindex="0" title="零售补传入口待工单 06 落地，暂不可用"><button class="btn btn-sm btn-outline-secondary" disabled style="pointer-events:none">重传</button></span>'
+                        : `<button class="btn btn-sm btn-outline-warning btn-retry" data-id="${r.id}">重传</button>`}
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
 
         // 绑定事件
         tbody.querySelectorAll('.btn-edit').forEach(btn => btn.addEventListener('click', () => openEdit(btn.dataset.id)));

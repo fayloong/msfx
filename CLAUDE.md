@@ -69,14 +69,15 @@ root/
 │   ├── enterprises.php           # 企业结构：企业名/类型(wholesale·retail)/凭据位(label·primary) —— 入 git，无凭据
 │   ├── enterprises.example.php   # enterprises.local.php 的模板（占位符）—— 入 git
 │   ├── enterprises.local.php     # 门店平台 ID + 凭据四字段明文 —— **不入 git**（.gitignore）
-│   └── sql.php                   # SQL Server 原始查询（参考用；批发采集口径含 a.is_zx='是' 已执行单据过滤，2026-08-27；
-│                                 #  另含零售连锁采集参考 SQL `$get_up_task_retail`：dyt 链接服务器
-│                                 #  zsm_ls / zsm_ls_code，单据类型 104/203/321/116，update_state 作已上传过滤，2026-09-29）
+│   └── sql.php                   # SQL Server 原始查询（**调试残留，口径以脚本为准**；批发采集口径含 a.is_zx='是' 已执行单据过滤，2026-08-27；
+│                                 #  零售 `$get_up_task_retail` 已不适用——写死单一 bill_type='203'、无日期范围、无去重，
+│                                 #  且带 NOT EXISTS(update_state) 过滤（ADR 0007 已去掉），现行口径见 scripts/fetch_bills_retail.php）
 ├── public/
 │   ├── index.php                 # Web 单入口（page 参数分发路由）
 │   └── favicon.svg               # SVG 网站图标
 ├── scripts/
-│   ├── fetch_bills.php           # cron 从 SQL Server 采集单据写入上传队列
+│   ├── fetch_bills.php           # cron 从 SQL Server 采集**批发**单据写入上传任务表
+│   ├── fetch_bills_retail.php    # cron 从 dyt 链接服务器采集**零售门店**单据（两步 SQL：先头去重、再按单号取码；认领走 Enterprise::claim；落库 source=retail / task_status=待补传）
 │   ├── upload_pending.php        # cron 批量上传队列中等待中的任务（只取批发主体的"等待上传"）
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
@@ -117,6 +118,8 @@ root/
 
 所有页面（除 login 和 api）需要登录。API 端点内部自行处理认证。
 
+**上传任务页（工单 03，2026-09-30）**：表格含**"所属企业"列**（零售门店单即为门店名；`未识别` 整行标红 + 红色徽标，表示源库单据认领不到门店——真异常信号，需人工核查）；零售行（`source='retail'`，即采集来的门店单据）的**重传按钮为禁用态**（零售补传入口在工单 06 才落地，此前点它只会撞上 UploadService 的守卫并报错）。任务状态下拉含 `待补传`、来源下拉含 `零售采集`——**默认筛选是"等待上传"，门店单据要看需切到"待补传"或"全部"**。三数据页的"所属企业"筛选下拉与导出列见工单 08。
+
 三个数据页面（upload-tasks / uploaded / failed）均支持筛选：单号、往来单位、状态、**单据日期**（`rq`）、**任务创建时间**（`created_at`）。日期筛选使用 flatpickr 范围选择器，一个输入框同时选起止日期，默认最近 7 天（含当天）。**关键词检索（单号/往来单位）不受默认日期范围限制**：输入关键词时若日期选择器仍是默认 7 天（用户未手动改过），前端自动不传日期参数实现全库检索；用户手动改过日期则关键词+日期正常组合过滤。分页最多显示 10 个页码，超出用省略号。
 
 三个数据页工具栏均有"导出 xlsx"按钮：按当前生效筛选条件全量导出（前端已计算关键词忽略默认日期后的参数）。导出走 `page=api&action=export`（`api/export.php`），**流式生成**（sheet XML 逐行写临时文件 + ZipArchive 打包，不用 PhpSpreadsheet 避免全量驻留内存）；追溯码按字符数拆行（`App\TraceSplitter::splitByCharLimit`，每行 ≤32000 字符 ≈ 1523 码，超限时一单多行、单号加 `_N` 后缀，命名对齐上传拆分、已带后缀的单号追加后缀），拆行兜底（单条码自身超 32000 字符的极端情况）仍截断并追加 `…(共N个码)`，其余列超限追加 `…(已截断)`；无匹配数据时前端拦截提示、后端仍输出带表头的空文件。导出列与页面表格对齐（来源列导出机器值 cron/manual/...，单据类型导出归一化 3 位码），文件名 `上传任务/已上传/失败记录_YYYY-MM-DD.xlsx`。
@@ -140,6 +143,20 @@ root/
 
 手动上传（manual_create / manual_import）保持立即上传不变，两套上传路径并存；其落库主体同为批发主体（`Enterprise::wholesaleSubject()`，按企业切换表单见工单 07）。
 
+### 零售单据采集（fetch_bills_retail.php，工单 03，2026-09-30）
+
+零售单据由外部系统上传，本项目只做"**可见** + 人工补传"（见 `docs/adr/0007`）：本脚本**只采集入库、不上传**，不调任何平台接口，故不受 8-20 点限流窗口约束（cron 与 fetch_bills 同频、错开 5 分钟，见下方 cron 时间表）。
+
+- **源**：dyt 链接服务器（`dyt.msfx.dbo.zsm_ls` 单据头 + `zsm_ls_code` 追溯码，**一码一行**），复用 `SqlSrvHelper` 同一条连接直接查 4 段式名；全程只读 SELECT，不写源库
+- **两步 SQL（先头后码）**：头按 `bill_code` 去重（`321` 存在 14 列值全同的完全重复行，同一单号最多 120 行——不去重会让取码时追溯码被放大 120 倍）→ 码按单号分块 `IN` 批量取，`GROUP BY bill_code, trace_codes ORDER BY` 保证拼接顺序确定（源表没有排序列、`bs` 恒为 1）
+- **单据类型写死四种** `104`/`203`/`321`/`116`（`bill_type` 是 int；第五种 `999` 语义未明，用户判定不采）；`bill_time` 是 `varchar(10)` 纯日期，字符串比较即日期比较
+- **无计数门卫**（`fetch_bill_counter.json` 那套是为"重视图查询空转"设计的，零售是一次 ~0.5s 全表扫 + 幂等去重，门卫只省 0.5s 却多一份状态文件）；**不需要拆单**（实测单张单据码数上限 1,718 < 3500）
+- **认领**走 `App\Enterprise::claim()`（不另写一套匹配）：`321`/`116` 取 `from_user_id`、`104`/`203` 取 `to_user_id` 命中门店登记过的任一平台 ID，ID 缺失才回退 `oper_ic_name`；都不命中 → `company='未识别'` **照常入库**（丢单比错标更危险）。`name_unmatched`（ID 认到、源库名字对不上任何门店）记一条 JSONL 警告，**只进 JSONL 不进 `upload_logs`**（后者是上传结果日志，写进去会在失败记录页冒出既非上传也非失败的记录，污染唯一告警出口），不改判定
+- **落库**：`task_status='待补传'`（不复用"等待上传"——那语义是"cron 会来取走并上传"）、`source='retail'`、`company` 取认领结果、`credential` 取 `claim()` 返回的 primary 凭据键（**待配凭据的门店同样预填键**，页面据 `credentialConfigured()` 禁用补传）、`ent_name` 留空（零售对手方 ID 直接来自源表，不用 `ent_list`）
+- **幂等**：按 `(company, djbh)` 去重（同批发：`upload_tasks` 已有行、或 `upload_logs` 已上传成功/单据重复的单据都不再入队——人工补传成功后任务行被删，重采集不该再入队造成重复申报）
+- **失败不写库**：源库不可用时 `SqlSrvHelper::query` 返回空数组且错误另存在 `lastError`，脚本据此区分"真没单据"与"查询失败"，后者非零退出；源库两步查询**全部读完才开始写库**，不会产生"读一半写一半"
+- **页面**（`views/upload_tasks.php`）：表格加"所属企业"列，`未识别` 行标红 + 红色徽标；零售行（`source='retail'`）的**重传按钮禁用**（零售补传入口在工单 06 才落地，此前点它只会撞上 UploadService 的守卫并报错）；任务状态下拉补 `待补传`、来源下拉补 `零售采集`（默认筛选仍是"等待上传"，要看门店单据需切到"待补传/全部"）
+
 ### 批量查询上传状态（check_bill_status.php + check_failed_logs.php）
 
 两脚本共用同一套查询/更新语义，仅调度频率不同，各带独立 flock 锁（`logs/check_bill_status.lock`、`logs/check_failed_logs.lock`，`LOCK_EX|LOCK_NB`，锁被占用直接退出防并发）。**两者一律只查批发主体**（`company` 白名单，同 upload_pending 的理由）：它们用河药凭据查平台，拿门店单号去查只会得到"信息不存在"、白烧调用还可能把状态翻错。
@@ -158,13 +175,14 @@ root/
 
 | 脚本 | cron | 说明 |
 |------|------|------|
-| fetch_bills（采集） | `0,30 0,1,2,3,8-23 * * *` | 写库与检查脚本的 SQLite 锁冲突由 busyTimeout(30s) 兜底 |
+| fetch_bills（批发采集） | `0,30 0,1,2,3,8-23 * * *` | 写库与检查脚本的 SQLite 锁冲突由 busyTimeout(30s) 兜底 |
+| fetch_bills_retail（零售采集） | `5,35 0,1,2,3,8-23 * * *` | 与 fetch_bills 同频、**错开 5 分钟**（同为写 SQLite 的进程，同刻写会撞上 `Database::__construct` 里 `PRAGMA journal_mode=WAL` 那道无 busyTimeout 的既有竞态窗口 → Web 端 500 "database is locked"）。**不调平台 API，不受 8-20 点限流窗口约束**，故时段照抄 fetch_bills（含 8-20 点） |
 | check_bill_status（来源 1） | `*/30 8-20 * * *` | 高频确认新单（与门卫阈值 30 分钟一致） |
 | check_failed_logs（来源 2） | `40 20 * * *` | 20:40，fetch_bills 20:30 轮已结束、21:00 轮未到 |
 | check_quantity（数量对账） | `10 21 * * *` | **当前未调度**（手动运行）；下表值仅为恢复调度时的建议时间——21:10，fetch_bills 21:00/21:30 两轮之间；数量对比（shl vs min_pkg_count 求和），~650 单约 13 分钟 |
 | cleanup_logs | `0 3 * * *` | 清理 3 个月前的日志 |
 
-**注（2026-09-29 核对 root crontab 现状）**：`check_bill_status` **在跑**（`*/30 8-20`，日志里可见每轮"查询完成"输出），`check_quantity` **未调度**、仅手动运行。改动本表前先 `crontab -l` 核对，别照抄文档。
+**注（2026-09-29 核对 root crontab 现状）**：`check_bill_status` **在跑**（`*/30 8-20`，日志里可见每轮"查询完成"输出），`check_quantity` **未调度**、仅手动运行。`fetch_bills_retail` 的条目**尚未写入 root crontab**（工单 03 交付脚本与条目，安装 root 级常驻任务需人工执行：`crontab -e` 加上表该行即可，脚本本身随时可手动跑）。改动本表前先 `crontab -l` 核对，别照抄文档。
 
 覆盖保证：任何单据最终都会被查到平台状态（等待上传 ≤30 分钟 / 失败记录 ≤24h / SQL Server 全量 ≤24h）。check_quantity 与 check_failed_logs 不得改到 8-20 点窗口内运行（与 check_bill_status 并发调同一 AppKey 立即触发平台限流）。
 
@@ -208,10 +226,10 @@ root/
 | id | INTEGER PK | |
 | rq | TEXT | 单据日期（来自 SQL Server） |
 | djbh | TEXT | 单号（去重键是 `(company, djbh)`，不是裸 `djbh`） |
-| ent_name | TEXT | 往来单位名称（零售不用此列——对手方 ID 来自源表 `from_user_id`/`to_user_id`） |
+| ent_name | TEXT | 往来单位名称（**零售不用此列**——对手方 ID 来自源表 `from_user_id`/`to_user_id`，采集时写空串且不查 `ent_list`） |
 | trace_codes | TEXT | 追溯码（逗号分隔） |
-| task_status | TEXT | 等待上传（批发，cron 会取）/ 待补传（零售，仅人工补传）/ 已处理 |
-| source | TEXT | cron/manual/batch_check/batch_retry/retail |
+| task_status | TEXT | 等待上传（批发，cron 会取）/ **待补传**（零售采集落库，仅人工补传——**不复用"等待上传"**，那语义是"cron 会来取走并上传"）/ 已处理 |
+| source | TEXT | **retail**（`fetch_bills_retail` 零售采集）/ cron（批发采集）/ manual / batch_check / batch_retry |
 | company | TEXT | 所属企业中文全名（页面"所属企业"列的值与筛选键；`未识别` 表示门店认领失败） |
 | credential | TEXT | 该企业 primary 凭据键（如 `main`）；只作审计，不参与任何键；零售待配凭据时为 NULL |
 | bill_type | TEXT | 单据类型码（3 位数字，兼容旧字母前缀如 XSO；读取时经 `App\BillType::normalize` 归一化） |
@@ -231,7 +249,7 @@ root/
 | ent_name | TEXT | 往来单位名称 |
 | trace_codes | TEXT | 追溯码 |
 | rq | TEXT | 单据日期（回填自 upload_tasks 或 SQL Server） |
-| source | TEXT | cron/manual/batch_check/batch_retry/quantity_check/retail |
+| source | TEXT | cron/manual/batch_check/batch_retry/quantity_check/retail（retail 记录只可能来自人工补传——检查脚本一律只查批发主体，写不出零售日志，见 ADR 0007） |
 | company | TEXT | 所属企业中文全名（同 upload_tasks） |
 | credential | TEXT | 这次实际用了哪套凭据（采集时预填 primary；人工切备用凭据由补传流程覆盖）；只作审计 |
 | request_status | TEXT | 请求成功/请求失败 |
@@ -300,6 +318,11 @@ php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php
 
 # 采集指定日期的单据
 php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php 2026-07-28
+
+# 采集零售门店单据（dyt 链接服务器；只读源库、不调平台接口，随时可跑）
+# 落库 task_status='待补传' / source='retail'，需要 nginx 或跑完 chown（同 init_db 的属主注意事项）
+php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php
+php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php 2026-09-28
 
 # 批量上传队列中等待上传的任务（只取批发主体的记录：task_status='等待上传' AND company=批发主体）
 # 零售单据是 task_status='待补传'，本脚本不取；即便状态被误改，UploadService 的守卫也会拒传
