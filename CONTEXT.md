@@ -34,7 +34,9 @@
 
 - **定时上传 (Cron Upload)**：分两步独立调度 —— `scripts/fetch_bills.php` 定时（当前 cron 每 30 分钟）从 SQL Server 采集单据写入 upload_tasks（source=cron, task_status=等待上传），采集带计数门卫（当天单据计数无变化则跳过）；`scripts/upload_pending.php` **只读取批发主体的等待上传任务**（`company` 白名单，不是"排除零售/其他来源"的排除法——零售单压根不以"等待上传"落库；当前 crontab 未启用，手动触发），通过 UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速、追溯码超该接口上限拆分，上限取自 `App\Enterprise::route()`——批发 kyt 为 3500）→ LogWriter 写 JSONL + SQLite。手动上传保持立即上传不变。
 
-- **零售采集 (Retail Collection)**：`scripts/fetch_bills_retail.php` 定时（cron 与 `fetch_bills` 同频、**错开 5 分钟**——两者都是写 SQLite 的进程）从 **dyt 链接服务器**采集门店单据：源表 `dyt.msfx.dbo.zsm_ls`（单据头）+ `zsm_ls_code`（追溯码，一码一行），**两步 SQL**（头先按 `bill_code` 去重——`321` 存在 14 列值全同的重复行，同一单号最多 120 行，不去重会让取码时追溯码被放大 120 倍；再按单号批量取码）。单据类型写死四种 `104`/`203`/`321`/`116`（`bill_type` 是 int；`999` 语义未明，用户判定不采）。认领走 `App\Enterprise::claim()`（平台 ID 优先、门店名回退），落库 `source='retail'` + `task_status=待补传`。**全程只读 SELECT、不调任何平台接口**，故不受 8-20 点限流窗口约束；**没有计数门卫**（幂等靠 `(company, djbh)` 去重）、**不需要拆单**（实测单张码数上限 1,718 < 3,500）。源库不可用时非零退出且不写库。见 ADR 0007 / 0008，口径细节见 CLAUDE.md 的"零售单据采集"。
+- **零售采集 (Retail Collection)**：`scripts/fetch_bills_retail.php` 定时（cron 与 `fetch_bills` 同频、**错开 5 分钟**——两者都是写 SQLite 的进程）从 **dyt 链接服务器**采集门店单据：源表 `dyt.msfx.dbo.zsm_ls`（单据头）+ `zsm_ls_code`（追溯码，一码一行）。单据类型写死四种 `104`/`203`/`321`/`116`（`bill_type` 是 int；`999` 语义未明，用户判定不采）。认领走 `App\Enterprise::claim()`（平台 ID 优先、门店名回退），落库 `source='retail'` + `task_status=待补传`。**全程只读 SELECT、不调任何平台接口**，故不受 8-20 点限流窗口约束；**没有计数门卫**（幂等靠 `(company, djbh)` 去重）、**不需要拆单**（实测单张码数上限 1,718 < 3,500）。源库不可用时非零退出且不写库。见 ADR 0007 / 0008，口径细节见 CLAUDE.md 的"零售单据采集"。
+
+  ⚠️ **2026-09-30 起为测试阶段临时口径**（与 ADR 0007 原始决定相反，测试结束需回收）：**单条 SQL**（`zsm_ls LEFT JOIN zsm_ls_code`）+ **`NOT EXISTS(update_state)` 过滤**（只采外部系统尚未上传的单）+ **无日期过滤**（每轮全表扫）。去重从 SQL 挪到 PHP 侧（`321` 的 14 列全同重复行会让连接结果放大最多 120 倍，故追溯码用关联数组去重、单据头字段取首次出现的行），且走 `SqlSrvHelper::queryEach` 逐行消费以免撑爆内存。此前的"两步 SQL + 全量采集"是本条的历史口径。
 
 - **批量查询上传状态 (Batch Check)**：由**两个脚本**分担、共用同一套查询/更新语义，仅调度频率不同，各带独立 flock 锁（`LOCK_EX|LOCK_NB`，锁被占用直接退出防并发）。两者取数一律**只查批发主体**（`company` 白名单）——拿门店单号去查只会得到"信息不存在"，白烧调用还可能把状态翻错。
 
@@ -85,7 +87,7 @@
 ### 外部系统
 
 - **SQL Server (192.168.2.133)**：**批发**的 ERP 数据库，`hyyy_zyscm` 库 + `skwms_new` 库。cron 定时查询源。通过 `TaskFetcher` 访问。
-- **dyt 链接服务器**：**零售连锁**的单据来源。`dyt.msfx.dbo.zsm_ls`（单据头）+ `zsm_ls_code`（追溯码，按 `bill_code` 关联）；上游还有 `dyt.bs_msfx.dbo.update_state`（单号 + 上传状态两列），是**外部系统的私有状态**，本项目**不读也不写**——它能过滤出"尚未上传的单"，但本项目的核对需要一个不含该过滤的全量基准面。见 ADR 0007。
+- **dyt 链接服务器**：**零售连锁**的单据来源。`dyt.msfx.dbo.zsm_ls`（单据头）+ `zsm_ls_code`（追溯码，按 `bill_code` 关联）；上游还有 `dyt.bs_msfx.dbo.update_state`（单号 + 上传状态两列），是**外部系统的私有状态**——本项目对源库**只读、从不回写**。它常被用来过滤出"尚未上传的单"：ADR 0007 曾判它不能当采集门卫（会把已上传的单全部隐藏，而核对需要看见它们；且它**无企业列**，跨门店单号重复时自身会串），**2026-09-30 测试阶段临时把这个过滤加回**（见 ADR 0007 的修订注与 CLAUDE.md"零售单据采集"）。
 - **码上放心 API (gw.api.taobao.com)**：阿里健康药品追溯平台，通过 TOP SDK 调用。**批发与零售走不同接口族**：批发 `alibaba.alihealth.drug.kyt.*`（`uploadinoutbill`、`searchbill.detail`、`listparts`、`singlerelation`）；零售 `alibaba.alihealth.drugtrace.top.lsyd.*`（`uploadinoutbill` 用于 104/203 调拨、`uploadretail` 用于 321/116 零售场景）。凭据按所属企业取，不再只有一套。
 - **SQLite (本地 data/msfx.db)**：存放上传任务、上传日志、往来单位缓存。Web 查询和写入选 SQLite，cron 写入 SQLite。
 

@@ -100,6 +100,35 @@ class SqlSrvHelper
     }
 
     /**
+     * 逐行消费查询结果（回调式），不把全部行攒进内存。
+     *
+     * 用于结果集可能远大于 PHP 内存上限的查询——query() 是"先全攒成数组再返回"的形状，
+     * 几十万行的结果集（如全表 LEFT JOIN 被重复行放大的场景）会直接撞上 memory_limit。
+     * 转发游标逐行取，内存与调用方自己的聚合结构同阶。
+     *
+     * @param string $sql SQL 查询语句
+     * @param array<int,mixed> $params 绑定参数数组
+     * @param callable(array<string,mixed>):void $callback 每行调用一次
+     * @return bool 查询是否成功（false 时错误在 getLastError()；成功但零行不算失败）
+     */
+    public function queryEach($sql, $params, callable $callback): bool
+    {
+        $this->clearError();
+
+        $stmt = $this->executeQuery($sql, $params);
+        if ($stmt === false) {
+            return false;
+        }
+
+        while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+            $callback($this->convertEncoding($row));
+        }
+
+        sqlsrv_free_stmt($stmt);
+        return true;
+    }
+
+    /**
      * 执行查询并返回第一行结果。
      *
      * @param string $sql SQL 查询语句

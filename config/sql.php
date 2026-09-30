@@ -77,17 +77,18 @@ print_r($rows);
 
 //零售连锁门店
 //
-//⚠️ 已不适用（2026-09-29 保留作探测残留）：本段写死单一 bill_type='203'、无日期范围、按 bill_code
-// 未去重（321 有完全重复行，会把追溯码放大最多 120 倍），且带 NOT EXISTS(update_state) 过滤
-// （ADR 0007 已决定去掉——那会把外部系统已上传的单全部隐藏，而对账恰恰需要看见它们）。
-// 现行采集口径见 scripts/fetch_bills_retail.php，**别照抄本段**。
+//⚠️ 探测残留，**别照抄本段**：写死单一 bill_type='203'（真实口径是四种）、缺 physic_type 列
+// （补传装配要它）、按 bill_code 未去重（321 有完全重复行，会把追溯码放大最多 120 倍——现行脚本
+// 把去重挪到 PHP 侧）。
+// 它那句 NOT EXISTS(update_state) 的来龙去脉：ADR 0007（2026-09-29）曾判为去掉，2026-09-30 又因
+// 测试阶段口径临时加回——现行口径一律以 scripts/fetch_bills_retail.php 为准。
 $get_up_task_retail="
 select ls.bill_code,ls.bill_time,ls.bill_type,ls.from_user_id,ls.to_user_id,ls.ref_ent_id,ls.oper_ic_name,co.trace_codes
 from dyt.msfx.dbo.zsm_ls ls 
 left join dyt.msfx.dbo.zsm_ls_code co on co.bill_code=ls.bill_code
 where bill_type='203' --(104：调拨入库；203：调拨出库；321：使用出库；116：消费者退货入库)
 AND not exists(select * from dyt.bs_msfx.dbo.update_state a where a.bill_code=ls.bill_code) 
-order by bill_time DESC
+
 ";
 
 $rows_retail=$db->executeBatch($get_up_task_retail);

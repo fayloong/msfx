@@ -1,7 +1,7 @@
 <?php
 /**
  * 从零售源库（dyt 链接服务器）采集门店单据写入上传任务表
- * 用法: php scripts/fetch_bills_retail.php [日期 Y-m-d]（默认当天）
+ * 用法: php scripts/fetch_bills_retail.php [日期 Y-m-d]（⚠️ 当前口径**无日期过滤**，日期参数只打印不生效）
  *
  * 只采集入库、不上传——零售单据由外部系统上传，本项目只做"可见 + 人工补传"（见 docs/adr/0007）。
  * 落库 task_status='待补传'（不复用"等待上传"，那语义是"cron 会来取走并上传"）、source='retail'；
@@ -11,8 +11,19 @@
  * physic_type——补传时不会回头问源库，这三列缺一列这条单就永远补不出去（见 ADR 0010）。
  *
  * 源表（全程只读 SELECT，不调任何平台接口、不写源库）：
- *   dyt.msfx.dbo.zsm_ls       单据头（bill_time 是 varchar(10) 纯日期 'YYYY-MM-DD'，字符串比较即日期比较）
- *   dyt.msfx.dbo.zsm_ls_code  追溯码，**一码一行**（列名误导），无排序列、bs 恒为 1
+ *   dyt.msfx.dbo.zsm_ls           单据头（bill_time 是 varchar(10) 纯日期 'YYYY-MM-DD'）
+ *   dyt.msfx.dbo.zsm_ls_code      追溯码，**一码一行**（列名误导），无排序列、bs 恒为 1
+ *   dyt.bs_msfx.dbo.update_state  外部系统的上传状态（单号 + 状态两列）——**只读**，用作采集过滤
+ *
+ * ⚠️ 测试阶段临时口径（2026-09-30 用户指定，与 ADR 0007 的原始决定相反，测试结束需回收）：
+ *   1. **单条 SQL**：zsm_ls LEFT JOIN zsm_ls_code，不再分"先头后码"两步。
+ *   2. **带 NOT EXISTS(update_state)**：只采外部系统尚未上传的单，待补传清单里不再有已上传的单。
+ *      代价见 ADR 0007：已上传的单在页面上不可见；update_state 无企业列，跨门店单号重复时它自身会串。
+ *   3. **无 bill_time 日期过滤**：每轮全表扫（bill_time 无索引），日期参数不生效。
+ *   4. LEFT JOIN 会放大行数：321 存在 14 列值全同的重复行，同一 bill_code 最多 120 行。
+ *      故去重挪到 PHP 侧——追溯码用关联数组去重（保序，同 zsm_ls_code 的一码一行），
+ *      单据头字段取首次出现的行（重复行各列本就相同）。行数可能到数十万，走 queryEach 逐行消费，
+ *      不经 query() 攒数组（那会撞上 CLI 的 memory_limit=128M）。
  *
  * 采集口径见 .scratch/retail-chain/spec.md §5；认领走 App\Enterprise::claim()（见 ADR 0008）：
  * 按单据类型取 ID 列（321/116 → from_user_id，104/203 → to_user_id）命中门店登记过的任一平台 ID，
@@ -45,14 +56,17 @@ const RETAIL_BILL_TYPES = [104, 203, 321, 116];
 /** 单号 IN 列表分块大小（规避超长 SQL 与参数上限） */
 const IN_CHUNK_SIZE = 500;
 
-$date = $argv[1] ?? date('Y-m-d');
+$dateArg = $argv[1] ?? null;
 
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-    echo "[fetch_bills_retail] 日期格式无效: {$date}，需要 YYYY-MM-DD\n";
+if ($dateArg !== null && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateArg)) {
+    echo "[fetch_bills_retail] 日期格式无效: {$dateArg}，需要 YYYY-MM-DD\n";
     exit(1);
 }
 
-echo "[fetch_bills_retail] 开始采集，日期: {$date}\n";
+echo "[fetch_bills_retail] 开始采集（测试阶段口径：全表扫描、无日期过滤、剔除外部系统已上传的单）\n";
+if ($dateArg !== null) {
+    echo "[fetch_bills_retail] 注意: 日期参数 {$dateArg} 本轮不生效——SQL 不带 bill_time 过滤\n";
+}
 
 try {
     // 与 TaskFetcher 同一条连接配置（4 段式链接服务器名可在同一连接上直接查，见探测结论）
@@ -64,72 +78,69 @@ try {
         'password' => Config::get('DB_PASSWORD', ''),
     ]);
 
-    // ── 第一步：单据头。必须先按 bill_code 去重 ──
-    // 321 存在完全重复行（同一 bill_code 最多 120 行，14 列值全同、无任何区分列），
-    // 不去重会让第二步按单号取码时追溯码被放大最多 120 倍。
-    // MIN() 只作去重的确定性代表值：重复行各列本就完全相同。bill_time 无索引，本查询为全表扫（~0.5s）
-    echo "[fetch_bills_retail] 正在从源库拉取单据头...\n";
-    $headers = $source->query(
-        "SELECT bill_code,
-                MIN(bill_time)    AS bill_time,
-                MIN(bill_type)    AS bill_type,
-                MIN(from_user_id) AS from_user_id,
-                MIN(to_user_id)   AS to_user_id,
-                MIN(physic_type)  AS physic_type,
-                MIN(oper_ic_name) AS oper_ic_name
-         FROM dyt.msfx.dbo.zsm_ls
-         WHERE bill_type IN (" . implode(', ', RETAIL_BILL_TYPES) . ")
-           AND bill_time = ?
-         GROUP BY bill_code",
-        [$date]
-    );
+    // ── 单条 SQL：单据头 LEFT JOIN 追溯码（测试阶段口径，见文件头） ──
+    // 必须 LEFT JOIN 而非内连接：没码的单也要采——它是待补传队列里值得看见的一条。
+    // physic_type 不在"顺手拷来的老 SQL"里，但补传装配要它（ADR 0010），故显式补上；
+    // ref_ent_id 取回来只为与源表列对齐，**本轮不使用**（那是全表单一值的总部主体，见 ADR 0010）。
+    $sql = "select ls.bill_code,ls.bill_time,ls.bill_type,ls.physic_type,
+                   ls.from_user_id,ls.to_user_id,ls.ref_ent_id,ls.oper_ic_name,co.trace_codes
+            from dyt.msfx.dbo.zsm_ls ls
+            left join dyt.msfx.dbo.zsm_ls_code co on co.bill_code=ls.bill_code
+            where bill_type in (" . implode(', ', RETAIL_BILL_TYPES) . ")
+            AND not exists(select * from dyt.bs_msfx.dbo.update_state a where a.bill_code=ls.bill_code)";
 
-    // SqlSrvHelper::query 查询失败时返回空数组（错误另存在 lastError 里），
-    // 故"空结果"要分两种：真没单据 vs 查询失败——后者必须非零退出且不写库
-    if (empty($headers) && $source->getLastError() !== null) {
-        throw new \RuntimeException('单据头查询失败: ' . $source->getErrorMessage());
+    echo "[fetch_bills_retail] 正在从源库拉取单据与追溯码...\n";
+
+    // ── PHP 侧收口：LEFT JOIN 的重复行在此合并 ──
+    // 结构：bill_code => [单据头字段..., 'codes' => [码 => true]]
+    // 码用关联数组去重（保序）；单据头字段取首次出现的行——重复行各列本就完全相同
+    $bills = [];
+    $rawRows = 0;
+
+    $ok = $source->queryEach($sql, [], function (array $row) use (&$bills, &$rawRows): void {
+        $rawRows++;
+        $billCode = trim((string)($row['bill_code'] ?? ''));
+        if ($billCode === '') {
+            return;
+        }
+        if (!isset($bills[$billCode])) {
+            $bills[$billCode] = [
+                'bill_time'    => (string)($row['bill_time'] ?? ''),
+                'bill_type'    => (string)($row['bill_type'] ?? ''),
+                'physic_type'  => (string)($row['physic_type'] ?? ''),
+                'from_user_id' => (string)($row['from_user_id'] ?? ''),
+                'to_user_id'   => (string)($row['to_user_id'] ?? ''),
+                'oper_ic_name' => (string)($row['oper_ic_name'] ?? ''),
+                'codes'        => [],
+            ];
+        }
+        $code = trim((string)($row['trace_codes'] ?? ''));
+        if ($code !== '') {
+            $bills[$billCode]['codes'][$code] = true; // 关联数组去重（保序）
+        }
+    });
+
+    // 查询失败与"真没单据"必须分开：前者非零退出且不写库
+    // （queryEach 返回 false 即 SQL 出错，错误另存在 lastError 里）
+    if ($ok === false) {
+        throw new \RuntimeException('单据查询失败: ' . $source->getErrorMessage());
     }
 
-    if (empty($headers)) {
+    if (empty($bills)) {
         echo "[fetch_bills_retail] 没有需要采集的单据\n";
         exit(0);
     }
 
-    echo "[fetch_bills_retail] 拉取到 " . count($headers) . " 张单据（已按单号去重），正在取追溯码...\n";
+    echo "[fetch_bills_retail] 拉取到 " . count($bills) . " 张单据（原始 {$rawRows} 行，已按单号去重收口）\n";
 
-    // ── 第二步：按单号批量取码 ──
-    // group by 去重 + order by 保证一单的码拼接结果确定（源表没有排序列）
-    $codesByDjbh = [];
-    foreach (array_chunk(array_column($headers, 'bill_code'), IN_CHUNK_SIZE) as $chunk) {
-        $placeholders = implode(',', array_fill(0, count($chunk), '?'));
-        $rows = $source->query(
-            "SELECT bill_code, trace_codes
-             FROM dyt.msfx.dbo.zsm_ls_code
-             WHERE bill_code IN ({$placeholders})
-             GROUP BY bill_code, trace_codes
-             ORDER BY bill_code, trace_codes",
-            $chunk
-        );
-        if (empty($rows) && $source->getLastError() !== null) {
-            throw new \RuntimeException('追溯码查询失败: ' . $source->getErrorMessage());
-        }
-        foreach ($rows as $row) {
-            $code = trim((string)($row['trace_codes'] ?? ''));
-            if ($code === '') {
-                continue;
-            }
-            $codesByDjbh[$row['bill_code']][$code] = true; // 关联数组去重（保序）
-        }
-    }
-
-    // ── 第三步：认领 + 去重 + 落库 ──
-    // 到这里源库已全部读完，之后的失败都不会再产生"读一半写一半"的采集残缺
+    // ── 认领 + 去重 + 落库 ──
+    // 源库已全部读完（queryEach 已消费完语句并释放），之后的失败不会再产生"读一半写一半"的采集残缺
     $db = Database::getInstance();
 
     // 去重键 (company, djbh)：与批发同理，零售也跳过 upload_logs 里已上传成功/单据重复的单据
     // （人工补传成功的单据若被删了任务行，重采集不该再入队——那是重复申报的入口）
     $existingSet = [];
-    foreach (array_chunk(array_column($headers, 'bill_code'), IN_CHUNK_SIZE) as $chunk) {
+    foreach (array_chunk(array_keys($bills), IN_CHUNK_SIZE) as $chunk) {
         $placeholders = implode(',', array_fill(0, count($chunk), '?'));
         foreach ($db->query(
             "SELECT company, djbh FROM upload_tasks WHERE djbh IN ({$placeholders})",
@@ -150,15 +161,10 @@ try {
     $skipCount = 0;
     $unidentifiedCount = 0;
 
-    foreach ($headers as $bill) {
-        $djbh = trim((string)$bill['bill_code']);
-        if ($djbh === '') {
-            continue;
-        }
-
-        $billType = BillType::normalize((string)$bill['bill_type'], $djbh);
-        $organName = trim((string)($bill['oper_ic_name'] ?? ''));
-        $claim = Enterprise::claim($billType, $bill['from_user_id'] ?? null, $bill['to_user_id'] ?? null, $organName);
+    foreach ($bills as $djbh => $bill) {
+        $billType = BillType::normalize($bill['bill_type'], $djbh);
+        $organName = trim($bill['oper_ic_name']);
+        $claim = Enterprise::claim($billType, $bill['from_user_id'], $bill['to_user_id'], $organName);
         $company = $claim['company'];
 
         // 源库写了机构名、却对不上任何门店（ID 认到但名字不符，或名字与 ID 都不命中）→
@@ -198,15 +204,15 @@ try {
                                        from_user_id, to_user_id, physic_type, created_at, updated_at)
              VALUES (?, ?, '', ?, ?, '待补传', 'retail', ?, ?, ?, ?, ?, ?, ?)",
             [
-                (string)$bill['bill_time'],
+                $bill['bill_time'],
                 $djbh,
-                implode(',', array_keys($codesByDjbh[$djbh] ?? [])),
+                implode(',', array_keys($bill['codes'])),
                 $billType,
                 $company,
                 $claim['credential'],
-                trim((string)($bill['from_user_id'] ?? '')),
-                trim((string)($bill['to_user_id'] ?? '')),
-                trim((string)($bill['physic_type'] ?? '')),
+                trim($bill['from_user_id']),
+                trim($bill['to_user_id']),
+                trim($bill['physic_type']),
                 $now,
                 $now,
             ]

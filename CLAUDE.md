@@ -43,7 +43,8 @@ root/
 │   ├── TraceSplitter.php         # 追溯码两种拆法：splitByCount 按码数拆单（上传用，上限取自 Enterprise::route()，批发 3500 / 零售 10000·3500）、splitByCharLimit 按字符数拆行（导出用，每行 ≤32000 字符）
 │   ├── RecordQuery.php           # 三数据页筛选条件单一事实源（build(类型, 参数) → WHERE/SELECT/ORDER/params）：列表 API 与导出**共用同一段代码**，"导出的行数与页面一致"是构造上的性质。曾经四处各写一份，export 的失败分支因此漏过 quantity_check 豁免
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
-│   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载）
+│   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载；queryEach 为逐行消费大结果集的
+│   │                             #  回调式接口，供"结果集可能有数十万行、不能攒进内存"的场景用）
 │   ├── LockManager.php           # 未使用（预留）
 │   ├── Logger.php                # 未使用（预留）
 │   ├── api/                      # AJAX API 端点
@@ -76,14 +77,17 @@ root/
 │   ├── enterprises.example.php   # enterprises.local.php 的模板（占位符）—— 入 git
 │   ├── enterprises.local.php     # 门店平台 ID + 凭据四字段明文 —— **不入 git**（.gitignore）
 │   └── sql.php                   # SQL Server 原始查询（**调试残留，口径以脚本为准**；批发采集口径含 a.is_zx='是' 已执行单据过滤，2026-08-27；
-│                                 #  零售 `$get_up_task_retail` 已不适用——写死单一 bill_type='203'、无日期范围、无去重，
-│                                 #  且带 NOT EXISTS(update_state) 过滤（ADR 0007 已去掉），现行口径见 scripts/fetch_bills_retail.php）
+│                                 #  零售 `$get_up_task_retail` 已不适用——写死单一 bill_type='203'、类型不全，现行口径见
+│                                 #  scripts/fetch_bills_retail.php；它那句 NOT EXISTS(update_state) 曾于 2026-09-29 被 ADR 0007
+│                                 #  判为"去掉"，又于 2026-09-30 因测试阶段口径临时加回——**两边都别照抄，以脚本为准**）
 ├── public/
 │   ├── index.php                 # Web 单入口（page 参数分发路由）
 │   └── favicon.svg               # SVG 网站图标
 ├── scripts/
 │   ├── fetch_bills.php           # cron 从 SQL Server 采集**批发**单据写入上传任务表
-│   ├── fetch_bills_retail.php    # cron 从 dyt 链接服务器采集**零售门店**单据（两步 SQL：先头去重、再按单号取码；认领走 Enterprise::claim；落库 source=retail / task_status=待补传）
+│   ├── fetch_bills_retail.php    # cron 从 dyt 链接服务器采集**零售门店**单据（单条 SQL：LEFT JOIN + NOT EXISTS(update_state)
+│   │                             #  过滤，测试阶段口径；去重在 PHP 侧，走 queryEach 逐行消费；认领走 Enterprise::claim；
+│   │                             #  落库 source=retail / task_status=待补传）
 │   ├── upload_pending.php        # cron 批量上传队列中等待中的任务（只取批发主体的"等待上传"）
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
@@ -169,15 +173,19 @@ root/
 
 零售单据由外部系统上传，本项目只做"**可见** + 人工补传"（见 `docs/adr/0007`）：本脚本**只采集入库、不上传**，不调任何平台接口，故不受 8-20 点限流窗口约束（cron 与 fetch_bills 同频、错开 5 分钟，见下方 cron 时间表）。
 
-- **源**：dyt 链接服务器（`dyt.msfx.dbo.zsm_ls` 单据头 + `zsm_ls_code` 追溯码，**一码一行**），复用 `SqlSrvHelper` 同一条连接直接查 4 段式名；全程只读 SELECT，不写源库
-- **两步 SQL（先头后码）**：头按 `bill_code` 去重（`321` 存在 14 列值全同的完全重复行，同一单号最多 120 行——不去重会让取码时追溯码被放大 120 倍）→ 码按单号分块 `IN` 批量取，`GROUP BY bill_code, trace_codes ORDER BY` 保证拼接顺序确定（源表没有排序列、`bs` 恒为 1）
-- **单据类型写死四种** `104`/`203`/`321`/`116`（`bill_type` 是 int；第五种 `999` 语义未明，用户判定不采）；`bill_time` 是 `varchar(10)` 纯日期，字符串比较即日期比较
-- **无计数门卫**（`fetch_bill_counter.json` 那套是为"重视图查询空转"设计的，零售是一次 ~0.5s 全表扫 + 幂等去重，门卫只省 0.5s 却多一份状态文件）；**不需要拆单**（实测单张单据码数上限 1,718 < 3500）
+> ⚠️ **2026-09-30 起为测试阶段临时口径**（用户指定，与 ADR 0007 的原始决定**相反**，测试结束需回收）：采集改为**单条 SQL**（`zsm_ls LEFT JOIN zsm_ls_code`）+ **`NOT EXISTS(update_state)` 过滤**（只采外部系统尚未上传的单）+ **无 `bill_time` 日期过滤**（每轮全表扫，日期参数只打印不生效）。代价照 ADR 0007：已上传的单在页面上不可见；`update_state` 无企业列，跨门店单号重复时它自身会串。原先的"两步 SQL + 全量"口径见 git 历史。
+
+- **源**：dyt 链接服务器（`dyt.msfx.dbo.zsm_ls` 单据头 + `zsm_ls_code` 追溯码，**一码一行**；`bs_msfx.dbo.update_state` 单号 + 状态两列，**只读**、仅用于过滤），复用 `SqlSrvHelper` 同一条连接直接查 4 段式名；全程只读 SELECT，不写源库
+- **单条 SQL（测试阶段口径）**：`LEFT JOIN` + `NOT EXISTS(update_state)`，无日期过滤。**必须 LEFT JOIN 而非内连接**——没码的单也要采（它是待补传队列里值得看见的一条）
+- **去重在 PHP 侧收口**：`321` 存在 14 列值全同的完全重复行（同一单号最多 120 行），连接结果随之放大最多 120 倍——追溯码用关联数组去重（保序），单据头字段取首次出现的行（重复行各列本就相同）。行数可能到数十万，走 `SqlSrvHelper::queryEach` **逐行消费**而非 `query()` 攒数组（后者会撞上 CLI 的 `memory_limit=128M`）
+- **`physic_type` 必须显式取**：老 SQL 里没有这列，但补传装配要它（ADR 0010）——漏掉它，`104`/`203` 那些单会被 SDK 的 `check()` 拒掉且**永远补不出去**
+- **单据类型写死四种** `104`/`203`/`321`/`116`（`bill_type` 是 int；第五种 `999` 语义未明，用户判定不采）；`bill_time` 是 `varchar(10)` 纯日期
+- **无计数门卫**（`fetch_bill_counter.json` 那套是为"重视图查询空转"设计的，零售是幂等去重，门卫只省一次扫描却多一份状态文件）；**不需要拆单**（实测单张单据码数上限 1,718 < 3500）
 - **认领**走 `App\Enterprise::claim()`（不另写一套匹配）：`321`/`116` 取 `from_user_id`、`104`/`203` 取 `to_user_id` 命中门店登记过的任一平台 ID，ID 缺失才回退 `oper_ic_name`；都不命中 → `company='未识别'` **照常入库**（丢单比错标更危险）。`name_unmatched`（ID 认到、源库名字对不上任何门店）记一条 JSONL 警告，**只进 JSONL 不进 `upload_logs`**（后者是上传结果日志，写进去会在失败记录页冒出既非上传也非失败的记录，污染唯一告警出口），不改判定
 - **落库**：`task_status='待补传'`（不复用"等待上传"——那语义是"cron 会来取走并上传"）、`source='retail'`、`company` 取认领结果、`credential` 取 `claim()` 返回的 primary 凭据键（**待配凭据的门店同样预填键**，页面据 `credentialConfigured()` 禁用补传）、`ent_name` 留空（零售对手方 ID 直接来自源表，不用 `ent_list`）
-- **补传要用的元数据一并落库**（工单 06）：`from_user_id` / `to_user_id` / `physic_type` 照搬源表同名列（采集 SQL 用 `MIN()` 取确定性代表值）。补传装配要这三列，缺一列这条单就永远补不出去——**没有历史回填**（那三列对批发行无意义，零售的值只能从源表现采），工单 06 之前采的零售行已删除并按日期重采；将来遇到缺列的旧行，办法同样是重采（`(company, djbh)` 去重会跳过已存在的行，不重采就补不上值）
+- **补传要用的元数据一并落库**（工单 06）：`from_user_id` / `to_user_id` / `physic_type` 照搬源表同名列（单据头字段取该单首次出现的行）。补传装配要这三列，缺一列这条单就永远补不出去——**没有历史回填**（那三列对批发行无意义，零售的值只能从源表现采），工单 06 之前采的零售行已删除并按日期重采；将来遇到缺列的旧行，办法同样是重采（`(company, djbh)` 去重会跳过已存在的行，不重采就补不上值）
 - **幂等**：按 `(company, djbh)` 去重（同批发：`upload_tasks` 已有行、或 `upload_logs` 已上传成功/单据重复的单据都不再入队——人工补传成功后任务行被删，重采集不该再入队造成重复申报）
-- **失败不写库**：源库不可用时 `SqlSrvHelper::query` 返回空数组且错误另存在 `lastError`，脚本据此区分"真没单据"与"查询失败"，后者非零退出；源库两步查询**全部读完才开始写库**，不会产生"读一半写一半"
+- **失败不写库**：源库不可用时 `SqlSrvHelper::queryEach` 返回 `false` 且错误另存在 `lastError`，脚本据此区分"真没单据"与"查询失败"，后者非零退出；源库查询**全部读完才开始写库**，不会产生"读一半写一半"
 - **页面**（`views/upload_tasks.php`）：表格加"所属企业"列，`未识别` 行标红 + 红色徽标；零售行（`source='retail'`）走**补传按钮**（工单 06 落地，取代工单 03 里那个被关掉的重传按钮）；任务状态下拉补 `待补传`、来源下拉补 `零售采集`（默认筛选仍是"等待上传"，要看门店单据需切到"待补传/全部"）
 
 ### 零售补传（Web 端，App\RetailRetransmit，工单 06 / 07）
@@ -367,8 +375,10 @@ php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php 2026-07-28
 
 # 采集零售门店单据（dyt 链接服务器；只读源库、不调平台接口，随时可跑）
 # 落库 task_status='待补传' / source='retail'，需要 nginx 或跑完 chown（同 init_db 的属主注意事项）
+# ⚠️ 2026-09-30 起为测试阶段临时口径：单条 SQL（LEFT JOIN + NOT EXISTS(update_state) 过滤掉外部系统
+#    已上传的单）、**无日期过滤**（全表扫，下面的日期参数只打印不生效）
 php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php
-php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php 2026-09-28
+php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php 2026-09-28  # 日期不生效
 
 # 批量上传队列中等待上传的任务（只取批发主体的记录：task_status='等待上传' AND company=批发主体）
 # 零售单据是 task_status='待补传'，本脚本不取；即便状态被误改，UploadService 的守卫也会拒传
