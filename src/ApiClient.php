@@ -55,6 +55,55 @@ class ApiClient
     }
 
     /**
+     * 从 execute() 的返回结果解析上传响应状态（批发 kyt 与零售 lsyd 共用同一套平台返回语义）。
+     *
+     * 原为 UploadService 的私有方法，零售补传（src/api/tasks_retry_retail.php）要用同一套判定，
+     * 故上移到本类——与 isBillFound / sumBillDetailCount / sumPkgAmount 同处：平台响应怎么读，
+     * 只在这一个文件里回答。UploadService 改为调用本方法，行为不变。
+     *
+     * @param array{success: bool, data: mixed, error: string, is_network_error: bool} $result
+     */
+    public static function resolveUploadResponseStatus(array $result): ?string
+    {
+        if ($result['is_network_error']) {
+            return null;
+        }
+
+        $data = $result['data'];
+        if ($data === null) {
+            return '未确定';
+        }
+
+        if (is_object($data)) {
+            $data = json_decode(json_encode($data), true);
+        }
+
+        $inner = $data['result'] ?? [];
+        if (empty($inner)) {
+            // 部分响应（如重复单据）msg_code/msg_info 直接在 data 层级
+            $inner = $data;
+        }
+        $msgCode = $inner['msg_code'] ?? '';
+        $msgInfo = $inner['msg_info'] ?? '';
+        $responseSuccess = $inner['response_success'] ?? '';
+
+        if ($msgCode === 'SUCCESS' && $responseSuccess === 'true') {
+            return '上传成功';
+        }
+        if (strpos($msgInfo, '该单据号已存在') !== false) {
+            return '单据重复';
+        }
+        if ($msgCode === 'FAIL_BIZ_NO_PAT_INFO') {
+            return '信息不存在';
+        }
+        if ($msgCode === 'FAIL') {
+            return '上传失败';
+        }
+
+        return '未确定';
+    }
+
+    /**
      * 查询往来单位信息。
      *
      * @return array{ent_name: string, ent_id: string, ref_ent_id: string}|null

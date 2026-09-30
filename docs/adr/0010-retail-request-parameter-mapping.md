@@ -38,6 +38,6 @@ SDK docblock 把 `fromUserId` / `toUserId` 写作**"发货企业 entId" / "收�
 
 ## Consequences
 
-- **装配的输入形状**是落库任务列 + 源表同名列（`djbh` / `rq` / `bill_type` / `trace_codes` / `from_user_id` / `to_user_id` / `physic_type`）。⚠️ **后三列当前没有落库路径**：`upload_tasks` 没有这三列，`fetch_bills_retail.php` 只把 `from_user_id` / `to_user_id` 用于认领、连 `physic_type` 都没 SELECT。本票（工单 05）按"只做纯函数"的定案**不动表结构与采集脚本**，补齐落库路径由工单 06 负责（或另开一票）。
+- **装配的输入形状**是落库任务列 + 源表同名列（`djbh` / `rq` / `bill_type` / `trace_codes` / `from_user_id` / `to_user_id` / `physic_type`）。后三列的落库路径**已由工单 06 补齐**（`upload_tasks` 加三列、`fetch_bills_retail.php` 采集时照搬源表同名列），怎么补、旧行怎么处理见 `docs/adr/0011`。
 - **非零售企业与错配凭据一律拒装配**（fail-closed）：批发、`未识别`、未知企业、无路由的单据类型都抛 `\RuntimeException`；传入的凭据还必须**确实属于该企业**（凭据位 + `ref_ent_id` 比对）——`(企业, 凭据)` 是调用方给的两个独立参数，配错即错主体，而这一步 `check()` 拦不住（拿总部凭据装配门店单据，参数字段全都"合法"）。与 `UploadService::resolveContext` 同向：它用"按企业 + 凭据键现取"从构造上避免了错配，本接缝收的是凭据数组本身，故显式比对。批发链路有自己的装配（`UploadService::uploadSingle`），拿零售模板装配批发单据同样是把单据报到错误主体。
 - **装配末尾调 `check()`**：缺任必填项即拒绝装配（错误消息带单号）。挡住的是"装配出一个必被平台退回、却已经把单号占掉的请求"。

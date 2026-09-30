@@ -1,9 +1,43 @@
 <?php
 require_once __DIR__ . '/layout.php';
+
+// 零售补传要用的门店凭据清单：**只含凭据位键、label 与"是否已配齐"**，不含任何密钥
+// （密钥留在服务端，页面拿不到）。页面据此把"未识别 / 待配凭据"的行禁用并写明原因、
+// 渲染凭据下拉；真正的校验在 src/api/tasks_retry_retail.php——页面是显示层，不是可信边界
+$retailStores = [];
+$configError = '';
+try {
+    foreach (App\Enterprise::all() as $company) {
+        if ($company['type'] !== App\Enterprise::TYPE_RETAIL) {
+            continue;
+        }
+        $credentials = [];
+        foreach ($company['credentials'] as $key => $credential) {
+            $credentials[] = [
+                'key' => (string)$key,
+                'label' => (string)($credential['label'] ?? ''),
+                'configured' => App\Enterprise::credentialConfigured($credential),
+            ];
+        }
+        $retailStores[$company['name']] = $credentials;
+    }
+} catch (\Throwable $e) {
+    // 企业配置坏了不该让整页打不开：零售补传降级为不可用并写明原因，
+    // 页面其余部分与批发链路（不读企业配置）不受影响
+    $configError = $e->getMessage();
+    $retailStores = [];
+}
+
 layout('上传任务', 'upload-tasks');
 ?>
 
 <h4 class="mb-4">上传任务</h4>
+
+<?php if ($configError !== ''): ?>
+<div class="alert alert-danger">
+    <strong>企业配置载入失败，零售补传不可用：</strong><?= htmlspecialchars($configError) ?>
+</div>
+<?php endif; ?>
 
 <!-- 搜索和操作栏 -->
 <div class="card border-0 shadow-sm mb-3">
@@ -214,6 +248,46 @@ layout('上传任务', 'upload-tasks');
     </div>
 </div>
 
+<!-- 零售补传弹窗：选凭据 + 二次确认（补传是对平台的真实申报） -->
+<div class="modal fade" id="retailRetryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">零售补传</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning small mb-3">
+                    补传是<strong>向码上放心平台的真实申报，不可逆</strong>。请确认该单尚未被外部系统上传——
+                    若外部系统已用另一套 AppKey 传过同一张单，补传会在平台上造成重复申报。
+                </div>
+                <dl class="row small mb-3">
+                    <dt class="col-3">单号</dt>
+                    <dd class="col-9"><code id="rr-djbh"></code></dd>
+                    <dt class="col-3">单据日期</dt>
+                    <dd class="col-9" id="rr-rq"></dd>
+                    <dt class="col-3">单据类型</dt>
+                    <dd class="col-9" id="rr-bill-type"></dd>
+                    <dt class="col-3">门店</dt>
+                    <dd class="col-9" id="rr-company"></dd>
+                    <dt class="col-3">追溯码</dt>
+                    <dd class="col-9" id="rr-codes"></dd>
+                </dl>
+                <label class="form-label">凭据 <span class="text-danger">*</span></label>
+                <select class="form-select" id="rr-credential"></select>
+                <div class="form-text">
+                    用哪套凭据上报由你指定（本轮不做自动分发规则）；备用凭据仅在主授权被平台限流时顶替，
+                    同一张单不会传两次。
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-warning" id="btn-retail-retry-confirm">确认补传</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 实时上传日志弹窗 -->
 <div class="modal fade" id="progressModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -235,10 +309,16 @@ layout('上传任务', 'upload-tasks');
 </div>
 
 <script>
+// 服务端注入的门店凭据清单：门店名 => [{key, label, configured}]，**不含任何密钥**
+const retailStores = <?= json_encode($retailStores, JSON_UNESCAPED_UNICODE) ?>;
+const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) ?>;
+
 (function() {
     let currentPage = 1;
     let selectedIds = new Set();
     let total = 0;
+    let lastRows = [];          // 当前页数据（零售补传弹窗按 id 回查单据元数据）
+    let retailRetryTaskId = null;
 
     const today = new Date();
     const weekAgo = new Date(today);
@@ -341,8 +421,32 @@ layout('上传任务', 'upload-tasks');
         }
     }
 
+    // 零售行的补传入口：禁用态必须写明**是哪种原因**——"未识别"（该去查源库/配置）
+    // 与"待配凭据"（等密钥到手，预期内的正常状态）含义完全不同，混成一句"不可用"会误导人
+    function retailRetryButton(r) {
+        const disabled = (reason) => `<span class="d-inline-block" tabindex="0" title="${esc(reason)}">
+                <button class="btn btn-sm btn-outline-secondary" disabled style="pointer-events:none">补传</button>
+            </span>`;
+
+        if (retailConfigError) {
+            return disabled('企业配置载入失败，零售补传不可用');
+        }
+        if (r.company === '未识别') {
+            return disabled('未识别：门店认领失败（配置漏了门店，或源库改了名），需人工核查后才能补传');
+        }
+        const store = retailStores[r.company];
+        if (!store || !store.length) {
+            return disabled('该门店不在企业配置中，无法补传');
+        }
+        if (!store.some(c => c.configured)) {
+            return disabled('待配凭据：AppKey/SECRETKEY 尚未到手，暂时不能补传（预期内的正常状态，不是异常）');
+        }
+        return `<button class="btn btn-sm btn-outline-warning btn-retail-retry" data-id="${r.id}">补传</button>`;
+    }
+
     function renderTable(rows) {
         const tbody = document.getElementById('tasks-tbody');
+        lastRows = rows;
         if (!rows.length) {
             tbody.innerHTML = '<tr><td colspan="12" class="text-center py-5 text-muted">暂无数据</td></tr>';
             return;
@@ -350,7 +454,7 @@ layout('上传任务', 'upload-tasks');
         tbody.innerHTML = rows.map(r => {
             // 未识别 = 认领不到门店（配置漏了门店或源库改了名），真异常信号，整行标红提醒人去查
             const unidentified = r.company === '未识别';
-            // 零售行的补传入口在工单 06 才落地，在此之前关掉——点了只会撞上 UploadService 的守卫并报错
+            // 零售行走补传入口（显式选凭据）；批发行保持原样的重传
             const isRetail = r.source === 'retail';
             return `
             <tr${unidentified ? ' class="table-danger"' : ''}>
@@ -378,7 +482,7 @@ layout('上传任务', 'upload-tasks');
                     <button class="btn btn-sm btn-outline-primary btn-edit" data-id="${r.id}">编辑</button>
                     <button class="btn btn-sm btn-outline-danger btn-delete" data-id="${r.id}">删除</button>
                     ${isRetail
-                        ? '<span class="d-inline-block" tabindex="0" title="零售补传入口待工单 06 落地，暂不可用"><button class="btn btn-sm btn-outline-secondary" disabled style="pointer-events:none">重传</button></span>'
+                        ? retailRetryButton(r)
                         : `<button class="btn btn-sm btn-outline-warning btn-retry" data-id="${r.id}">重传</button>`}
                 </td>
             </tr>
@@ -389,6 +493,7 @@ layout('上传任务', 'upload-tasks');
         tbody.querySelectorAll('.btn-edit').forEach(btn => btn.addEventListener('click', () => openEdit(btn.dataset.id)));
         tbody.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', () => deleteSingle(btn.dataset.id)));
         tbody.querySelectorAll('.btn-retry').forEach(btn => btn.addEventListener('click', () => retrySingle(btn.dataset.id)));
+        tbody.querySelectorAll('.btn-retail-retry').forEach(btn => btn.addEventListener('click', () => openRetailRetry(parseInt(btn.dataset.id))));
         tbody.querySelectorAll('.btn-trace').forEach(btn => {
             btn.addEventListener('click', () => {
                 const codes = btn.dataset.trace.split(',');
@@ -526,6 +631,32 @@ layout('上传任务', 'upload-tasks');
         }
     }
 
+    // ── 零售补传：单据元数据全部来自落库行，操作者只选凭据 ──
+    function openRetailRetry(id) {
+        const task = lastRows.find(t => t.id === id);
+        if (!task) { alert('未找到该任务，请刷新后重试'); return; }
+
+        const all = retailStores[task.company] || [];
+        const usable = all.filter(c => c.configured);
+        if (!usable.length) { alert('该门店没有可用凭据，无法补传'); return; }
+
+        document.getElementById('rr-djbh').textContent = task.djbh;
+        document.getElementById('rr-rq').textContent = task.rq || '-';
+        document.getElementById('rr-bill-type').textContent = billTypeLabels[task.bill_type] || task.bill_type || '-';
+        document.getElementById('rr-company').textContent = task.company;
+        document.getElementById('rr-codes').textContent =
+            (task.trace_codes || '').split(',').filter(Boolean).length + ' 个';
+
+        // 门店只有一套凭据时下拉显示门店名；多套时显示「门店名（label）」——一眼看出用哪套授权
+        const multi = all.length > 1;
+        document.getElementById('rr-credential').innerHTML = usable.map(c =>
+            `<option value="${esc(c.key)}">${esc(multi ? task.company + '（' + c.label + '）' : task.company)}</option>`
+        ).join('');
+
+        retailRetryTaskId = id;
+        new bootstrap.Modal(document.getElementById('retailRetryModal')).show();
+    }
+
     function showConfirm(message, callback) {
         document.getElementById('confirm-message').textContent = message;
         confirmCallback = callback;
@@ -649,6 +780,33 @@ layout('上传任务', 'upload-tasks');
         });
     });
 
+    document.getElementById('btn-retail-retry-confirm').addEventListener('click', async () => {
+        if (!retailRetryTaskId) return;
+        const id = retailRetryTaskId;
+        const credential = document.getElementById('rr-credential').value;
+        bootstrap.Modal.getInstance(document.getElementById('retailRetryModal')).hide();
+
+        const modal = new bootstrap.Modal(document.getElementById('progressModal'));
+        const logEl = document.getElementById('progress-log');
+        const titleEl = document.getElementById('progress-title');
+        const summaryEl = document.getElementById('progress-summary');
+        titleEl.textContent = '零售补传 — 任务 #' + id;
+        summaryEl.textContent = '';
+        logEl.innerHTML = '';
+        modal.show();
+
+        try {
+            await streamFetch('index.php?page=api&action=tasks_retry_retail', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: id, credential: credential}),
+            }, logEl, summaryEl, titleEl);
+            loadData();
+        } catch (e) {
+            appendLog(logEl, 'error', '请求失败: ' + e.message);
+        }
+    });
+
     // 筛选实时搜索（防抖）
     let searchTimeout;
     ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status', 'filter-source'].forEach(id => {
@@ -757,8 +915,10 @@ layout('上传任务', 'upload-tasks');
             } catch (e) {}
         }
         const respStatus = data.response_status ? ' <span style="color:#94a3b8">[' + esc(data.response_status) + ']</span>' : '';
+        // 批发链路给 ent_name（往来单位），零售补传给 company（门店）——零售没有往来单位
+        const who = data.ent_name || data.company || '';
         return statusBadge + ' <span style="color:#e2e8f0">' + esc(data.djbh) + '</span>'
-            + ' <span style="color:#94a3b8">' + esc(data.ent_name) + '</span>'
+            + (who ? ' <span style="color:#94a3b8">' + esc(who) + '</span>' : '')
             + respStatus + respSummary;
     }
 

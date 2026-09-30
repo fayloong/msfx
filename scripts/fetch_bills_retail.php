@@ -7,6 +7,9 @@
  * 落库 task_status='待补传'（不复用"等待上传"，那语义是"cron 会来取走并上传"）、source='retail'；
  * 自动上传链路对它们零动作（取数侧 company 白名单 + UploadService 的 fail-closed 守卫）。
  *
+ * 落库的元数据必须够人工补传装配用（工单 06）：除追溯码外还要 from_user_id / to_user_id /
+ * physic_type——补传时不会回头问源库，这三列缺一列这条单就永远补不出去（见 ADR 0010）。
+ *
  * 源表（全程只读 SELECT，不调任何平台接口、不写源库）：
  *   dyt.msfx.dbo.zsm_ls       单据头（bill_time 是 varchar(10) 纯日期 'YYYY-MM-DD'，字符串比较即日期比较）
  *   dyt.msfx.dbo.zsm_ls_code  追溯码，**一码一行**（列名误导），无排序列、bs 恒为 1
@@ -72,6 +75,7 @@ try {
                 MIN(bill_type)    AS bill_type,
                 MIN(from_user_id) AS from_user_id,
                 MIN(to_user_id)   AS to_user_id,
+                MIN(physic_type)  AS physic_type,
                 MIN(oper_ic_name) AS oper_ic_name
          FROM dyt.msfx.dbo.zsm_ls
          WHERE bill_type IN (" . implode(', ', RETAIL_BILL_TYPES) . ")
@@ -186,10 +190,13 @@ try {
         }
 
         // ent_name（往来单位）零售链路用不到，留空——对手方 ID 直接来自源表的 from_user_id/to_user_id，
-        // 不查 ent_list（那是批发 kyt 接口把往来单位名换成 ent_id 才需要的缓存）
+        // 不查 ent_list（那是批发 kyt 接口把往来单位名换成 ent_id 才需要的缓存）。
+        // from_user_id / to_user_id / physic_type 照搬源表同名列：补传装配要用（见 ADR 0010），
+        // 除认领外不参与任何判定——三列都是单据头属性，与追溯码一样是"补传时不能现问源库"的输入。
         $db->execute(
-            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential, created_at, updated_at)
-             VALUES (?, ?, '', ?, ?, '待补传', 'retail', ?, ?, ?, ?)",
+            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential,
+                                       from_user_id, to_user_id, physic_type, created_at, updated_at)
+             VALUES (?, ?, '', ?, ?, '待补传', 'retail', ?, ?, ?, ?, ?, ?, ?)",
             [
                 (string)$bill['bill_time'],
                 $djbh,
@@ -197,6 +204,9 @@ try {
                 $billType,
                 $company,
                 $claim['credential'],
+                trim((string)($bill['from_user_id'] ?? '')),
+                trim((string)($bill['to_user_id'] ?? '')),
+                trim((string)($bill['physic_type'] ?? '')),
                 $now,
                 $now,
             ]

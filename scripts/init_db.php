@@ -11,6 +11,9 @@
  *   upload_tasks / upload_logs 各加 company（企业中文全名：页面"所属企业"列的值与筛选键）
  *   + credential（该企业 primary 凭据键，如 main；只作审计，不参与任何键，去重键是 (company, djbh)）
  *   ent_list 加 company 并把唯一约束 ent_name → (company, ent_name)——SQLite 改不了约束，只能重建表
+ *
+ * 零售补传（工单 06）：
+ *   upload_tasks 加 from_user_id / to_user_id / physic_type（补传装配要用，采集时从源表照搬）
  */
 
 $dbPath = __DIR__ . '/../data/msfx.db';
@@ -84,6 +87,9 @@ try {
         response_status TEXT DEFAULT NULL,
         company TEXT DEFAULT '',
         credential TEXT DEFAULT '',
+        from_user_id TEXT DEFAULT '',
+        to_user_id TEXT DEFAULT '',
+        physic_type TEXT DEFAULT '',
         resp TEXT,
         created_at TEXT DEFAULT (datetime('now','localtime')),
         updated_at TEXT DEFAULT (datetime('now','localtime'))
@@ -152,6 +158,20 @@ try {
             $stmt->bindValue(':v', BACKFILL_CREDENTIAL, SQLITE3_TEXT);
             $stmt->execute();
             echo "{$table}: 新增 credential 列，回填 " . $db->changes() . " 条\n";
+        }
+    }
+
+    // ── 零售补传的装配元数据：from_user_id / to_user_id / physic_type（工单 06）──
+    // 采集时从源表照搬落库，补传装配（App\RetailRequestAssembler）要用这三列，
+    // 见 docs/adr/0010-retail-request-parameter-mapping.md。
+    // **没有历史行回填**（与 company/credential 那次不同）：批发行走 kyt 接口根本不用这三列，
+    // 零售行的值只能从源表现采——回填不出来，留空的行补传时会被 SDK 自己的 check() 拦下
+    // （fail-closed，不会错报主体）。零售行按 (company, djbh) 去重，故"补上值"的办法是重采。
+    // 三列各自独立判存在，一次跑一半也能自愈（company/credential 那次的半迁移态教训）
+    foreach (['from_user_id', 'to_user_id', 'physic_type'] as $column) {
+        if (!hasColumn($db, 'upload_tasks', $column)) {
+            $db->exec("ALTER TABLE upload_tasks ADD COLUMN {$column} TEXT DEFAULT ''");
+            echo "upload_tasks: 新增 {$column} 列\n";
         }
     }
 

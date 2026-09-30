@@ -35,10 +35,10 @@ root/
 │   ├── Auth.php                  # 单用户 session 认证
 │   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检、批发主体入口（wholesaleSubject）
 │   ├── BillType.php              # 单据类型码归一化（字母前缀 ↔ 3 位数字码）
-│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算），区分网络/业务错误
+│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算、上传响应状态解析 resolveUploadResponseStatus——批发与零售补传共用，平台响应怎么读只在这一个文件里回答）
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合、fetchWmsCodesByDjbhList 第 2 级码基线现查）
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传
-│   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；补传入口在工单 06
+│   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 api/tasks_retry_retail.php
 │   ├── TraceSplitter.php         # 导出拆行：追溯码按字符数拆多行（每行 ≤32000 字符）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
 │   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载）
@@ -46,7 +46,8 @@ root/
 │   ├── Logger.php                # 未使用（预留）
 │   ├── api/                      # AJAX API 端点
 │   │   ├── tasks.php             # 上传任务 CRUD（GET 列表/单条, PUT 编辑, DELETE 删除）
-│   │   ├── tasks_retry.php       # 单条重传
+│   │   ├── tasks_retry.php       # 单条重传（批发 kyt）
+│   │   ├── tasks_retry_retail.php # 零售门店单据补传（人工逐条 + 显式选凭据；元数据取自落库行，非零售企业/待配凭据一律拒传；来源写 retail_retry）
 │   │   ├── tasks_batch_delete.php # 批量删除上传任务
 │   │   ├── tasks_batch_retry.php  # 批量重传
 │   │   ├── uploaded.php          # 已上传记录列表（upload_logs success=1）
@@ -122,7 +123,7 @@ root/
 
 所有页面（除 login 和 api）需要登录。API 端点内部自行处理认证。
 
-**上传任务页（工单 03，2026-09-30）**：表格含**"所属企业"列**（零售门店单即为门店名；`未识别` 整行标红 + 红色徽标，表示源库单据认领不到门店——真异常信号，需人工核查）；零售行（`source='retail'`，即采集来的门店单据）的**重传按钮为禁用态**（零售补传入口在工单 06 才落地，此前点它只会撞上 UploadService 的守卫并报错）。任务状态下拉含 `待补传`、来源下拉含 `零售采集`——**默认筛选是"等待上传"，门店单据要看需切到"待补传"或"全部"**。三数据页的"所属企业"筛选下拉与导出列见工单 08。
+**上传任务页（工单 03，2026-09-30）**：表格含**"所属企业"列**（零售门店单即为门店名；`未识别` 整行标红 + 红色徽标，表示源库单据认领不到门店——真异常信号，需人工核查）；零售行（`source='retail'`，即采集来的门店单据）走**补传按钮**（工单 06 落地，批发行仍是原来的"重传"）——见"核心数据流 → 零售补传"。任务状态下拉含 `待补传`、来源下拉含 `零售采集`——**默认筛选是"等待上传"，门店单据要看需切到"待补传"或"全部"**。三数据页的"所属企业"筛选下拉与导出列见工单 08（本票只在**已上传页**加了"所属企业"显示列，让补传成功的门店单据能按企业认出来；筛选与导出仍留给 08）。
 
 三个数据页面（upload-tasks / uploaded / failed）均支持筛选：单号、往来单位、状态、**单据日期**（`rq`）、**任务创建时间**（`created_at`）。日期筛选使用 flatpickr 范围选择器，一个输入框同时选起止日期，默认最近 7 天（含当天）。**关键词检索（单号/往来单位）不受默认日期范围限制**：输入关键词时若日期选择器仍是默认 7 天（用户未手动改过），前端自动不传日期参数实现全库检索；用户手动改过日期则关键词+日期正常组合过滤。分页最多显示 10 个页码，超出用省略号。
 
@@ -157,9 +158,23 @@ root/
 - **无计数门卫**（`fetch_bill_counter.json` 那套是为"重视图查询空转"设计的，零售是一次 ~0.5s 全表扫 + 幂等去重，门卫只省 0.5s 却多一份状态文件）；**不需要拆单**（实测单张单据码数上限 1,718 < 3500）
 - **认领**走 `App\Enterprise::claim()`（不另写一套匹配）：`321`/`116` 取 `from_user_id`、`104`/`203` 取 `to_user_id` 命中门店登记过的任一平台 ID，ID 缺失才回退 `oper_ic_name`；都不命中 → `company='未识别'` **照常入库**（丢单比错标更危险）。`name_unmatched`（ID 认到、源库名字对不上任何门店）记一条 JSONL 警告，**只进 JSONL 不进 `upload_logs`**（后者是上传结果日志，写进去会在失败记录页冒出既非上传也非失败的记录，污染唯一告警出口），不改判定
 - **落库**：`task_status='待补传'`（不复用"等待上传"——那语义是"cron 会来取走并上传"）、`source='retail'`、`company` 取认领结果、`credential` 取 `claim()` 返回的 primary 凭据键（**待配凭据的门店同样预填键**，页面据 `credentialConfigured()` 禁用补传）、`ent_name` 留空（零售对手方 ID 直接来自源表，不用 `ent_list`）
+- **补传要用的元数据一并落库**（工单 06）：`from_user_id` / `to_user_id` / `physic_type` 照搬源表同名列（采集 SQL 用 `MIN()` 取确定性代表值）。补传装配要这三列，缺一列这条单就永远补不出去——**没有历史回填**（那三列对批发行无意义，零售的值只能从源表现采），工单 06 之前采的零售行已删除并按日期重采；将来遇到缺列的旧行，办法同样是重采（`(company, djbh)` 去重会跳过已存在的行，不重采就补不上值）
 - **幂等**：按 `(company, djbh)` 去重（同批发：`upload_tasks` 已有行、或 `upload_logs` 已上传成功/单据重复的单据都不再入队——人工补传成功后任务行被删，重采集不该再入队造成重复申报）
 - **失败不写库**：源库不可用时 `SqlSrvHelper::query` 返回空数组且错误另存在 `lastError`，脚本据此区分"真没单据"与"查询失败"，后者非零退出；源库两步查询**全部读完才开始写库**，不会产生"读一半写一半"
-- **页面**（`views/upload_tasks.php`）：表格加"所属企业"列，`未识别` 行标红 + 红色徽标；零售行（`source='retail'`）的**重传按钮禁用**（零售补传入口在工单 06 才落地，此前点它只会撞上 UploadService 的守卫并报错）；任务状态下拉补 `待补传`、来源下拉补 `零售采集`（默认筛选仍是"等待上传"，要看门店单据需切到"待补传/全部"）
+- **页面**（`views/upload_tasks.php`）：表格加"所属企业"列，`未识别` 行标红 + 红色徽标；零售行（`source='retail'`）走**补传按钮**（工单 06 落地，取代工单 03 里那个被关掉的重传按钮）；任务状态下拉补 `待补传`、来源下拉补 `零售采集`（默认筛选仍是"等待上传"，要看门店单据需切到"待补传/全部"）
+
+### 零售补传（Web 端，api/tasks_retry_retail.php，工单 06）
+
+零售单据由外部系统上传，本项目只做"可见 + 人工补传"（ADR 0007）。补传**只能人工逐条触发**——没有 cron、没有批量：
+向平台的每一次申报都不可逆，由人在页面上选凭据、看清是哪张单，比自动重试可靠。
+
+- **入口**：上传任务页零售行（`source='retail'`）的"补传"按钮 → 弹窗列出单据元数据 + 凭据下拉（门店只有一套凭据时显示门店名，多套时显示 `门店名（label）`）→ 显式选凭据后确认。**元数据全部取自采集时落库的记录**，不接受调用方传任何单据字段（手工录 4 个平台 ID 几乎必然出错，且本轮不查平台，录错了察觉不了）
+- **链路**：`Enterprise::route()` 给的接口与码上限 → 超限才拆单（沿用 `单号_1` 约定；实测零售单张码数上限 1,718，不触发）→ `RetailRequestAssembler::assemble()` → `ApiClient::execute()`（0.33s 间隔、仅网络错误重试 3 次/30s、业务错误不重试）→ `LogWriter` 写 JSONL + `upload_logs`（`source='retail_retry'`，带 company/credential/task_id）→ 翻 `upload_tasks`：`task_status='已处理'` + `request_status`/`response_status`/`resp`，并把该行 `credential` 覆盖为**这次实际用的那套**（采集预填 primary，人工切备用由这里覆盖）
+- **三关 fail-closed 都在第一次平台调用之前**（非零售企业 / 凭据不属于该门店或未配齐 / 无路由或装配必填项缺失），任一不过即整条拒绝：不发一次调用、不写一条日志、**任务行一个字段都不动**（实测：拒绝后 `updated_at` 不变）。页面上的禁用态（未识别 / 待配凭据）只是显示层提示，真正的关口在链路里——任何直接调端点的路径都拦得住
+- **异常时不复位任务状态**（批发链路那两个入口会复位，本入口刻意不照搬）：任务行只在平台调用**之后**被写，故异常要么发生在第一次调用之前（没动过，复位是空操作）、要么发生在某个子单已完成之后（那一写就是本次尝试的真实结果，复位反而把结果抹成 NULL）
+- **进度里的"成功"按业务结果算，不照搬 `ApiClient::execute` 的 `success`**：后者是网关级（无 `code` 错误即 true），实测平台对"存在已出售的码"这类业务拒绝也返回 `success=true` + `msg_code=FAIL`，照搬会把真实失败显示成绿色 [成功]、汇总写成"成功 1"。口径与已上传页/失败页一致：`上传成功` 与 `单据重复` 都算成功（单据已在平台上），其余算失败
+- **实测（2026-09-30 首次真传，两单）**：两个 lsyd 接口的响应都是同一套 TOP 信封（`result.msg_code` / `msg_info` / `response_success`），故 `ApiClient::resolveUploadResponseStatus` 两个接口族通用——`SUCCESS`+`response_success=true` → 上传成功；`msg_info` 含"该单据号已存在" → 单据重复；`msg_code=FAIL` → 上传失败。平台对**已被申报过的销售单**返回业务错误「存在已出售的码」（→ 上传失败），即补传不是"重放"而是真实申报
+- **失败也算"已处理"**（与批发链路一致）：任务表是待处理队列，`上传失败`/`未确定`/网络请求失败都翻 `已处理`，`待补传` 队列不会无限堆积；"补传没成功"的出口是失败记录页（该处 `NOT EXISTS` 只排除 `上传成功`/`单据重复`，实测零售的 `上传失败` 记录确实可见）。因此补传失败后要再试，是在任务页按"已处理"筛出该行重传，不是等它回到待补传
 
 ### 批量查询上传状态（check_bill_status.php + check_failed_logs.php）
 
@@ -186,7 +201,7 @@ root/
 | check_quantity（数量对账） | `10 21 * * *` | **当前未调度**（手动运行）；下表值仅为恢复调度时的建议时间——21:10，fetch_bills 21:00/21:30 两轮之间；数量对比（shl vs min_pkg_count 求和），~650 单约 13 分钟 |
 | cleanup_logs | `0 3 * * *` | 清理 3 个月前的日志 |
 
-**注（2026-09-29 核对 root crontab 现状）**：`check_bill_status` **在跑**（`*/30 8-20`，日志里可见每轮"查询完成"输出），`check_quantity` **未调度**、仅手动运行。`fetch_bills_retail` 的条目**尚未写入 root crontab**（工单 03 交付脚本与条目，安装 root 级常驻任务需人工执行：`crontab -e` 加上表该行即可，脚本本身随时可手动跑）。改动本表前先 `crontab -l` 核对，别照抄文档。
+**注（2026-09-30 核对 root crontab 现状）**：`fetch_bills`、**`fetch_bills_retail`**（工单 03 交付的条目已人工装上，当日 08:05/08:35/… 的采集记录可见）、`check_bill_status` **都在跑**；`check_quantity` **未调度**、仅手动运行。改动本表前先 `crontab -l` 核对，别照抄文档。
 
 覆盖保证：任何单据最终都会被查到平台状态（等待上传 ≤30 分钟 / 失败记录 ≤24h / SQL Server 全量 ≤24h）。check_quantity 与 check_failed_logs 不得改到 8-20 点窗口内运行（与 check_bill_status 并发调同一 AppKey 立即触发平台限流）。
 
@@ -235,7 +250,10 @@ root/
 | task_status | TEXT | 等待上传（批发，cron 会取）/ **待补传**（零售采集落库，仅人工补传——**不复用"等待上传"**，那语义是"cron 会来取走并上传"）/ 已处理 |
 | source | TEXT | **retail**（`fetch_bills_retail` 零售采集）/ cron（批发采集）/ manual / batch_check / batch_retry |
 | company | TEXT | 所属企业中文全名（页面"所属企业"列的值与筛选键；`未识别` 表示门店认领失败） |
-| credential | TEXT | 该企业 primary 凭据键（如 `main`）；只作审计，不参与任何键；零售待配凭据时为 NULL |
+| credential | TEXT | 该企业 primary 凭据键（如 `main`）；只作审计，不参与任何键；零售待配凭据时为 NULL；零售补传成功后会被覆盖为**这次实际用的那套** |
+| from_user_id | TEXT | 零售专用：源表 `zsm_ls.from_user_id` 照搬（补传装配的 `fromUserId`，仅 104/203 用）。批发行与工单 06 之前采的零售行为空 |
+| to_user_id | TEXT | 零售专用：源表 `zsm_ls.to_user_id` 照搬（补传装配的 `toUserId`，仅 104/203 用；321/116 源库本就为空） |
+| physic_type | TEXT | 零售专用：源表 `zsm_ls.physic_type`（实测全表恒为 `3`；补传装配的 `physicType`，仅 104/203 用） |
 | bill_type | TEXT | 单据类型码（3 位数字，兼容旧字母前缀如 XSO；读取时经 `App\BillType::normalize` 归一化） |
 | request_status | TEXT | 请求成功/请求失败 |
 | response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定（任务表不产生"数量不符"，该状态仅 quantity_check 写 upload_logs） |
@@ -253,7 +271,7 @@ root/
 | ent_name | TEXT | 往来单位名称 |
 | trace_codes | TEXT | 追溯码 |
 | rq | TEXT | 单据日期（回填自 upload_tasks 或 SQL Server） |
-| source | TEXT | cron/manual/batch_check/batch_retry/quantity_check/retail（retail 记录只可能来自人工补传——检查脚本一律只查批发主体，写不出零售日志，见 ADR 0007） |
+| source | TEXT | cron/manual/batch_check/batch_retry/quantity_check/**retail_retry**（零售人工补传——检查脚本一律只查批发主体，写不出零售日志，见 ADR 0007） |
 | company | TEXT | 所属企业中文全名（同 upload_tasks） |
 | credential | TEXT | 这次实际用了哪套凭据（采集时预填 primary；人工切备用凭据由补传流程覆盖）；只作审计 |
 | request_status | TEXT | 请求成功/请求失败 |
@@ -345,7 +363,9 @@ php /usr/share/nginx/mashangfangxin/scripts/cleanup_logs.php
 # 回填 upload_logs 的单据日期（首次部署后执行一次即可）
 php /usr/share/nginx/mashangfangxin/scripts/backfill_rq.php
 
-# 初始化/迁移 SQLite 数据库（幂等，可重复执行；含 company/credential 列、历史回填、ent_list 唯一键重建）
+# 初始化/迁移 SQLite 数据库（幂等，可重复执行；含 company/credential 列、历史回填、ent_list 唯一键重建、
+# upload_tasks 的 from_user_id/to_user_id/physic_type 三列——这三列**没有历史回填**，
+# 缺列的零售旧行只能删掉重采（见"核心数据流 → 零售单据采集"））
 # 生产库上跑注意属主：以 nginx 用户执行（su -s /bin/bash nginx -c "php ..."），
 # 或用 root 跑完 chown nginx:nginx data/msfx.db*——否则 php-fpm 会报 readonly database
 php /usr/share/nginx/mashangfangxin/scripts/init_db.php

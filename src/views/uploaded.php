@@ -32,6 +32,7 @@ layout('上传成功', 'uploaded');
                     <option value="manual">手动上传</option>
                     <option value="batch_check">批量核查</option>
                     <option value="batch_retry">批量重传</option>
+                    <option value="retail_retry">零售补传</option>
                 </select>
             </div>
             <div class="col-md-1">
@@ -65,6 +66,7 @@ layout('上传成功', 'uploaded');
                         <th>单据日期</th>
                         <th>单号</th>
                         <th>单据类型</th>
+                        <th>所属企业</th>
                         <th>往来单位</th>
                         <th>追溯码</th>
                         <th>关联任务ID</th>
@@ -110,12 +112,14 @@ layout('上传成功', 'uploaded');
         'manual': '手动上传',
         'batch_check': '批量核查',
         'batch_retry': '批量重传',
+        'retail_retry': '零售补传',
     };
     const sourceBadges = {
         'cron': 'bg-primary',
         'manual': 'bg-success',
         'batch_check': 'bg-info',
         'batch_retry': 'bg-warning text-dark',
+        'retail_retry': 'bg-dark',
     };
     const billTypeLabels = {
         '102': '采购入库', '103': '退货入库', '104': '调拨入库', '107': '供应入库', '108': '召回入库',
@@ -178,7 +182,7 @@ layout('上传成功', 'uploaded');
             const data = await resp.json();
             render(data);
         } catch (e) {
-            document.getElementById('tbody').innerHTML = '<tr><td colspan="11" class="text-center py-5 text-danger">加载失败</td></tr>';
+            document.getElementById('tbody').innerHTML = '<tr><td colspan="12" class="text-center py-5 text-danger">加载失败</td></tr>';
         }
     }
 
@@ -186,13 +190,14 @@ layout('上传成功', 'uploaded');
         const tbody = document.getElementById('tbody');
         total = data.total || 0;
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="11" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => `
                 <tr>
                     <td class="text-nowrap">${esc(r.rq || '-')}</td>
                     <td><code>${esc(r.djbh)}</code></td>
                     <td>${billTypeLabels[r.bill_type] || '-'}</td>
+                    <td class="text-truncate" style="max-width:200px" title="${esc(r.company || '')}">${esc(r.company) || '-'}</td>
                     <td class="text-truncate" style="max-width:220px" title="${esc(r.ent_name || '')}">${esc(r.ent_name) || '-'}</td>
                     <td>
                         ${r.trace_codes

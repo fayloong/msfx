@@ -191,7 +191,8 @@ class UploadService
                 $response = json_encode($result, JSON_UNESCAPED_UNICODE);
 
                 $requestStatus = $result['is_network_error'] ? '请求失败' : '请求成功';
-                $responseStatus = $this->resolveResponseStatus($result);
+                // 响应状态解析在 ApiClient（批发与零售补传共用，见源码注释）
+                $responseStatus = ApiClient::resolveUploadResponseStatus($result);
 
                 $this->writeLog($billCode, $bill, $traceCodes, $context, [
                     'request_status' => $requestStatus,
@@ -343,49 +344,6 @@ class UploadService
             "UPDATE upload_tasks SET task_status = ?, request_status = ?, response_status = ?, resp = ?, updated_at = datetime('now','localtime') WHERE id = ?",
             [$taskStatus, $requestStatus, $responseStatus, $resp, $taskId]
         );
-    }
-
-    /**
-     * 从 API 返回结果解析响应状态。
-     */
-    private function resolveResponseStatus(array $result): ?string
-    {
-        if ($result['is_network_error']) {
-            return null;
-        }
-
-        $data = $result['data'];
-        if ($data === null) {
-            return '未确定';
-        }
-
-        if (is_object($data)) {
-            $data = json_decode(json_encode($data), true);
-        }
-
-        $inner = $data['result'] ?? [];
-        if (empty($inner)) {
-            // 部分响应（如重复单据）msg_code/msg_info 直接在 data 层级
-            $inner = $data;
-        }
-        $msgCode = $inner['msg_code'] ?? '';
-        $msgInfo = $inner['msg_info'] ?? '';
-        $responseSuccess = $inner['response_success'] ?? '';
-
-        if ($msgCode === 'SUCCESS' && $responseSuccess === 'true') {
-            return '上传成功';
-        }
-        if (strpos($msgInfo, '该单据号已存在') !== false) {
-            return '单据重复';
-        }
-        if ($msgCode === 'FAIL_BIZ_NO_PAT_INFO') {
-            return '信息不存在';
-        }
-        if ($msgCode === 'FAIL') {
-            return '上传失败';
-        }
-
-        return '未确定';
     }
 
     private function acquireLock()
