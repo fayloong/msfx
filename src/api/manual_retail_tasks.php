@@ -14,6 +14,11 @@
  * 原注释担心的是"整个门店几百张全量发到页面"，分页之后这个量级已不成立；改成点击时按 id 再拉
  * 一次的话，页面上要多维护一套加载态与失败态，省下的却只有当页这点带宽——不值。
  *
+ * 排序：**单据日期倒序**（rq DESC, id DESC）——操作者在第一页看到的就是最近要处理的单。
+ * 原为 rq ASC（最早在前），2026-09-30 用户指定改倒序。注意清单里已不含 2 年前的单据
+ * （平台不接受，采集与清理两侧按 App\RetailRetention 挡住），所以"最早在前"并不指向
+ * 一批欠了很久的账。
+ *
  * 入参：company（门店名，页面下拉选定）、page_num（可选，默认 1）
  * 返回：{data: [{id, djbh, rq, bill_type, trace_codes, code_count}], total, page, per_page, total_pages}
  */
@@ -61,14 +66,15 @@ $db = Database::getInstance();
 $where = "company = ? AND source = 'retail' AND task_status = '待补传'";
 $total = (int)($db->queryOne("SELECT COUNT(*) AS cnt FROM upload_tasks WHERE {$where}", [$company])['cnt'] ?? 0);
 
-// 码数用 SQL 数逗号（空串要单独判，否则会算成 1）
+// 码数用 SQL 数逗号（空串要单独判，否则会算成 1）。
+// rq 是 TEXT 存 'YYYY-MM-DD'，字符串序即日期序；同一日期的按 id 倒序（后采集的先显示）。
 $rows = $db->query(
     "SELECT id, djbh, rq, bill_type, trace_codes,
             CASE WHEN TRIM(trace_codes) = '' THEN 0
                  ELSE LENGTH(trace_codes) - LENGTH(REPLACE(trace_codes, ',', '')) + 1 END AS code_count
      FROM upload_tasks
      WHERE {$where}
-     ORDER BY rq ASC, id ASC
+     ORDER BY rq DESC, id DESC
      LIMIT ? OFFSET ?",
     array_merge([$company], [PER_PAGE, $offset])
 );

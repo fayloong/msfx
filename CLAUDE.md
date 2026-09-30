@@ -40,6 +40,7 @@ root/
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传
 │   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 App\RetailRetransmit
 │   ├── RetailRetransmit.php      # 零售补传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态）：单条（tasks_retry_retail）与批量（tasks_batch_retry_retail）两个端点共用的唯一实现；装配仍走 RetailRequestAssembler，来源写 retail_retry
+│   ├── RetailRetention.php       # 门店数据保留期（平台硬性规定 2 年，不接受 2 年前的单据）：YEARS + cutoffDate() 是采集下限与清理下限的**唯一来源**；两个调用点必须共用，各写各的会让超期数据滞留
 │   ├── TraceSplitter.php         # 追溯码两种拆法：splitByCount 按码数拆单（上传用，上限取自 Enterprise::route()，批发 3500 / 零售 10000·3500）、splitByCharLimit 按字符数拆行（导出用，每行 ≤32000 字符）
 │   ├── RecordQuery.php           # 三数据页筛选条件单一事实源（build(类型, 参数) → WHERE/SELECT/ORDER/params）：列表 API 与导出**共用同一段代码**，"导出的行数与页面一致"是构造上的性质。曾经四处各写一份，export 的失败分支因此漏过 quantity_check 豁免
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
@@ -61,7 +62,8 @@ root/
 │   │   ├── manual_create.php     # 手动创建任务并立即上传
 │   │   ├── manual_import.php     # xlsx 导入批量创建并上传（只服务批发）
 │   │   ├── manual_retail_tasks.php # 手动上传页零售分支的待补传清单（固定口径：该门店 + source=retail + task_status=待补传；
-│   │   │                           #   分页每页 20 条，回 trace_codes 供每行的"查看追溯码"按钮）
+│   │   │                           #   分页每页 20 条，回 trace_codes 供每行的"查看追溯码"按钮；
+│   │   │                           #   排序 rq DESC, id DESC——单据日期倒序，新的在前）
 │   │   ├── template_download.php # 下载 xlsx 导入模板
 │   │   └── export.php            # 按当前筛选条件导出 xlsx（流式生成，内存 O(1)）
 │   └── views/                    # 页面视图（PHP 模板）
@@ -88,13 +90,16 @@ root/
 ├── scripts/
 │   ├── fetch_bills.php           # cron 从 SQL Server 采集**批发**单据写入上传任务表
 │   ├── fetch_bills_retail.php    # cron 从 dyt 链接服务器采集**零售门店**单据（单条 SQL：LEFT JOIN + NOT EXISTS(update_state)
-│   │                             #  过滤，测试阶段口径；默认当日，`--all` 为一次性全量快照入口；去重在 PHP 侧，
-│   │                             #  走 queryEach 逐行消费；认领走 Enterprise::claim；落库 source=retail / task_status=待补传）
+│   │                             #  过滤，测试阶段口径；默认当日，`--all` 为一次性全量快照入口——**下限 2 年**，
+│   │                             #  超期单据采进来也补传不出去；去重在 PHP 侧，走 queryEach 逐行消费；
+│   │                             #  认领走 Enterprise::claim；落库 source=retail / task_status=待补传）
 │   ├── upload_pending.php        # cron 批量上传队列中等待中的任务（只取批发主体的"等待上传"）
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
 │   ├── check_quantity.php        # 数量对账两级流水线（第 1 级 shl 粗筛嫌疑单 → 第 2 级 singlerelation 码级精查，双差异才写"数量不符"）
-│   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志与已完成任务
+│   ├── cleanup_logs.php          # 清理 SQLite 历史数据，三条判据各不相同：日志按 created_at 清 3 个月前、已处理任务按
+│   │                             #  updated_at 清 3 个月前、**门店（零售）任务按 rq 单据日期清 2 年前**（平台不接受 2 年前的
+│   │                             #  单据，见 App\RetailRetention——这条判"单据本身多老"，前两条判"记录存了多久"）
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列；按 djbh 关联处一律限定批发主体——djbh 不是跨企业唯一的）
 │   ├── init_db.php               # 初始化/迁移 SQLite 数据库及表结构（幂等；含 company/credential 列、历史回填、ent_list 唯一键重建）
 │   ├── sqlite_query.php          # 调试工具：直接传 SQL 查询/操作 SQLite（表格输出）
@@ -109,6 +114,7 @@ root/
 │   ├── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
 │   ├── enterprise_config_test.php # App\Enterprise 自包含断言测试：配置解析/门店认领/接口路由/配置自检
 │   ├── retail_upload_test.php    # App\RetailRequestAssembler 自包含断言测试：lsyd 入参映射（refUserId 取凭据 ref_ent_id、from/to 照搬源表列、clientType=2、码上限取自路由），判据用请求类自己的 check()
+│   ├── retail_retention_test.php # App\RetailRetention 自包含断言测试：2 年截止日的计算与边界（常规/跨年/月末/闰日溢出方向、截止日当天保留、不传参时相对今天滚动）
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
@@ -177,10 +183,12 @@ root/
 
 > ⚠️ **2026-09-30 起为测试阶段临时口径**（用户指定，与 ADR 0007 的原始决定**相反**，测试结束需回收）：采集改为**单条 SQL**（`zsm_ls LEFT JOIN zsm_ls_code`）+ **`NOT EXISTS(update_state)` 过滤**（只采外部系统尚未上传的单）。代价照 ADR 0007：已上传的单在页面上不可见；`update_state` 无企业列，跨门店单号重复时它自身会串。原先的"两步 SQL + 全量"口径见 git 历史。
 >
-> **日期：cron 限当日，历史欠账走 `--all` 一次全量**（2026-09-30 用户定）——不带参数 = 当日；`--all` = 不带 `bill_time` 条件的一次性全量快照，把外部系统尚未上传的历史单一次性入库，**跑一次即可、别挂进 cron**。
+> **日期：cron 限当日，历史欠账走 `--all` 一次全量**（2026-09-30 用户定）——不带参数 = 当日；`--all` = 不带等值日期条件的一次性全量快照，把外部系统尚未上传的历史单一次性入库，**跑一次即可、别挂进 cron**。
+>
+> **2 年下限（2026-09-30 用户定，平台硬性规定）**：采集 SQL **始终**带 `bill_time >= 截止日`（`App\RetailRetention`，今天是 2026-09-30 则 2024-09-30）——`--all` 靠它截断，故其语义是"**最近 2 年**的快照"而非全部历史（票 03 回填的首跑数字是旧口径，重跑会变小）；cron 的当日采集天然满足。**显式指定一个超期日期时直接拒绝并退出 1**（在连源库之前）：静默采回 0 条会被读成"那天真没单据"，而真相是那天即使有单也补传不出去。依据是平台的原话——补传 2023 年的单会返回 `FAIL_BIZ_PARAM_BILL_TIME_BEFORE_ERROR`「系统不支持上传2年前单据」。
 
 - **源**：dyt 链接服务器（`dyt.msfx.dbo.zsm_ls` 单据头 + `zsm_ls_code` 追溯码，**一码一行**；`bs_msfx.dbo.update_state` 单号 + 状态两列，**只读**、仅用于过滤），复用 `SqlSrvHelper` 同一条连接直接查 4 段式名；全程只读 SELECT，不写源库
-- **单条 SQL（测试阶段口径）**：`LEFT JOIN` + `NOT EXISTS(update_state)` + `bill_time = ?`（默认当日；`--all` 时不加这一段）。**必须 LEFT JOIN 而非内连接**——没码的单也要采（它是待补传队列里值得看见的一条）
+- **单条 SQL（测试阶段口径）**：`LEFT JOIN` + `NOT EXISTS(update_state)` + `bill_time >= ?`（保留下限，始终在）+ `bill_time = ?`（默认当日；`--all` 时不加这一段）。**必须 LEFT JOIN 而非内连接**——没码的单也要采（它是待补传队列里值得看见的一条）
 - **去重在 PHP 侧收口**：`321` 存在 14 列值全同的完全重复行（同一单号最多 120 行），连接结果随之放大最多 120 倍——追溯码用关联数组去重（保序），单据头字段取首次出现的行（重复行各列本就相同）。`--all` 时行数可能到数十万，走 `SqlSrvHelper::queryEach` **逐行消费**而非 `query()` 攒数组（后者会撞上 CLI 的 `memory_limit=128M`）
 - **`physic_type` 必须显式取**：老 SQL 里没有这列，但补传装配要它（ADR 0010）——漏掉它，`104`/`203` 那些单会被 SDK 的 `check()` 拒掉且**永远补不出去**
 - **单据类型写死四种** `104`/`203`/`321`/`116`（`bill_type` 是 int；第五种 `999` 语义未明，用户判定不采）；`bill_time` 是 `varchar(10)` 纯日期
@@ -232,7 +240,7 @@ root/
 | check_bill_status（来源 1） | `*/30 8-20 * * *` | 高频确认新单（与门卫阈值 30 分钟一致） |
 | check_failed_logs（来源 2） | `40 20 * * *` | 20:40，fetch_bills 20:30 轮已结束、21:00 轮未到 |
 | check_quantity（数量对账） | `10 21 * * *` | **当前未调度**（手动运行）；下表值仅为恢复调度时的建议时间——21:10，fetch_bills 21:00/21:30 两轮之间；数量对比（shl vs min_pkg_count 求和），~650 单约 13 分钟 |
-| cleanup_logs | `0 3 * * *` | 清理 3 个月前的日志 |
+| cleanup_logs | `0 3 * * *` | 三条清理判据不同：日志 3 个月前（`created_at`）、已处理任务 3 个月前（`updated_at`）、**门店超期单据 2 年前（`rq` 单据日期）**——后者是"今天合法的单据两年后就不合法了"的唯一出口，见 `App\RetailRetention` |
 
 **注（2026-09-30 核对 root crontab 现状）**：`fetch_bills`、**`fetch_bills_retail`**（工单 03 交付的条目已人工装上，当日 08:05/08:35/… 的采集记录可见）、`check_bill_status` **都在跑**；`check_quantity` **未调度**、仅手动运行。改动本表前先 `crontab -l` 核对，别照抄文档。
 
@@ -254,7 +262,7 @@ root/
 页面最上方是**"所属企业"下拉**（选项来自 `App\Enterprise`），选定后显示该企业对应的内容——批发与零售的字段、接口、凭据完全不同，混在一个表单里只会让两边都难读：
 
 - **批发分支**（默认选中批发主体）：即原来的两个卡片，**行为一字未变**——在线新增（单据类型下拉 → 日期/单号/往来单位 → 粘贴追溯码，一行一个自动转逗号）写入 SQLite 后立即上传并实时反馈；xlsx 导入（列: 日期 | 单号 | 单据类型 | 往来单位名称 | 追溯码，同单号多行自动合并为一个任务，取第一个非空的日期/单据类型/往来单位并拼接追溯码）。落库主体取 `Enterprise::wholesaleSubject()`。xlsx 导入与模板下载**只服务批发**，不分叉
-- **门店分支**：**不提供从零手工录入**，只列该门店的"待补传"清单（单号 / 单据日期 / 单据类型 / 追溯码 / 码数）→ 勾选（支持全选）→ 批量补传 → NDJSON 流式逐条反馈，传完自动刷新清单（用哪套凭据由服务端按门店取，页面不让人选，见 `docs/adr/0012`）。清单来自 `api/manual_retail_tasks.php`（固定口径：该门店 + `source='retail'` + `task_status='待补传'`），**分页与上传任务页同款**（`page_num` + 每页 20 条，页面渲染同一套 Bootstrap 分页条）——原先的 200 条截断已删：截断把"看不全"推给操作者，分页把它解决掉。**每行有"查看追溯码"按钮**（与上传任务页同一套弹窗：全量列出 + 复制），故清单接口随列表回 `trace_codes`——一页 20 条最坏约 680KB；比起省这点带宽，改成点击时按 id 另拉一次要在页面上多维护一套加载态与失败态，不划算。**勾选集与页码跨页保持**：翻页丢勾选的话批量补传没法用；被选中的行不一定在当页，故 `104`/`203` 的二次确认按"跨页累积的 id→行"索引回查单据类型（只查当前页会让跨页选中的调拨单逃过点名）。补传刷新后当前页可能已空，此时自动退到最后一页重拉。两端口的禁用情形都写明原因：**待配凭据**（清单可见、补传禁用，属预期内的正常状态）、企业配置载入失败（降级为不可用，但批发表单照常渲染）
+- **门店分支**：**不提供从零手工录入**，只列该门店的"待补传"清单（单号 / 单据日期 / 单据类型 / 追溯码 / 码数，**按单据日期倒序**——新的在前，2026-09-30 用户指定；原先是最早在前）→ 勾选（支持全选）→ 批量补传 → NDJSON 流式逐条反馈，传完自动刷新清单（用哪套凭据由服务端按门店取，页面不让人选，见 `docs/adr/0012`）。清单来自 `api/manual_retail_tasks.php`（固定口径：该门店 + `source='retail'` + `task_status='待补传'`），**分页与上传任务页同款**（`page_num` + 每页 20 条，页面渲染同一套 Bootstrap 分页条）——原先的 200 条截断已删：截断把"看不全"推给操作者，分页把它解决掉。清单里**不会有 2 年前的单**（平台不接受，采集与清理两侧都按 `App\RetailRetention` 挡住），所以"最早在前"并不指向一批欠了很久的账——这是倒序后仍要记得的前提。**每行有"查看追溯码"按钮**（与上传任务页同一套弹窗：全量列出 + 复制），故清单接口随列表回 `trace_codes`——一页 20 条最坏约 680KB；比起省这点带宽，改成点击时按 id 另拉一次要在页面上多维护一套加载态与失败态，不划算。**勾选集与页码跨页保持**：翻页丢勾选的话批量补传没法用；被选中的行不一定在当页，故 `104`/`203` 的二次确认按"跨页累积的 id→行"索引回查单据类型（只查当前页会让跨页选中的调拨单逃过点名）。补传刷新后当前页可能已空，此时自动退到最后一页重拉。两端口的禁用情形都写明原因：**待配凭据**（清单可见、补传禁用，属预期内的正常状态）、企业配置载入失败（降级为不可用，但批发表单照常渲染）
 - **勾选里含 `104`/`203`（调拨）时，二次确认会额外点名警告**：那两类的 `fromUserId`/`toUserId` 发货/收货语义仍待外部系统工程师确认（ADR 0010），单条入口同样暴露该风险、批量会一次放大成一批。**是警告不是拦阻**——不改变单条入口既有的放行口径
 - **`未识别` 不出现在门店分支里**（它不是一个企业）——那些单据在上传任务页标红，由人去查配置/源库
 
@@ -269,6 +277,8 @@ root/
   删除 3 个月前的 upload_logs 记录，以及 3 个月前已处理（task_status='已处理'）
   的 upload_tasks 任务（按 updated_at 判断，避免误清 rq 很旧但最近才采集/处理的任务；
   历史仍可查 upload_logs 与 JSONL，任务表本质是待处理队列，终态任务无保留价值）
+  另：门店（零售）任务按 **rq 单据日期**清超 2 年的（判断的是单据本身多老，不是记录存了
+  多久——平台不接受 2 年前的单据，见 App\RetailRetention）
 ```
 
 ## SQLite 本地数据库
@@ -382,9 +392,11 @@ php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php 2026-07-28
 # 落库 task_status='待补传' / source='retail'，需要 nginx 或跑完 chown（同 init_db 的属主注意事项）
 # ⚠️ 2026-09-30 起为测试阶段临时口径：单条 SQL（LEFT JOIN + NOT EXISTS(update_state)，
 #    只采外部系统尚未上传的单）
+# 2 年下限（平台硬性规定，App\RetailRetention）：超期日期会被**拒绝并退出 1**；
+#    --all 也只采最近 2 年——平台不接受 2 年前的单据，采进来也补传不出去
 php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php             # 当天（cron 的口径）
 php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php 2026-09-28  # 指定日期
-# 一次性全量快照：不加 bill_time 条件，把外部系统尚未上传的历史单全部入库
+# 一次性全量快照：不加等值日期条件，把外部系统尚未上传的历史单入库（**下限 2 年**）
 # ⚠️ 跑一次即可、别挂进 cron；建议错开 :00/:30（那是 fetch_bills 的写库窗口）
 php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php --all
 
@@ -399,7 +411,8 @@ php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php
 # 复查失败记录（来源 2：upload_logs 未上传成功记录；每天 20:40 由 cron 调用，错峰避开 check_bill_status）
 php /usr/share/nginx/mashangfangxin/scripts/check_failed_logs.php
 
-# 清理超过 3 个月的 SQLite 日志与已完成任务
+# 清理 SQLite 历史数据（三条判据：日志按 created_at 清 3 个月前、已处理任务按 updated_at 清
+# 3 个月前、门店任务按 rq 单据日期清 2 年前——最后一条是平台硬性规定，见 App\RetailRetention）
 php /usr/share/nginx/mashangfangxin/scripts/cleanup_logs.php
 
 # 回填 upload_logs 的单据日期（首次部署后执行一次即可）
@@ -432,6 +445,7 @@ php /usr/share/nginx/mashangfangxin/tests/trace_splitter_test.php
 php /usr/share/nginx/mashangfangxin/tests/quantity_check_test.php
 php /usr/share/nginx/mashangfangxin/tests/enterprise_config_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_upload_test.php
+php /usr/share/nginx/mashangfangxin/tests/retail_retention_test.php
 
 # 查询单号在码上放心平台的上传状态（searchbill.detail；输出 JSON + 另存 tests/searchbill_<单号>.json）
 php /usr/share/nginx/mashangfangxin/tests/search_bill_test.php XSOWMS00997501

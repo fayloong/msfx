@@ -3,7 +3,8 @@
  * 从零售源库（dyt 链接服务器）采集门店单据写入上传任务表
  * 用法: php scripts/fetch_bills_retail.php [日期 Y-m-d | --all]
  *   缺省/日期  → 只采该日（默认当天）的单据，**cron 走这条**
- *   --all      → **一次性全量快照**：不带 bill_time 条件，把外部系统尚未上传的历史单全部入库
+ *   --all      → **一次性全量快照**：把外部系统尚未上传的历史单全部入库
+ *               （下限 2 年——超期单据采进来也传不上去，见 App\RetailRetention）
  *
  * 只采集入库、不上传——零售单据由外部系统上传，本项目只做"可见 + 人工补传"（见 docs/adr/0007）。
  * 落库 task_status='待补传'（不复用"等待上传"，那语义是"cron 会来取走并上传"）、source='retail'；
@@ -23,6 +24,8 @@
  *      代价见 ADR 0007：已上传的单在页面上不可见；update_state 无企业列，跨门店单号重复时它自身会串。
  *   3. **默认按 bill_time 限当日**（cron 的口径）；历史欠账用 **`--all` 一次性快照**补——
  *      `--all` 不带日期条件、全表扫（bill_time 无索引），**跑一次即可，别挂进 cron**。
+ *      `--all` 只看最近 2 年：平台不接受 2 年前的单据（见 App\RetailRetention），
+ *      采进来也补传不出去，只会在清单里躺着被点、然后被平台拒。
  *   4. LEFT JOIN 会放大行数：321 存在 14 列值全同的重复行，同一 bill_code 最多 120 行。
  *      故去重挪到 PHP 侧——追溯码用关联数组去重（保序，同 zsm_ls_code 的一码一行），
  *      单据头字段取首次出现的行（重复行各列本就相同）。`--all` 时行数可能到数十万，
@@ -50,6 +53,7 @@ use App\BillType;
 use App\Config;
 use App\Database;
 use App\Enterprise;
+use App\RetailRetention;
 
 Config::load();
 
@@ -67,11 +71,19 @@ if ($arg !== null && !$snapshotAll && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $arg)
     exit(1);
 }
 
-// 采集日期：--all 为 null（不加 bill_time 条件，一次性全量快照）；否则缺省当天
+// 采集日期：--all 为 null（不加等值日期条件，一次性全量快照）；否则缺省当天
 $date = $snapshotAll ? null : ($arg ?? date('Y-m-d'));
 
+// 平台硬性规定不接受 2 年前的单据（见 App\RetailRetention）。显式指定一个超期日期时直接拒绝：
+// 静默采回 0 条会让人以为"那天真没单据"，而真相是那天即使有单也补传不出去。
+$retentionCutoff = RetailRetention::cutoffDate();
+if ($date !== null && $date < $retentionCutoff) {
+    echo "[fetch_bills_retail] 拒绝采集: {$date} 早于保留下限 {$retentionCutoff}——平台不接受 2 年前的单据（App\\RetailRetention）\n";
+    exit(1);
+}
+
 if ($snapshotAll) {
-    echo "[fetch_bills_retail] 开始采集（--all 全量快照：不带日期条件，把外部系统尚未上传的历史单全部入库）\n";
+    echo "[fetch_bills_retail] 开始采集（--all 全量快照：把外部系统尚未上传的历史单全部入库，下限 {$retentionCutoff}）\n";
     echo "[fetch_bills_retail] 注意: 这是一次性入口，跑一次即可——**别挂进 cron**\n";
 } else {
     echo "[fetch_bills_retail] 开始采集，日期: {$date}（只采该日单据，剔除外部系统已上传的单）\n";
@@ -98,8 +110,11 @@ try {
             where bill_type in (" . implode(', ', RETAIL_BILL_TYPES) . ")
             AND not exists(select * from dyt.bs_msfx.dbo.update_state a where a.bill_code=ls.bill_code)";
 
-    // 日期条件走参数绑定（bill_time 是 varchar(10) 纯日期，等值比较即日期比较）；--all 时不加此条件
-    $params = [];
+    // 日期条件走参数绑定（bill_time 是 varchar(10) 纯日期，等值比较即日期比较）。
+    // **保留下限始终参与查询**：`--all` 靠它把超期单据挡在队列外；显式日期在上面已拒绝过更早的，
+    // 这里是纵深；cron 的当日采集天然满足。参数顺序与占位符出现顺序一致（下限在前、等值在后）。
+    $params = [$retentionCutoff];
+    $sql .= "\n            AND ls.bill_time >= ?";
     if ($date !== null) {
         $sql .= "\n            AND ls.bill_time = ?";
         $params[] = $date;
