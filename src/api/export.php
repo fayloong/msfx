@@ -2,7 +2,8 @@
 /**
  * API: GET /api/export — 按当前筛选条件导出 xlsx（全量导出，流式生成，内存占用恒定）
  *
- * 参数: type=tasks|uploaded|failed，其余筛选参数与对应列表 API 完全一致。
+ * 参数: type=tasks|uploaded|failed|retail_tasks，其余筛选参数与对应列表 API 完全一致
+ *       （retail_tasks＝手动上传页门店分支的补传清单，另需 company，见下）。
  * 实现说明: 不用 PhpSpreadsheet（其 Xlsx Writer 全量驻留内存），改为手工构造 xlsx——
  *          sheet XML 逐行写入临时文件（内存 O(1)），再经 ZipArchive 打包输出。
  */
@@ -27,6 +28,14 @@ if (!in_array($type, RecordQuery::TYPES, true)) {
     exit;
 }
 
+// 门店补传清单（type=retail_tasks）缺 company 时 build() 会抛——那是**必须**的：没有门店的
+// 门店导出是一份"各家混在一起、看不出毛病"的文件。这里把它收成 400 而不是 500 空响应
+if ($type === RecordQuery::TYPE_RETAIL_TASKS && trim((string)($_GET['company'] ?? '')) === '') {
+    http_response_code(400);
+    echo json_encode(['error' => '门店补传清单导出必须指定 company（门店）'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // 大导出可能耗时较长，放宽执行时间
 set_time_limit(0);
 
@@ -42,7 +51,20 @@ $sql = $query['select'] . ' ' . $query['where'] . ' ' . $query['order'];
 $params = $query['params'];
 
 // ---------- 导出列定义（与页面表格列对齐，来源列导出机器值 cron/manual/...） ----------
-if ($type === 'tasks') {
+if ($type === RecordQuery::TYPE_RETAIL_TASKS) {
+    // 手动上传页门店分支的补传清单：列与那张表**逐列对齐**（单号/单据日期/单据类型/追溯码/码数/
+    // 补传任务创建时间/状态）。页面的"状态"格是"任务状态徽标 + 响应状态徽标"，落进 xlsx 拆成两列
+    $columns = [
+        '单号' => fn($r) => $r['_piece_bill_code'] ?? ($r['djbh'] ?? ''),
+        '单据日期' => fn($r) => $r['rq'] ?? '',
+        '单据类型' => fn($r) => BillType::normalize($r['bill_type'] ?? '', $r['djbh'] ?? ''),
+        '追溯码' => fn($r) => truncateTraceCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
+        '码数' => fn($r) => traceCodeCount((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
+        '补传任务创建时间' => fn($r) => $r['created_at'] ?? '',
+        '任务状态' => fn($r) => $r['task_status'] ?? '',
+        '响应状态' => fn($r) => $r['response_status'] ?? '',
+    ];
+} elseif ($type === 'tasks') {
     $columns = [
         '单据日期' => fn($r) => $r['rq'] ?? '',
         '单号' => fn($r) => $r['_piece_bill_code'] ?? ($r['djbh'] ?? ''),
@@ -92,6 +114,17 @@ function truncateTraceCodes(string $value): string
     }
     $count = substr_count($value, ',') + 1;
     return mb_substr($value, 0, CELL_TEXT_LIMIT) . '…(共' . $count . '个码)';
+}
+
+/**
+ * 码数（门店补传清单的"码数"列）：逗号数 +1，空串算 0——与页面那列同口径。
+ * 取值用拆行后的 `_piece_trace_codes`：追溯码超 32000 字符被拆成多行时，
+ * 每行写的是**本行**的码数，与它自己那格追溯码对得上（而不是两行都写总数）。
+ */
+function traceCodeCount(string $value): int
+{
+    $value = trim($value);
+    return $value === '' ? 0 : substr_count($value, ',') + 1;
 }
 
 function truncateCell(string $value): string
@@ -210,6 +243,7 @@ $fileNames = [
     'tasks' => ['上传任务', 'upload_tasks'],
     'uploaded' => ['已上传', 'uploaded'],
     'failed' => ['失败记录', 'failed'],
+    RecordQuery::TYPE_RETAIL_TASKS => ['门店补传', 'retail_tasks'],
 ];
 [$cnName, $enName] = $fileNames[$type];
 $cnFile = $cnName . '_' . date('Y-m-d') . '.xlsx';
