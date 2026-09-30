@@ -10,6 +10,7 @@
 use App\Auth;
 use App\BillType;
 use App\Database;
+use App\RecordQuery;
 use App\TraceSplitter;
 
 Auth::init();
@@ -32,114 +33,13 @@ set_time_limit(0);
 $db = Database::getInstance();
 $sqlite = $db->getDb();
 
-// ---------- 筛选条件构建（与列表 API 保持一致） ----------
-$where = [];
-$params = [];
-
-if ($type === 'tasks') {
-    // 同 tasks.php：date_from/to = 单据日期 rq，created_from/to = 任务创建时间
-    if (!empty($_GET['search'])) {
-        $search = '%' . $_GET['search'] . '%';
-        $where[] = "(djbh LIKE ? OR ent_name LIKE ? OR trace_codes LIKE ? OR task_status LIKE ? OR request_status LIKE ? OR response_status LIKE ?)";
-        $params = array_merge($params, [$search, $search, $search, $search, $search, $search]);
-    }
-    if (!empty($_GET['task_status'])) {
-        $where[] = "task_status = ?";
-        $params[] = $_GET['task_status'];
-    }
-    if (!empty($_GET['response_status'])) {
-        $where[] = "response_status = ?";
-        $params[] = $_GET['response_status'];
-    }
-    if (!empty($_GET['source'])) {
-        $where[] = "source = ?";
-        $params[] = $_GET['source'];
-    }
-    if (!empty($_GET['date_from'])) {
-        $where[] = "rq >= ?";
-        $params[] = $_GET['date_from'];
-    }
-    if (!empty($_GET['date_to'])) {
-        $where[] = "rq <= ?";
-        $params[] = $_GET['date_to'];
-    }
-    if (!empty($_GET['created_from'])) {
-        $where[] = "date(created_at) >= ?";
-        $params[] = $_GET['created_from'];
-    }
-    if (!empty($_GET['created_to'])) {
-        $where[] = "date(created_at) <= ?";
-        $params[] = $_GET['created_to'];
-    }
-    if (!empty($_GET['djbh'])) {
-        $where[] = "djbh LIKE ?";
-        $params[] = '%' . $_GET['djbh'] . '%';
-    }
-    if (!empty($_GET['ent_name'])) {
-        $where[] = "ent_name LIKE ?";
-        $params[] = '%' . $_GET['ent_name'] . '%';
-    }
-    $selectSql = "SELECT * FROM upload_tasks";
-    $orderBy = "ORDER BY id DESC";
-} else {
-    // uploaded / failed：upload_logs 表，date_from/to = 创建时间，rq_from/to = 单据日期
-    if ($type === 'uploaded') {
-        $where[] = "upload_logs.response_status IN ('上传成功', '单据重复')";
-    } else {
-        $where[] = "(upload_logs.request_status = '请求失败' OR upload_logs.response_status NOT IN ('上传成功', '单据重复'))";
-        // 判重限定同一企业（去重键 (company, djbh)），与 api/failed.php 的页面口径保持一致：
-        // 导出必须与页面看到的行集完全相同，否则操作者按导出的数据核对会对不上
-        $where[] = "NOT EXISTS (SELECT 1 FROM upload_logs ok WHERE ok.djbh = upload_logs.djbh AND ok.company = upload_logs.company AND ok.response_status IN ('上传成功', '单据重复'))";
-    }
-
-    if (!empty($_GET['search'])) {
-        $search = '%' . $_GET['search'] . '%';
-        $where[] = "(upload_logs.djbh LIKE ? OR upload_logs.ent_name LIKE ? OR upload_logs.trace_codes LIKE ? OR upload_logs.request_status LIKE ? OR upload_logs.response_status LIKE ? OR upload_logs.response LIKE ?)";
-        $params = array_merge($params, [$search, $search, $search, $search, $search, $search]);
-    }
-    if (!empty($_GET['date_from'])) {
-        $where[] = "date(upload_logs.created_at) >= ?";
-        $params[] = $_GET['date_from'];
-    }
-    if (!empty($_GET['date_to'])) {
-        $where[] = "date(upload_logs.created_at) <= ?";
-        $params[] = $_GET['date_to'];
-    }
-    if (!empty($_GET['rq_from'])) {
-        $where[] = "upload_logs.rq >= ?";
-        $params[] = $_GET['rq_from'];
-    }
-    if (!empty($_GET['rq_to'])) {
-        $where[] = "upload_logs.rq <= ?";
-        $params[] = $_GET['rq_to'];
-    }
-    if (!empty($_GET['djbh'])) {
-        $where[] = "upload_logs.djbh LIKE ?";
-        $params[] = '%' . $_GET['djbh'] . '%';
-    }
-    if (!empty($_GET['ent_name'])) {
-        $where[] = "upload_logs.ent_name LIKE ?";
-        $params[] = '%' . $_GET['ent_name'] . '%';
-    }
-    if (!empty($_GET['response_status'])) {
-        // "请求失败"特殊分支仅属 failed 页（与 failed.php 列表 API 一致），uploaded 页无此分支
-        if ($type === 'failed' && $_GET['response_status'] === '请求失败') {
-            $where[] = "upload_logs.request_status = '请求失败'";
-        } else {
-            $where[] = "upload_logs.response_status = ?";
-            $params[] = $_GET['response_status'];
-        }
-    }
-    if (!empty($_GET['source'])) {
-        $where[] = "upload_logs.source = ?";
-        $params[] = $_GET['source'];
-    }
-    $selectSql = "SELECT upload_logs.*, t.bill_type AS t_bill_type FROM upload_logs LEFT JOIN upload_tasks t ON t.id = upload_logs.task_id";
-    $orderBy = "ORDER BY upload_logs.id DESC";
-}
-
-$whereClause = empty($where) ? '' : ' WHERE ' . implode(' AND ', $where);
-$sql = $selectSql . $whereClause . ' ' . $orderBy;
+// ---------- 筛选条件构建：与三个列表 API 同一份实现（App\RecordQuery） ----------
+// 这里曾经是第 4 份拷贝，并且已经漂了一次：失败记录分支漏掉 `source = 'quantity_check' OR`
+// 豁免，于是"失败记录页看得见的数量对账告警，导出的 xlsx 里没有"。现在导出与页面走同一段
+// 代码，"导出的行数与页面一致"是构造上的性质，不再靠人工核对（见该类注释）。
+$query = RecordQuery::build($type, $_GET);
+$sql = $query['select'] . ' ' . $query['where'] . ' ' . $query['order'];
+$params = $query['params'];
 
 // ---------- 导出列定义（与页面表格列对齐，来源列导出机器值 cron/manual/...） ----------
 if ($type === 'tasks') {
@@ -147,6 +47,7 @@ if ($type === 'tasks') {
         '单据日期' => fn($r) => $r['rq'] ?? '',
         '单号' => fn($r) => $r['_piece_bill_code'] ?? ($r['djbh'] ?? ''),
         '单据类型' => fn($r) => BillType::normalize($r['bill_type'] ?? '', $r['djbh'] ?? ''),
+        '所属企业' => fn($r) => $r['company'] ?? '',
         '往来单位' => fn($r) => $r['ent_name'] ?? '',
         '追溯码' => fn($r) => truncateTraceCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
         '来源' => fn($r) => $r['source'] ?? '',
@@ -164,6 +65,7 @@ if ($type === 'tasks') {
         '单据日期' => fn($r) => $r['rq'] ?? '',
         '单号' => fn($r) => $r['_piece_bill_code'] ?? ($r['djbh'] ?? ''),
         '单据类型' => fn($r) => BillType::normalize($r['t_bill_type'] ?? '', $r['djbh'] ?? ''),
+        '所属企业' => fn($r) => $r['company'] ?? '',
         '往来单位' => fn($r) => $r['ent_name'] ?? '',
         '追溯码' => fn($r) => truncateTraceCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
         '关联任务ID' => fn($r) => ($r['task_id'] ?? 0) ?: '',

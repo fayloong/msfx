@@ -9,6 +9,8 @@
 use App\Auth;
 use App\BillType;
 use App\Database;
+use App\Enterprise;
+use App\RecordQuery;
 
 Auth::init();
 if (!Auth::check()) {
@@ -44,73 +46,18 @@ if ($method === 'GET') {
     $perPage = 20;
     $offset = ($page - 1) * $perPage;
 
-    $where = [];
-    $params = [];
-
-    // 搜索
-    if (!empty($_GET['search'])) {
-        $search = '%' . $_GET['search'] . '%';
-        $where[] = "(djbh LIKE ? OR ent_name LIKE ? OR trace_codes LIKE ? OR task_status LIKE ? OR request_status LIKE ? OR response_status LIKE ?)";
-        $params = array_merge($params, [$search, $search, $search, $search, $search, $search]);
-    }
-
-    // 任务状态筛选
-    if (!empty($_GET['task_status'])) {
-        $where[] = "task_status = ?";
-        $params[] = $_GET['task_status'];
-    }
-    // 响应状态筛选
-    if (!empty($_GET['response_status'])) {
-        $where[] = "response_status = ?";
-        $params[] = $_GET['response_status'];
-    }
-    // 来源筛选
-    if (!empty($_GET['source'])) {
-        $where[] = "source = ?";
-        $params[] = $_GET['source'];
-    }
-
-    // 单据日期范围
-    if (!empty($_GET['date_from'])) {
-        $where[] = "rq >= ?";
-        $params[] = $_GET['date_from'];
-    }
-    if (!empty($_GET['date_to'])) {
-        $where[] = "rq <= ?";
-        $params[] = $_GET['date_to'];
-    }
-
-    // 任务创建时间范围
-    if (!empty($_GET['created_from'])) {
-        $where[] = "date(created_at) >= ?";
-        $params[] = $_GET['created_from'];
-    }
-    if (!empty($_GET['created_to'])) {
-        $where[] = "date(created_at) <= ?";
-        $params[] = $_GET['created_to'];
-    }
-
-    // 单号筛选
-    if (!empty($_GET['djbh'])) {
-        $where[] = "djbh LIKE ?";
-        $params[] = '%' . $_GET['djbh'] . '%';
-    }
-    // 往来单位筛选
-    if (!empty($_GET['ent_name'])) {
-        $where[] = "ent_name LIKE ?";
-        $params[] = '%' . $_GET['ent_name'] . '%';
-    }
-
-    $whereClause = empty($where) ? '' : 'WHERE ' . implode(' AND ', $where);
+    // 筛选条件构造在 App\RecordQuery——本页、另两页与导出共用同一份实现，
+    // 免得"页面筛得出来、导出筛不出来"（该漂移实测发生过一次，见该类注释）
+    $query = RecordQuery::build(RecordQuery::TYPE_TASKS, $_GET);
 
     // 总数
-    $countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_tasks {$whereClause}", $params);
+    $countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_tasks {$query['where']}", $query['params']);
     $total = $countRow['cnt'] ?? 0;
 
     // 数据
     $rows = $db->query(
-        "SELECT * FROM upload_tasks {$whereClause} ORDER BY id DESC LIMIT ? OFFSET ?",
-        array_merge($params, [$perPage, $offset])
+        "{$query['select']} {$query['where']} {$query['order']} LIMIT ? OFFSET ?",
+        array_merge($query['params'], [$perPage, $offset])
     );
 
     foreach ($rows as &$row) {
@@ -137,17 +84,47 @@ if ($method === 'PUT') {
         exit;
     }
 
-    $db->execute(
-        "UPDATE upload_tasks SET rq = ?, djbh = ?, ent_name = ?, trace_codes = ?, bill_type = ?, updated_at = datetime('now','localtime') WHERE id = ?",
-        [
-            $input['rq'] ?? '',
-            $input['djbh'] ?? '',
-            $input['ent_name'] ?? '',
-            $input['trace_codes'] ?? '',
-            $input['bill_type'] ?? '',
-            $input['id'],
-        ]
-    );
+    $sets = ['rq = ?', 'djbh = ?', 'ent_name = ?', 'trace_codes = ?', 'bill_type = ?'];
+    $values = [
+        $input['rq'] ?? '',
+        $input['djbh'] ?? '',
+        $input['ent_name'] ?? '',
+        $input['trace_codes'] ?? '',
+        $input['bill_type'] ?? '',
+    ];
+
+    // 改"所属企业"必须连带重设凭据：重传用哪套授权由 (company, credential) 两列共同决定
+    // （UploadService 的守卫按这两列取凭据，取不到即拒传）。未识别行的 credential 是 NULL，
+    // 只改 company 不改 credential 的话，本功能最主要的使用场景（把未识别行指派给正确门店）
+    // 等于没做——守卫会以"取不到可用凭据"拒传。
+    // 企业不在配置中时 defaultCredentialKey 返回 null，届时守卫照样明确拒传，不会静默传错主体。
+    // 未带 company 键则两列都不动（旧调用方与未刷新的页面不会被误清空）。
+    if (array_key_exists('company', $input)) {
+        $company = trim((string)$input['company']);
+        if ($company === '') {
+            http_response_code(400);
+            echo json_encode(['error' => '所属企业不能为空'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        // 该调用要载入企业配置，配置坏了会抛——这里是用户点"保存"的同步路径，抛成 PHP 致命错误
+        // 只会给一个 500 空响应，不如回一句能看懂的话（此时整站的企业相关内容本就已不可用）。
+        // 注意取值在 $db->execute() **之前**，故这一路失败不会留下半截写入。
+        try {
+            $credentialKey = Enterprise::defaultCredentialKey($company);
+        } catch (\Throwable $e) {
+            http_response_code(500);
+            echo json_encode(['error' => '企业配置载入失败，无法确定该企业的凭据：' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $sets[] = 'company = ?';
+        $values[] = $company;
+        $sets[] = 'credential = ?';
+        $values[] = $credentialKey;
+    }
+
+    $sets[] = "updated_at = datetime('now','localtime')";
+    $values[] = $input['id'];
+    $db->execute('UPDATE upload_tasks SET ' . implode(', ', $sets) . ' WHERE id = ?', $values);
 
     echo json_encode(['success' => true], JSON_UNESCAPED_UNICODE);
     exit;

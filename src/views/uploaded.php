@@ -1,5 +1,16 @@
 <?php
 require_once __DIR__ . '/layout.php';
+
+// "所属企业"筛选下拉的选项：企业枚举 + `未识别`。
+// 未识别**不是一个企业**，但它确实是 company 列的一个取值（门店认领失败的行），
+// 页面上必须能把它单独筛出来——那正是需要人去查配置或源库的那批。
+$companyOptions = [App\Enterprise::UNIDENTIFIED];
+try {
+    $companyOptions = array_merge(App\Enterprise::names(), $companyOptions);
+} catch (\Throwable $e) {
+    // 企业配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常
+}
+
 layout('上传成功', 'uploaded');
 ?>
 
@@ -15,6 +26,15 @@ layout('上传成功', 'uploaded');
             <div class="col-md-2">
                 <label class="form-label small text-muted">往来单位</label>
                 <input type="text" class="form-control" id="ent-name" placeholder="往来单位筛选">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">所属企业</label>
+                <select class="form-select" id="filter-company">
+                    <option value="">全部</option>
+                    <?php foreach ($companyOptions as $name): ?>
+                        <option value="<?= htmlspecialchars($name) ?>"><?= htmlspecialchars($name) ?></option>
+                    <?php endforeach; ?>
+                </select>
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted">响应状态</label>
@@ -160,13 +180,17 @@ layout('上传成功', 'uploaded');
         const en = document.getElementById('ent-name').value.trim();
         const rs = document.getElementById('response-status').value;
         const src = document.getElementById('filter-source').value;
+        const co = document.getElementById('filter-company').value;
         const [df, dt] = readRange(fpCreated);
         const [rf, rt] = readRange(fpRq);
         if (d) params.set('djbh', d);
         if (en) params.set('ent_name', en);
         if (rs) params.set('response_status', rs);
         if (src) params.set('source', src);
-        // 关键词检索时忽略默认的 7 天日期范围（用户手动改过日期则正常组合）
+        if (co) params.set('company', co);
+        // 关键词检索时忽略默认的 7 天日期范围（用户手动改过日期则正常组合）。
+        // "关键词"只算单号与往来单位——**所属企业下拉不算**：它是个筛选维度，
+        // 把它算进来会让"选了门店"顺手把默认日期范围也丢掉，日期行为被无声改变。
         const ignoreDefaultRq = (d || en) && !createdTouched;
         if (df && !ignoreDefaultRq) params.set('date_from', df);
         if (dt && !ignoreDefaultRq) params.set('date_to', dt);
@@ -309,7 +333,7 @@ layout('上传成功', 'uploaded');
         }
     }
     document.getElementById('btn-export').addEventListener('click', exportXlsx);
-    ['djbh','ent-name','response-status','filter-source'].forEach(id => {
+    ['djbh','ent-name','response-status','filter-source','filter-company'].forEach(id => {
         let t;
         document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { page=1; load(); }, 400); });
         document.getElementById(id).addEventListener('change', () => { page=1; load(); });

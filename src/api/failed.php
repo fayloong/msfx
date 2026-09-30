@@ -6,6 +6,7 @@
 use App\Auth;
 use App\BillType;
 use App\Database;
+use App\RecordQuery;
 
 Auth::init();
 if (!Auth::check()) {
@@ -19,68 +20,18 @@ $page = max(1, intval($_GET['page_num'] ?? 1));
 $perPage = 20;
 $offset = ($page - 1) * $perPage;
 
-// 排除该单号已有"上传成功/单据重复"记录的日志行——重传成功后旧失败记录不再显示。
-// 判重限定**同一企业**（去重键是 (company, djbh)）：裸 djbh 判重会让零售的失败记录被
-// 同号批发成功单顶掉，而零售失败记录只可能来自人工补传——那是操作者唯一能看见
-// "补传没成功"的出口，必须留住（见 docs/adr/0007）。
-// 例外：quantity_check 来源的记录（数量对账"数量不符"告警）不受此约束——其单号必然存在
-// batch_check 的"上传成功"记录（数量对账仅查已上传成功单），若参与 NOT EXISTS 会被全部隐藏，
-// 导致告警出口（Web 失败记录页）失效。该来源记录在下次数量对账重跑时自动按新判定清理。
-$where = ["(upload_logs.request_status = '请求失败' OR upload_logs.response_status NOT IN ('上传成功', '单据重复'))",
-          "(upload_logs.source = 'quantity_check' OR NOT EXISTS (SELECT 1 FROM upload_logs ok WHERE ok.djbh = upload_logs.djbh AND ok.company = upload_logs.company AND ok.response_status IN ('上传成功', '单据重复')))"];
-$params = [];
+// 筛选条件构造在 App\RecordQuery——本页、另两页与导出共用同一份实现。
+// 本页两条固定口径（"失败"如何判定、quantity_check 为何豁免同单号判重）都写在那里，
+// 与导出的失败记录分支**逐字同源**——原先导出那份漏了豁免，页面看得见的数量对账告警在
+// xlsx 里没有，正是这个票要修的漂移（见该类注释）。
+$query = RecordQuery::build(RecordQuery::TYPE_FAILED, $_GET);
 
-if (!empty($_GET['search'])) {
-    $search = '%' . $_GET['search'] . '%';
-    $where[] = "(upload_logs.djbh LIKE ? OR upload_logs.ent_name LIKE ? OR upload_logs.trace_codes LIKE ? OR upload_logs.request_status LIKE ? OR upload_logs.response_status LIKE ? OR upload_logs.response LIKE ?)";
-    $params = array_merge($params, [$search, $search, $search, $search, $search, $search]);
-}
-
-if (!empty($_GET['date_from'])) {
-    $where[] = "date(upload_logs.created_at) >= ?";
-    $params[] = $_GET['date_from'];
-}
-if (!empty($_GET['date_to'])) {
-    $where[] = "date(upload_logs.created_at) <= ?";
-    $params[] = $_GET['date_to'];
-}
-if (!empty($_GET['rq_from'])) {
-    $where[] = "upload_logs.rq >= ?";
-    $params[] = $_GET['rq_from'];
-}
-if (!empty($_GET['rq_to'])) {
-    $where[] = "upload_logs.rq <= ?";
-    $params[] = $_GET['rq_to'];
-}
-if (!empty($_GET['djbh'])) {
-    $where[] = "upload_logs.djbh LIKE ?";
-    $params[] = '%' . $_GET['djbh'] . '%';
-}
-if (!empty($_GET['ent_name'])) {
-    $where[] = "upload_logs.ent_name LIKE ?";
-    $params[] = '%' . $_GET['ent_name'] . '%';
-}
-if (!empty($_GET['response_status'])) {
-    if ($_GET['response_status'] === '请求失败') {
-        $where[] = "upload_logs.request_status = '请求失败'";
-    } else {
-        $where[] = "upload_logs.response_status = ?";
-        $params[] = $_GET['response_status'];
-    }
-}
-if (!empty($_GET['source'])) {
-    $where[] = "upload_logs.source = ?";
-    $params[] = $_GET['source'];
-}
-
-$whereClause = 'WHERE ' . implode(' AND ', $where);
-
-$countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs {$whereClause}", $params);
+$countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs {$query['where']}", $query['params']);
 $total = $countRow['cnt'] ?? 0;
 
 $rows = $db->query(
-    "SELECT upload_logs.*, t.bill_type AS t_bill_type FROM upload_logs LEFT JOIN upload_tasks t ON t.id = upload_logs.task_id {$whereClause} ORDER BY upload_logs.id DESC LIMIT ? OFFSET ?",
-    array_merge($params, [$perPage, $offset])
+    "{$query['select']} {$query['where']} {$query['order']} LIMIT ? OFFSET ?",
+    array_merge($query['params'], [$perPage, $offset])
 );
 
 foreach ($rows as &$row) {

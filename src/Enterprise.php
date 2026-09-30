@@ -320,6 +320,20 @@ class Enterprise
         return $found['credentials'][$credentialKey] ?? null;
     }
 
+    /**
+     * 某企业名下的 primary 凭据键——"这家默认会用哪套"。
+     *
+     * 编辑上传任务改"所属企业"时据此重设 credential 列：重传用哪套授权由 (company, credential)
+     * 两列共同决定，只改企业不改凭据会让 UploadService 的守卫以"取不到可用凭据"拒传
+     * （未识别行的 credential 本就是 NULL）。未知企业（含 `未识别`）返回 null，调用方照常落库，
+     * 守卫届时明确拒传——**不猜**（猜错就是把单据申报到错误主体）。
+     */
+    public static function defaultCredentialKey(string $company): ?string
+    {
+        $found = self::find($company);
+        return $found === null ? null : self::primaryCredentialKey($found['key']);
+    }
+
     /** 凭据四字段是否填齐（未填齐 = 待配凭据，页面禁用补传） */
     public static function credentialConfigured(array $credential): bool
     {

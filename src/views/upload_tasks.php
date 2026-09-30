@@ -5,9 +5,12 @@ require_once __DIR__ . '/layout.php';
 // （密钥留在服务端，页面拿不到）。页面据此把"未识别 / 待配凭据"的行禁用并写明原因、
 // 渲染凭据下拉；真正的校验在 src/api/tasks_retry_retail.php——页面是显示层，不是可信边界
 $retailStores = [];
+$companyOptions = [];
 $configError = '';
 try {
     foreach (App\Enterprise::all() as $company) {
+        // "所属企业"筛选下拉与编辑弹窗的选项就是企业名（company 列的值）
+        $companyOptions[] = $company['name'];
         if ($company['type'] !== App\Enterprise::TYPE_RETAIL) {
             continue;
         }
@@ -26,7 +29,11 @@ try {
     // 页面其余部分与批发链路（不读企业配置）不受影响
     $configError = $e->getMessage();
     $retailStores = [];
+    $companyOptions = [];
 }
+// 未识别**不是一个企业**，但它确实是 company 列的一个取值（门店认领失败的行），
+// 页面上必须能把它单独筛出来——那正是整行标红、需要人去查配置或源库的那批
+$companyOptions[] = App\Enterprise::UNIDENTIFIED;
 
 layout('上传任务', 'upload-tasks');
 ?>
@@ -50,6 +57,15 @@ layout('上传任务', 'upload-tasks');
             <div class="col-md-2">
                 <label class="form-label small text-muted">往来单位</label>
                 <input type="text" class="form-control" id="filter-ent-name" placeholder="往来单位筛选">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">所属企业</label>
+                <select class="form-select" id="filter-company">
+                    <option value="">全部</option>
+                    <?php foreach ($companyOptions as $name): ?>
+                        <option value="<?= htmlspecialchars($name) ?>"><?= htmlspecialchars($name) ?></option>
+                    <?php endforeach; ?>
+                </select>
             </div>
             <div class="col-md-1">
                 <label class="form-label small text-muted">任务状态</label>
@@ -190,6 +206,15 @@ layout('上传任务', 'upload-tasks');
                             <option value="237">237, 直调退货</option>
                         </optgroup>
                     </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">所属企业</label>
+                    <select class="form-select" id="edit-company">
+                        <?php foreach ($companyOptions as $name): ?>
+                            <option value="<?= htmlspecialchars($name) ?>"><?= htmlspecialchars($name) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="form-text">改动会同时重设该任务的凭据为该企业的主授权，重传即按新主体申报。</div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">单号</label>
@@ -392,6 +417,7 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         const taskStatus = document.getElementById('filter-task-status').value;
         const responseStatus = document.getElementById('filter-response-status').value;
         const source = document.getElementById('filter-source').value;
+        const company = document.getElementById('filter-company').value;
         const [dateFrom, dateTo] = readRange(fpRq);
         const [createdFrom, createdTo] = readRange(fpCreated);
         if (djbh) params.set('djbh', djbh);
@@ -399,7 +425,10 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         if (taskStatus) params.set('task_status', taskStatus);
         if (responseStatus) params.set('response_status', responseStatus);
         if (source) params.set('source', source);
-        // 关键词检索时忽略默认的 7 天日期范围（用户手动改过日期则正常组合）
+        if (company) params.set('company', company);
+        // 关键词检索时忽略默认的 7 天日期范围（用户手动改过日期则正常组合）。
+        // "关键词"只算单号与往来单位，**所属企业下拉不算**：它是筛选维度，
+        // 算进来会让"选了企业"顺手把默认的单据日期范围也丢掉，日期行为被无声改变。
         const ignoreDefaultRq = (djbh || entName) && !rqTouched;
         if (dateFrom && !ignoreDefaultRq) params.set('date_from', dateFrom);
         if (dateTo && !ignoreDefaultRq) params.set('date_to', dateTo);
@@ -596,6 +625,20 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         });
     }
 
+    // 编辑弹窗里"所属企业"的原始值：保存时与之比对，变了才走二次确认
+    let editOriginalCompany = '';
+
+    // 该行上的企业可能不在配置枚举里（配置改过、门店被删）——补一个选项出来。
+    // 否则 <select> 赋值失败会静默落回第一个选项，保存时把企业改错还没人察觉。
+    function ensureCompanyOption(select, company) {
+        if (!company) return;
+        if (Array.from(select.options).some(o => o.value === company)) return;
+        const opt = document.createElement('option');
+        opt.value = company;
+        opt.textContent = company + '（不在当前企业配置中）';
+        select.appendChild(opt);
+    }
+
     async function openEdit(id) {
         try {
             const resp = await fetch('index.php?page=api&action=tasks&id=' + id);
@@ -607,13 +650,29 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
             document.getElementById('edit-ent-name').value = task.ent_name;
             document.getElementById('edit-trace-codes').value = task.trace_codes || '';
             document.getElementById('edit-bill-type').value = task.bill_type || '';
+            const companySelect = document.getElementById('edit-company');
+            ensureCompanyOption(companySelect, task.company);
+            companySelect.value = task.company || '';
+            editOriginalCompany = task.company || '';
             new bootstrap.Modal(document.getElementById('editModal')).show();
         } catch (e) {
             alert('加载失败: ' + e.message);
         }
     }
 
-    async function saveEdit() {
+    // 改"所属企业"意味着这张单重传时改走另一套凭据（服务端会连带重设 credential），
+    // 那正是"单据申报到哪个主体"的开关，故二次确认；其余字段照原样直接保存
+    function saveEdit() {
+        const company = document.getElementById('edit-company').value;
+        if (company !== editOriginalCompany) {
+            showConfirm('确定把该任务的"所属企业"由「' + (editOriginalCompany || '（空）') + '」改为「' + company
+                + '」吗？重传将按该企业的主授权凭据申报，改动即时落库。', doSaveEdit);
+            return;
+        }
+        doSaveEdit();
+    }
+
+    async function doSaveEdit() {
         const body = JSON.stringify({
             id: document.getElementById('edit-id').value,
             rq: document.getElementById('edit-rq').value,
@@ -621,6 +680,7 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
             ent_name: document.getElementById('edit-ent-name').value,
             trace_codes: document.getElementById('edit-trace-codes').value,
             bill_type: document.getElementById('edit-bill-type').value,
+            company: document.getElementById('edit-company').value,
         });
         try {
             const resp = await fetch('index.php?page=api&action=tasks', {
@@ -849,7 +909,7 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
 
     // 筛选实时搜索（防抖）
     let searchTimeout;
-    ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status', 'filter-source'].forEach(id => {
+    ['filter-djbh', 'filter-ent-name', 'filter-task-status', 'filter-response-status', 'filter-source', 'filter-company'].forEach(id => {
         document.getElementById(id).addEventListener('input', () => {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => { currentPage = 1; loadData(); }, 400);

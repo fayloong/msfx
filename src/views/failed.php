@@ -1,5 +1,16 @@
 <?php
 require_once __DIR__ . '/layout.php';
+
+// "所属企业"筛选下拉与编辑弹窗的选项：企业枚举 + `未识别`。
+// 未识别**不是一个企业**，但它确实是 company 列的一个取值（门店认领失败的行），
+// 页面上必须能把它单独筛出来——那正是需要人去查配置或源库的那批。
+$companyOptions = [App\Enterprise::UNIDENTIFIED];
+try {
+    $companyOptions = array_merge(App\Enterprise::names(), $companyOptions);
+} catch (\Throwable $e) {
+    // 企业配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常
+}
+
 layout('失败记录', 'failed');
 ?>
 
@@ -15,6 +26,15 @@ layout('失败记录', 'failed');
             <div class="col-md-2">
                 <label class="form-label small text-muted">往来单位</label>
                 <input type="text" class="form-control" id="ent-name" placeholder="往来单位筛选">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted">所属企业</label>
+                <select class="form-select" id="filter-company">
+                    <option value="">全部</option>
+                    <?php foreach ($companyOptions as $name): ?>
+                        <option value="<?= htmlspecialchars($name) ?>"><?= htmlspecialchars($name) ?></option>
+                    <?php endforeach; ?>
+                </select>
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted">响应状态</label>
@@ -78,6 +98,7 @@ layout('失败记录', 'failed');
                         <th>单据日期</th>
                         <th>单号</th>
                         <th>单据类型</th>
+                        <th>所属企业</th>
                         <th>往来单位</th>
                         <th>追溯码</th>
                         <th>关联任务ID</th>
@@ -178,6 +199,15 @@ layout('失败记录', 'failed');
 							<option value="237">237, 直调退货</option>
 						</optgroup>
 					</select>
+				</div>
+				<div class="mb-3">
+					<label class="form-label">所属企业</label>
+					<select class="form-select" id="edit-company">
+						<?php foreach ($companyOptions as $name): ?>
+							<option value="<?= htmlspecialchars($name) ?>"><?= htmlspecialchars($name) ?></option>
+						<?php endforeach; ?>
+					</select>
+					<div class="form-text">改动会同时重设该任务的凭据为该企业的主授权，重传即按新主体申报。</div>
 				</div>
 				<div class="mb-3">
 					<label class="form-label">单号</label>
@@ -294,16 +324,18 @@ layout('失败记录', 'failed');
         const params = new URLSearchParams();
         const hasKeyword = !!document.getElementById('djbh').value.trim()
             || !!document.getElementById('ent-name').value.trim();
-        ['djbh','ent-name','response-status','filter-source'].forEach(id => {
+        ['djbh','ent-name','response-status','filter-source','filter-company'].forEach(id => {
             const v = document.getElementById(id).value.trim();
             if (v) {
-                const paramName = id === 'ent-name' ? 'ent_name' : id === 'response-status' ? 'response_status' : id === 'filter-source' ? 'source' : id;
+                const paramName = id === 'ent-name' ? 'ent_name' : id === 'response-status' ? 'response_status' : id === 'filter-source' ? 'source' : id === 'filter-company' ? 'company' : id;
                 params.set(paramName, v);
             }
         });
         const [df, dt] = readRange(fpCreated);
         const [rf, rt] = readRange(fpRq);
-        // 关键词检索时忽略默认的 7 天日期范围（用户手动改过日期则正常组合）
+        // 关键词检索时忽略默认的 7 天日期范围（用户手动改过日期则正常组合）。
+        // hasKeyword 只由单号与往来单位决定，**所属企业下拉不算关键词**：
+        // 它是筛选维度，算进来会让"选了企业"顺手丢掉默认日期范围，日期行为被无声改变。
         const ignoreDefaultRq = hasKeyword && !createdTouched;
         if (df && !ignoreDefaultRq) params.set('date_from', df);
         if (dt && !ignoreDefaultRq) params.set('date_to', dt);
@@ -319,14 +351,14 @@ layout('失败记录', 'failed');
             const resp = await fetch('index.php?page=api&action=failed&' + params);
             const data = await resp.json();
             render(data);
-        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="13" class="text-center py-5 text-danger">加载失败</td></tr>'; }
+        } catch(e) { document.getElementById('tbody').innerHTML = '<tr><td colspan="14" class="text-center py-5 text-danger">加载失败</td></tr>'; }
     }
 
     function render(data) {
         const tbody = document.getElementById('tbody');
         total = data.total || 0;
         if (!data.data || !data.data.length) {
-            tbody.innerHTML = '<tr><td colspan="13" class="text-center py-5 text-muted">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="14" class="text-center py-5 text-muted">暂无数据</td></tr>';
         } else {
             tbody.innerHTML = data.data.map(r => {
                 const logId = r.id;
@@ -340,6 +372,7 @@ layout('失败记录', 'failed');
                     <td class="text-nowrap">${esc(r.rq || '-')}</td>
                     <td><code>${esc(r.djbh)}</code></td>
                     <td>${billTypeLabels[r.bill_type] || '-'}</td>
+                    <td class="text-truncate" style="max-width:200px" title="${esc(r.company || '')}">${esc(r.company) || '-'}</td>
                     <td class="text-truncate" style="max-width:220px" title="${esc(r.ent_name || '')}">${esc(r.ent_name) || '-'}</td>
                     <td>
                         ${r.trace_codes
@@ -427,6 +460,20 @@ layout('失败记录', 'failed');
         } catch(e) { alert('重传失败: '+e.message); }
     }
 
+    // 编辑弹窗里"所属企业"的原始值：保存时与之比对，变了才走二次确认
+    let editOriginalCompany = '';
+
+    // 该行上的企业可能不在配置枚举里（配置改过、门店被删）——补一个选项出来。
+    // 否则 <select> 赋值失败会静默落回第一个选项，保存时把企业改错还没人察觉。
+    function ensureCompanyOption(select, company) {
+        if (!company) return;
+        if (Array.from(select.options).some(o => o.value === company)) return;
+        const opt = document.createElement('option');
+        opt.value = company;
+        opt.textContent = company + '（不在当前企业配置中）';
+        select.appendChild(opt);
+    }
+
     async function openEdit(taskId) {
         try {
             const resp = await fetch('index.php?page=api&action=tasks&id=' + taskId);
@@ -438,13 +485,29 @@ layout('失败记录', 'failed');
             document.getElementById('edit-ent-name').value = task.ent_name;
             document.getElementById('edit-trace-codes').value = task.trace_codes || '';
             document.getElementById('edit-bill-type').value = task.bill_type || '';
+            const companySelect = document.getElementById('edit-company');
+            ensureCompanyOption(companySelect, task.company);
+            companySelect.value = task.company || '';
+            editOriginalCompany = task.company || '';
             new bootstrap.Modal(document.getElementById('editModal')).show();
         } catch (e) {
             alert('加载失败: ' + e.message);
         }
     }
 
-    async function saveEdit() {
+    // 改"所属企业"意味着这张单重传时改走另一套凭据（服务端会连带重设 credential），
+    // 那正是"单据申报到哪个主体"的开关，故二次确认；其余字段照原样直接保存
+    function saveEdit() {
+        const company = document.getElementById('edit-company').value;
+        if (company !== editOriginalCompany) {
+            showConfirm('确定把该任务的"所属企业"由「' + (editOriginalCompany || '（空）') + '」改为「' + company
+                + '」吗？重传将按该企业的主授权凭据申报，改动即时落库。', doSaveEdit);
+            return;
+        }
+        doSaveEdit();
+    }
+
+    async function doSaveEdit() {
         const body = JSON.stringify({
             id: document.getElementById('edit-id').value,
             rq: document.getElementById('edit-rq').value,
@@ -452,6 +515,7 @@ layout('失败记录', 'failed');
             ent_name: document.getElementById('edit-ent-name').value,
             trace_codes: document.getElementById('edit-trace-codes').value,
             bill_type: document.getElementById('edit-bill-type').value,
+            company: document.getElementById('edit-company').value,
         });
         try {
             const resp = await fetch('index.php?page=api&action=tasks', {
@@ -559,7 +623,7 @@ layout('失败记录', 'failed');
         load();
     }));
 
-    ['djbh','ent-name','response-status','filter-source'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
+    ['djbh','ent-name','response-status','filter-source','filter-company'].forEach(id => { let t; document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t=setTimeout(()=>{page=1;load();},400); }); document.getElementById(id).addEventListener('change', ()=>{page=1;load();}); });
     fpCreated.config.onChange.push(() => { page=1; load(); });
     fpRq.config.onChange.push(() => { page=1; load(); });
     load();
