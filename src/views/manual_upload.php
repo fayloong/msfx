@@ -226,6 +226,7 @@ layout('手动上传', 'manual-upload');
                         <th>单号</th>
                         <th>单据日期</th>
                         <th>单据类型</th>
+                        <th>追溯码</th>
                         <th class="text-end">码数</th>
                     </tr>
                     </thead>
@@ -233,6 +234,27 @@ layout('手动上传', 'manual-upload');
                 </table>
             </div>
             <div id="retail-empty" class="text-center text-muted py-4 d-none"></div>
+        </div>
+        <!-- 分页条：渲染逻辑照着上传任务页那份搬（两个页面各自内联脚本，没有共享 JS 文件） -->
+        <div class="card-footer bg-transparent" id="retail-pagination"></div>
+    </div>
+</div>
+
+<!-- 追溯码弹窗（门店分支的待补传清单用；与上传任务页那份同一套交互：查看 + 复制） -->
+<div class="modal fade" id="traceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">追溯码</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small" id="trace-count"></p>
+                <div class="bg-light p-3 rounded" style="max-height:400px;overflow:auto;word-break:break-all;font-size:0.85rem" id="trace-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary btn-copy-trace">复制</button>
+            </div>
         </div>
     </div>
 </div>
@@ -287,14 +309,28 @@ layout('手动上传', 'manual-upload');
         const isRetail = currentType() === 'retail';
         branchWholesale.classList.toggle('d-none', isRetail);
         branchRetail.classList.toggle('d-none', !isRetail);
-        if (isRetail) loadRetailTasks(currentCompany());
+        if (isRetail) {
+            // 换门店＝换一份清单：上一家的页码与勾选对新门店没有意义，先清干净再拉
+            resetRetailListState();
+            loadRetailTasks(currentCompany());
+        }
     }
 
     companySelect.addEventListener('change', onCompanyChange);
 
-    // ── 零售分支：待补传清单 + 批量补传 ──
+    // ── 零售分支：待补传清单（分页）+ 批量补传 ──
 
-    let retailRows = [];
+    let retailRows = [];              // 当前页数据
+    let retailRowIndex = new Map();   // id => 该行，**跨页累积**：补传二次确认要按 id 回查单据类型，而被选中的行不一定在当页
+    let retailSelectedIds = new Set();// 勾选集**跨页保留**——翻一页就丢勾选的话，批量补传根本没法用
+    let currentRetailPage = 1;
+
+    function resetRetailListState() {
+        retailRows = [];
+        retailRowIndex = new Map();
+        retailSelectedIds = new Set();
+        currentRetailPage = 1;
+    }
 
     async function loadRetailTasks(company) {
         const tbody = document.getElementById('retail-tbody');
@@ -309,6 +345,7 @@ layout('手动上传', 'manual-upload');
         emptyEl.classList.add('d-none');
         countHint.textContent = '加载中...';
         document.getElementById('retail-check-all').checked = false;
+        document.getElementById('retail-pagination').innerHTML = '';
         updateSelection();
 
         // 凭据下拉：只列已配齐的（待配凭据的门店清单照常可见，但不能补传并写明原因）
@@ -340,15 +377,23 @@ layout('手动上传', 'manual-upload');
         }
 
         try {
-            const resp = await fetch('index.php?page=api&action=manual_retail_tasks&company=' + encodeURIComponent(company));
+            const resp = await fetch('index.php?page=api&action=manual_retail_tasks&company=' + encodeURIComponent(company)
+                + '&page_num=' + currentRetailPage);
             const data = await resp.json();
             if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
 
+            // 当前页越界（多半是本页刚被补传传空）：退到最后一页重拉，别撂一片空白——
+            // 补传成功后行从队列消失是本页最常见的状态变化，不是罕见边界
+            if (data.total > 0 && data.page > data.total_pages) {
+                currentRetailPage = Math.max(1, data.total_pages);
+                return loadRetailTasks(company);
+            }
+            currentRetailPage = data.page;
+
             retailRows = data.data || [];
+            retailRows.forEach(r => retailRowIndex.set(r.id, r));
             const total = data.total || 0;
-            countHint.textContent = total
-                ? ('共 ' + total + ' 条待补传' + (total > retailRows.length ? '（仅列出最早的 ' + retailRows.length + ' 条，处理后再刷新）' : ''))
-                : '';
+            countHint.textContent = total ? ('共 ' + total + ' 条待补传') : '';
 
             if (!retailRows.length) {
                 emptyEl.textContent = '该门店暂无待补传单据。';
@@ -356,15 +401,30 @@ layout('手动上传', 'manual-upload');
             } else {
                 tbody.innerHTML = retailRows.map(r => `
                     <tr>
-                        <td><input type="checkbox" class="form-check-input retail-row-check" value="${r.id}"></td>
+                        <td><input type="checkbox" class="form-check-input retail-row-check" value="${r.id}" ${retailSelectedIds.has(r.id) ? 'checked' : ''}></td>
                         <td>${esc(r.djbh)}</td>
                         <td class="text-nowrap">${esc(r.rq || '-')}</td>
                         <td>${esc(billTypeLabels[r.bill_type] || r.bill_type || '-')}</td>
+                        <td>
+                            ${r.trace_codes
+                                ? `<button class="btn btn-sm btn-outline-secondary btn-retail-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>`
+                                : '<span class="text-muted">-</span>'}
+                        </td>
                         <td class="text-end">${r.code_count}</td>
                     </tr>
                 `).join('');
-                tbody.querySelectorAll('.retail-row-check').forEach(cb => cb.addEventListener('change', updateSelection));
+                tbody.querySelectorAll('.retail-row-check').forEach(cb => cb.addEventListener('change', function() {
+                    const id = parseInt(this.value);
+                    if (this.checked) retailSelectedIds.add(id);
+                    else retailSelectedIds.delete(id);
+                    updateSelection();
+                }));
+                tbody.querySelectorAll('.btn-retail-trace').forEach(btn => {
+                    btn.addEventListener('click', () => showTrace(btn.dataset.trace));
+                });
             }
+
+            renderRetailPagination(data);
         } catch (e) {
             countHint.textContent = '';
             emptyEl.textContent = '清单加载失败：' + e.message;
@@ -374,24 +434,79 @@ layout('手动上传', 'manual-upload');
         updateSelection();
     }
 
-    function selectedIds() {
-        return Array.from(document.querySelectorAll('.retail-row-check:checked')).map(cb => parseInt(cb.value));
-    }
-
+    // 计数取自勾选集而非 DOM——DOM 里只有当前页的行，翻页后仍在勾选集里的行数会少算
     function updateSelection() {
-        const ids = selectedIds();
-        document.getElementById('retail-selected-count').textContent = ids.length;
+        document.getElementById('retail-selected-count').textContent = retailSelectedIds.size;
         const credSelect = document.getElementById('retail-credential');
-        document.getElementById('btn-retail-batch').disabled = !ids.length || !credSelect.dataset.usable;
+        document.getElementById('btn-retail-batch').disabled = !retailSelectedIds.size || !credSelect.dataset.usable;
     }
 
+    // 追溯码弹窗：与上传任务页的"查看追溯码"同一套（全量列出 + 一键复制）
+    function showTrace(traceCodes) {
+        document.getElementById('trace-count').textContent =
+            '共 ' + traceCodes.split(',').filter(Boolean).length + ' 个追溯码';
+        document.getElementById('trace-content').textContent = traceCodes;
+        new bootstrap.Modal(document.getElementById('traceModal')).show();
+    }
+
+    // 分页条：整段照搬上传任务页（那里也是 IIFE 内的私有函数，两个页面没有共享 JS 文件）
+    function getPageNumbers(current, total, max) {
+        if (total <= max) return Array.from({length: total}, (_, i) => i + 1);
+        const half = Math.floor(max / 2);
+        let start = Math.max(2, current - half);
+        let end = Math.min(total - 1, current + half);
+        if (current <= half + 1) { end = Math.min(total - 1, max - 1); }
+        if (current >= total - half) { start = Math.max(2, total - max + 2); }
+        const pages = [1];
+        if (start > 2) pages.push('...');
+        for (let i = start; i <= end; i++) pages.push(i);
+        if (end < total - 1) pages.push('...');
+        pages.push(total);
+        return pages;
+    }
+
+    function renderRetailPagination(data) {
+        const container = document.getElementById('retail-pagination');
+        if (!data.total_pages || data.total_pages <= 1) {
+            container.innerHTML = '<div class="text-center text-muted small py-2">共 ' + data.total + ' 条</div>';
+            return;
+        }
+        let html = '<nav><ul class="pagination pagination-sm justify-content-center mb-0">';
+        html += `<li class="page-item ${data.page <= 1 ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${data.page - 1}">&laquo;</a></li>`;
+        getPageNumbers(data.page, data.total_pages, 10).forEach(p => {
+            if (p === '...') {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            } else {
+                html += `<li class="page-item ${p === data.page ? 'active' : ''}"><a class="page-link" href="#" data-page="${p}">${p}</a></li>`;
+            }
+        });
+        html += `<li class="page-item ${data.page >= data.total_pages ? 'disabled' : ''}"><a class="page-link" href="#" data-page="${data.page + 1}">&raquo;</a></li>`;
+        html += '</ul><div class="text-center text-muted small mt-1">共 ' + data.total + ' 条，第 ' + data.page + '/' + data.total_pages + ' 页</div></nav>';
+        container.innerHTML = html;
+
+        container.querySelectorAll('.page-link').forEach(a => {
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (this.parentElement.classList.contains('disabled')) return;
+                currentRetailPage = parseInt(this.dataset.page);
+                loadRetailTasks(currentCompany());
+            });
+        });
+    }
+
+    // 全选只作用于**当前页**（跨页的选择由用户逐行勾）——与上传任务页的取舍一致
     document.getElementById('retail-check-all').addEventListener('change', function() {
-        document.querySelectorAll('.retail-row-check').forEach(cb => { cb.checked = this.checked; });
+        document.querySelectorAll('.retail-row-check').forEach(cb => {
+            cb.checked = this.checked;
+            const id = parseInt(cb.value);
+            if (this.checked) retailSelectedIds.add(id);
+            else retailSelectedIds.delete(id);
+        });
         updateSelection();
     });
 
     document.getElementById('btn-retail-batch').addEventListener('click', async function() {
-        const ids = selectedIds();
+        const ids = Array.from(retailSelectedIds);
         const company = currentCompany();
         const credential = document.getElementById('retail-credential').value;
         if (!ids.length) { alert('请先勾选要补传的单据'); return; }
@@ -401,9 +516,9 @@ layout('手动上传', 'manual-upload');
         let confirmMsg = '确认对门店「' + company + '」的 ' + ids.length + ' 条单据发起补传？\n\n'
             + '补传是向码上放心平台的真实申报，不可逆。';
         // 104/203（调拨）的 fromUserId/toUserId 方向仍待外部系统工程师确认（ADR 0010）；
-        // 单条入口同样暴露该风险，但批量会一次放大成一批，故在确认框里点名
-        const byId = new Map(retailRows.map(r => [r.id, r]));
-        const ambiguous = ids.filter(id => ['104', '203'].includes((byId.get(id) || {}).bill_type));
+        // 单条入口同样暴露该风险，但批量会一次放大成一批，故在确认框里点名。
+        // 单据类型从跨页累积的索引里查：被选中的行不一定在当页的数据里
+        const ambiguous = ids.filter(id => ['104', '203'].includes((retailRowIndex.get(id) || {}).bill_type));
         if (ambiguous.length) {
             confirmMsg += '\n\n⚠️ 本批含 ' + ambiguous.length + ' 张 104/203（调拨）单据：'
                 + '其 fromUserId/toUserId 照搬源表同名列，但发货/收货语义仍待外部系统工程师确认（ADR 0010）——'
@@ -435,9 +550,10 @@ layout('手动上传', 'manual-upload');
             appendLog(logEl, 'error', '请求失败: ' + err.message);
         } finally {
             spinner.classList.add('d-none');
-            // 传完刷新清单：已处理的单据不再出现在"待补传"里（失败的也不在了——它的出口是失败记录页）
+            // 传完刷新清单：已处理的单据不再出现在"待补传"里（失败的也不在了——它的出口是失败记录页）。
+            // 这批单据都已处置过，勾选集清空；页码保持不动，本页被传空时 loadRetailTasks 会自己回退到最后一页
+            retailSelectedIds.clear();
             loadRetailTasks(company);
-            updateSelection();
         }
     });
 
@@ -644,6 +760,22 @@ layout('手动上传', 'manual-upload');
     }
 
     function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    // 追溯码弹窗的复制：逗号换成换行（粘到 Excel/记事本就是一行一个码）——与上传任务页同一套
+    document.querySelector('.btn-copy-trace').addEventListener('click', () => {
+        const text = document.getElementById('trace-content').textContent.replace(/,/g, '\n');
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        ta.style.top = '0';
+        document.querySelector('#traceModal .modal-body').appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        alert('已复制到剪贴板');
+    });
 
     document.getElementById('btn-copy-log').addEventListener('click', () => {
         const text = document.getElementById('progress-log').innerText;
