@@ -1,7 +1,7 @@
 # 05: 零售补传的请求装配 + 测试接缝
 
 - Type: task
-- Status: ready-for-agent
+- Status: done（2026-09-30）
 - Blocked by: 04
 - 关联：spec.md §3、Testing Decisions（本 feature 收敛为 2 个接缝，这一票落地第 2 个）、docs/adr/0008-retail-claim-by-platform-id.md
 
@@ -60,13 +60,39 @@
 
 ## 验收
 
-- [ ] `uploadinoutbill` 用例（`104`/`203`）：`getApiParas()` 中 `client_type = "2"`、`physic_type` 非空、
+- [x] `uploadinoutbill` 用例（`104`/`203`）：`getApiParas()` 中 `client_type = "2"`、`physic_type` 非空、
       `ref_user_id == 凭据.ref_ent_id`、`from_user_id` / `to_user_id` == 源表对应列；并通过 `check()`
-- [ ] `uploadretail` 用例（`321`/`116`）：`getApiParas()` **不含** `client_type`（该类无此字段）、
+- [x] `uploadretail` 用例（`321`/`116`）：`getApiParas()` **不含** `client_type`（该类无此字段）、
       **不含** `from_user_id`（可为空，本轮不填）；必填项齐备并通过 `check()`
-- [ ] **必须包含一个 `ref_ent_id ≠ ent_id` 的用例**：把 `refUserId` 与 `ent_id` 对换，测试必须变红
+- [x] **必须包含一个 `ref_ent_id ≠ ent_id` 的用例**：把 `refUserId` 与 `ent_id` 对换，测试必须变红
   - 新江分店是 15 家里唯一这样的门店（旧 entId 用到 2025-07、新 refEntId 自 2024-03 起，两个 ID 都在源库出现）——
     用例的**形状**照它构造，**取值用占位符**（平台 ID 属凭据级信息，不入仓）
   - 用 `ref_ent_id == ent_id` 的门店做用例，互换了也测不出来，等于没测
-- [ ] 两个接口各一个用例，断言路由确实按 `(企业类型, 单据类型)` 走而不是硬编码
-- [ ] 码上限断言取自路由：`104` → 10000、`321` → 3500（不是全局常量 3500）
+  - **变异实测**：把实现的 `setRefUserId` 改成取 `ent_id` → **5 项 FAIL**；另加一条 `from/to` 两列互换的变异 → **3 项 FAIL**
+    （fixture 里 `from_user_id ≠ to_user_id`，`from/to` 照搬那两条断言同样有辨别力）
+- [x] 两个接口各一个用例，断言路由确实按 `(企业类型, 单据类型)` 走而不是硬编码
+  - 四个类型逐个断言 `Enterprise::route()` 给的类，且 `get_class($assembled['request'])` 与之相等
+- [x] 码上限断言取自路由：`104` → 10000、`321` → 3500（不是全局常量 3500）
+  - 另断言"路由上限 == SDK 自己的 `checkMaxListSize`"：`104` 恰好 10000 个码装配通过、10001 个码装配拒绝；
+    `321` 恰好 3500 通过、3501 拒绝（上限取自路由，SDK 侧不硬编码）
+
+## 实现笔记（超出票面的必要处理）
+
+- **⚠️ 装配的三个字段没有落库路径（本票定案：只做纯函数，不动表结构）**：`from_user_id` / `to_user_id` /
+  `physic_type` 在 `upload_tasks` 里没有列，`fetch_bills_retail.php` 只把前两列用于**认领**、连 `physic_type`
+  都没 `SELECT`。票面写的输入是"已落库的零售单据"，而落库行给不出这三个值——**开工前已就此问过用户**，
+  定案：本票只交付纯函数接缝（输入数组带这三列，形状＝落库任务列 + 源表同名列），
+  **补齐落库路径（加列 + 采集写入）留给工单 06**（其票面写着"元数据全部取自采集时落库的记录"，届时必须先补）。
+  详见 `docs/adr/0010` 的 Consequences
+- **`RetailRequestAssembler` 自己 `require_once top_sdk/TopSdk.php`**：请求类不在 composer 的 autoload 里，
+  由 SDK 自己的 Autoloader 加载；本类不依赖 `ApiClient`（纯函数），故照 `ApiClient` 的写法在文件顶部引入
+- **`method_exists($req, 'setClientType')` 做接口能力探测**，不做类名 `if/else`：`clientType` 是
+  `uploadinoutbill` 独有的字段（`uploadretail` 类里根本没有），用它判定"这批参数只有 uploadinoutbill 需要"；
+  票面要求的"不硬编码类名"因此也覆盖了装配分支
+- **装配末尾调 `check()`（fail-closed）**：缺任必填项即抛带单号的 `\RuntimeException`，
+  挡住的是"装配出一个必被平台退回、却已经把单号占掉的请求"；`TopClient::execute()` 调用前本来也会 `check()`
+- **测试不手抄必填清单**：`checkOnlyRequiredParas()` 从 `getApiParas()` 的键反推 setter、逐项清空后断言
+  `check()` 必抛。既钉住"必填项齐备"，又钉住"没多填可选字段"——多填的项清空后 `check()` 不抛，直接测红
+- **非零售一律拒装配**（批发 / `未识别` / 未知企业 / 无路由的单据类型），与 `UploadService::resolveContext`
+  同向的 fail-closed：拿零售模板装配批发单据同样是把单据报到错误主体
+- **未被任何链路调用**：本票只交付接缝本身（纯函数 + 测试），接入点是工单 06 的补传流程

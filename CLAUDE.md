@@ -38,6 +38,7 @@ root/
 │   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算），区分网络/业务错误
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合、fetchWmsCodesByDjbhList 第 2 级码基线现查）
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传
+│   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：零平台调用、零 IO）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；补传入口在工单 06
 │   ├── TraceSplitter.php         # 导出拆行：追溯码按字符数拆多行（每行 ≤32000 字符）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
 │   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载）
@@ -93,6 +94,7 @@ root/
 │   ├── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php）
 │   ├── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
 │   ├── enterprise_config_test.php # App\Enterprise 自包含断言测试：配置解析/门店认领/接口路由/配置自检
+│   ├── retail_upload_test.php    # App\RetailRequestAssembler 自包含断言测试：lsyd 入参映射（refUserId 取凭据 ref_ent_id、from/to 照搬源表列、clientType=2、码上限取自路由），判据用请求类自己的 check()
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
@@ -367,6 +369,7 @@ php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php 2026-08-16
 php /usr/share/nginx/mashangfangxin/tests/trace_splitter_test.php
 php /usr/share/nginx/mashangfangxin/tests/quantity_check_test.php
 php /usr/share/nginx/mashangfangxin/tests/enterprise_config_test.php
+php /usr/share/nginx/mashangfangxin/tests/retail_upload_test.php
 
 # 查询单号在码上放心平台的上传状态（searchbill.detail；输出 JSON + 另存 tests/searchbill_<单号>.json）
 php /usr/share/nginx/mashangfangxin/tests/search_bill_test.php XSOWMS00997501
