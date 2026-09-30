@@ -421,6 +421,46 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         }
     }
 
+    // 所属企业列末尾的状态徽标：两种"不能补传"的原因要**看得见**，不能只藏在 hover 提示里——
+    // "未识别 / 门店不在配置中"是真异常（该去查配置或源库），"待配凭据"是预期内的正常状态
+    // （只是在等 AppKey/SECRETKEY），两者必须能一眼分开。返回 [badgeClass, 文案] 或 null。
+    function companyBadge(r) {
+        if (r.company === '未识别') {
+            return ['bg-danger', '未识别'];
+        }
+        if (r.source !== 'retail') {
+            return null;
+        }
+        const store = retailStores[r.company];
+        if (!store || !store.length) {
+            return ['bg-danger', '门店不在配置中'];
+        }
+        if (!store.some(c => c.configured)) {
+            return ['bg-secondary', '待配凭据'];
+        }
+        return null;
+    }
+
+    // 所属企业格：认不到门店时整格只显示徽标（与工单 03 的行为一致），否则"门店名 + 状态徽标"
+    function companyCell(r, unidentified) {
+        const badge = companyBadge(r);
+        if (!badge) {
+            return esc(r.company || '-');
+        }
+        const span = `<span class="badge ${badge[0]}" title="${esc(companyBadgeHint(badge[1]))}">${esc(badge[1])}</span>`;
+        return unidentified ? span : `${esc(r.company)} ${span}`;
+    }
+
+    function companyBadgeHint(text) {
+        if (text === '未识别') {
+            return '门店认领失败：企业配置里没有这家门店，或源库改了名——真异常信号，需人工核查';
+        }
+        if (text === '待配凭据') {
+            return 'AppKey/SECRETKEY 尚未到手，暂时不能补传（预期内的正常状态，不是异常）';
+        }
+        return '该门店不在企业配置中，无法补传';
+    }
+
     // 零售行的补传入口：禁用态必须写明**是哪种原因**——"未识别"（该去查源库/配置）
     // 与"待配凭据"（等密钥到手，预期内的正常状态）含义完全不同，混成一句"不可用"会误导人
     function retailRetryButton(r) {
@@ -462,9 +502,7 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
                 <td class="text-nowrap">${esc(r.rq)}</td>
                 <td><code>${esc(r.djbh)}</code></td>
                 <td>${billTypeLabels[r.bill_type] || '-'}</td>
-                <td class="text-truncate" style="max-width:200px" title="${esc(r.company || '')}">${unidentified
-                    ? '<span class="badge bg-danger">未识别</span>'
-                    : esc(r.company || '-')}</td>
+                <td class="text-truncate" style="max-width:200px" title="${esc(r.company || '')}">${companyCell(r, unidentified)}</td>
                 <td class="text-truncate" style="max-width:220px" title="${esc(r.ent_name || '')}">${esc(r.ent_name)}</td>
                 <td>
                     ${r.trace_codes

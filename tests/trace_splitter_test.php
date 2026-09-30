@@ -4,11 +4,17 @@
  *
  * 运行: php tests/trace_splitter_test.php
  *
- * 测试目标: 导出 xlsx 时追溯码按字符数拆行的行为。
- * 拆分语义对齐 UploadService::splitBillCodes:
+ * 测试目标: 追溯码的两种拆法——
+ *   splitByCharLimit(): 导出 xlsx 按字符数拆行（用例 1-10）
+ *   splitByCount():     上传按码数拆单（用例 11-15），上限由调用方给
+ *                       （批发 kyt 3500、零售 lsyd 10000/3500，见 App\Enterprise::route()）
+ * 两者共用的语义:
  *   - 按逗号 split 并过滤空值
  *   - 超限时所有分片单号带 _N 后缀（含第一个分片）
  *   - 已带后缀的单号再拆时追加后缀（xxx_1 → xxx_1_1, xxx_1_2…）
+ *   - 不超限时原样返回（不改写、不过滤、不加后缀）
+ * 注: splitByCount 原为 UploadService::splitBillCodes（无测试），随工单 06 收进本类以消除
+ * 拆单逻辑的第二份实现，故用例 11-15 同时是批发拆单的回归网。
  */
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -130,6 +136,40 @@ check('自定义 limit=1000 拆为 3 片', count($result) === 3, '实际 ' . cou
 foreach ($result as $pieceCodes) {
     check('自定义 limit 每片不超限', mb_strlen($pieceCodes) <= 1000, mb_strlen($pieceCodes) . ' 字符');
 }
+
+// ---------- 用例 11: splitByCount 不超限短路，原样返回 ----------
+$codesStr = implode(',', makeCodes(100));
+$result = TraceSplitter::splitByCount('JHGWMS001', $codesStr, 3500);
+check('按码数：不超限返回 1 片', count($result) === 1, '实际 ' . count($result) . ' 片');
+check('按码数：不超限键为原单号', array_key_first($result) === 'JHGWMS001', '键: ' . array_key_first($result));
+check('按码数：不超限码原样返回', reset($result) === $codesStr, '值被改写');
+
+// ---------- 用例 12: splitByCount 边界（恰好等于上限不拆，多一个就拆） ----------
+$exact = implode(',', makeCodes(250));
+check('按码数：恰好 250 码不拆', count(TraceSplitter::splitByCount('JHGWMS001', $exact, 250)) === 1);
+
+$result = TraceSplitter::splitByCount('JHGWMS001', implode(',', makeCodes(251)), 250);
+check('按码数：251 码拆 2 片', count($result) === 2, '实际 ' . count($result) . ' 片');
+check('按码数：分片命名 单号_1/单号_2', array_keys($result) === ['JHGWMS001_1', 'JHGWMS001_2'], implode(',', array_keys($result)));
+check('按码数：首片满 250、尾片 1', substr_count($result['JHGWMS001_1'], ',') + 1 === 250
+    && substr_count($result['JHGWMS001_2'], ',') + 1 === 1);
+
+// ---------- 用例 13: splitByCount 多片时码无遗漏无重复 ----------
+$result = TraceSplitter::splitByCount('JHGWMS001', implode(',', makeCodes(1000)), 300);
+check('按码数：1000 码 / 上限 300 拆 4 片', count($result) === 4, '实际 ' . count($result) . ' 片');
+$all = implode(',', array_values($result));
+check('按码数：码总数无遗漏无重复', substr_count($all, ',') + 1 === 1000, '合计 ' . (substr_count($all, ',') + 1) . ' 个码');
+check('按码数：键依次 _1.._4', array_keys($result) === ['JHGWMS001_1', 'JHGWMS001_2', 'JHGWMS001_3', 'JHGWMS001_4']);
+
+// ---------- 用例 14: splitByCount 过滤空码（10 个真码 + 1 个空码，上限 10 → 不拆） ----------
+// 有辨别力：不够滤的话是 11 段 > 10，会拆成 2 片
+$codes = makeCodes(10);
+$withEmpty = str_replace($codes[5], $codes[5] . ',,', implode(',', $codes)); // code5,,code6
+check('按码数：空码被过滤后不拆', count(TraceSplitter::splitByCount('JHGWMS001', $withEmpty, 10)) === 1,
+    '实际 ' . count(TraceSplitter::splitByCount('JHGWMS001', $withEmpty, 10)) . ' 片');
+
+// ---------- 用例 15: splitByCount 非法上限（≤0）不拆、不抛 ----------
+check('按码数：上限 0 不拆', count(TraceSplitter::splitByCount('JHGWMS001', $exact, 0)) === 1);
 
 echo "\n";
 if ($failures === 0) {

@@ -15,8 +15,14 @@
  * - 凭据由操作者在页面上**显式选择**（本轮不做多套凭据的自动分发规则，由人指定比猜一套规则可靠）
  *
  * **不做 flock**（批发链路有 `logs/upload.lock`，那是给 cron 与批量共用的入口互斥用的）：本入口
- * 由人点击触发、每次一张单，并发最多撞上"同一个人连点两下"——第二发会得到平台的"该单据号已存在"
+ * 由人点击触发、每次一张单，同单并发最多撞上"同一个人连点两下"——第二发会得到平台的"该单据号已存在"
  * （→ 单据重复），平台自身的单号唯一性就是兜底，加锁只是多一个状态文件要维护。
+ *
+ * 限流侧同理：平台的限流池按 AppKey 计，本入口用的是各门店自己的 AppKey，与河药的
+ * `check_bill_status` 8-20 点窗口不共享池子。**但配置并不禁止两套凭据共用同一个 AppKey**
+ * （同一开发者账号下的多个企业本就可以合法共用，故 `Enterprise::validate()` 不拦），所以
+ * 真有门店与河药共用 AppKey 时，"补传不受 8-20 点窗口约束"这条就不再成立——那时才需要拿锁
+ * 与错峰，别默认它永远成立。
  */
 
 use App\ApiClient;
@@ -25,9 +31,10 @@ use App\Database;
 use App\Enterprise;
 use App\LogWriter;
 use App\RetailRequestAssembler;
+use App\TraceSplitter;
 
 /** 上传日志的来源值：与 task 行的 source='retail'（采集）区分开，标识"这次是人工补传" */
-const RETAIL_SOURCE = 'retail_retry';
+const RETAIL_RETRY_SOURCE = 'retail_retry';
 
 /** 重试与限速：沿用批发链路的既有约定（见 UploadService 顶部常量） */
 const RETAIL_MAX_RETRIES = 3;
@@ -144,7 +151,8 @@ function retailRetransmit(array $task, string $credentialKey, Database $db, call
         'physic_type' => (string)($task['physic_type'] ?? ''),
     ];
 
-    $chunks = splitRetailBillCodes($djbh, $bill['trace_codes'], (int)$route['limit']);
+    // 码上限取自路由（104/203 → 10000、321/116 → 3500），拆单命名沿用批发约定 单号_1、单号_2…
+    $chunks = TraceSplitter::splitByCount($djbh, $bill['trace_codes'], (int)$route['limit']);
 
     $client = new ApiClient((string)$credential['appkey'], (string)$credential['secretkey']);
     $logWriter = new LogWriter();
@@ -213,7 +221,7 @@ function uploadRetailSingle(
             'task_id' => $taskId,
             'trace_codes' => $bill['trace_codes'],
             'rq' => $bill['rq'],
-            'source' => RETAIL_SOURCE,
+            'source' => RETAIL_RETRY_SOURCE,
             'company' => $company,
             'credential' => $credentialKey,
         ]);
@@ -264,25 +272,3 @@ function updateRetailTaskStatus(Database $db, int $taskId, string $credentialKey
     );
 }
 
-/**
- * 按接口上限拆单（子单号命名沿用批发约定：单号_1、单号_2…）。
- *
- * 超限才拆，**不超限时单号原样不加后缀**——拆单是异常路径，不该改正常单子的单号。
- * 实测零售单张单据码数上限 1,718，两个 lsyd 接口的上限（10000 / 3500）都够用，这条分支
- * 是给"外部系统当初也传不上去的超大单"留的补传出口（它不拆，这单就永远补不了）。
- *
- * @return array<string,string> 子单号 => 该子单的追溯码（逗号分隔）
- */
-function splitRetailBillCodes(string $djbh, string $traceCodes, int $limit): array
-{
-    $codes = array_filter(explode(',', $traceCodes));
-    if ($limit <= 0 || count($codes) <= $limit) {
-        return [$djbh => $traceCodes];
-    }
-
-    $chunks = [];
-    foreach (array_chunk($codes, $limit) as $i => $chunk) {
-        $chunks[$djbh . '_' . ($i + 1)] = implode(',', $chunk);
-    }
-    return $chunks;
-}

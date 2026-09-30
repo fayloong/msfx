@@ -27,7 +27,7 @@
 - **缺三列的零售行补不出去**：SDK 请求类自己的 `check()` 会把空的 `physicType` 拦下（fail-closed，不会错报主体），操作者看到的是一条带单号的拒绝消息。将来遇到这类行，修法同样是重采该日期。
 - **平台对业务拒绝也返回网关级 `success=true`**：实测「存在已出售的码」这类业务拒绝也是 `{"success":true, ..., "msg_code":"FAIL"}`。因此补传的进度与汇总按**业务结果**计（`上传成功`/`单据重复` 算成功，其余算失败），不照搬 `ApiClient::execute` 的 `success`（那是网关级：无 `code` 错误即 true）——否则一次真实失败会显示成绿色 [成功]、汇总写成"成功 1"。批发链路不在此改动范围内（既有行为，另行处理）。
 - **两个 lsyd 接口的响应与 kyt 是同一套 TOP 信封**（`result.msg_code` / `msg_info` / `response_success`），故 `ApiClient::resolveUploadResponseStatus`（原 `UploadService` 的私有方法，本票上移到 `ApiClient`，与 `isBillFound` / `sumBillDetailCount` / `sumPkgAmount` 这些响应解析器同处）**两个接口族通用**。实测映射：`SUCCESS` + `response_success=true` → `上传成功`；`msg_info` 含"该单据号已存在" → `单据重复`；`msg_code=FAIL` → `上传失败`。
-- **`单据重复` 不进失败记录页**（其自身 `response_status` 即被 `NOT EXISTS` 命中，2026-09-30 实测可见数为 0）：这是 `api/failed.php` 的既有口径，不是本票引入的。
+- **`单据重复` 不进失败记录页**（2026-09-30 实测可见数为 0）。排除它的是 `api/failed.php` 的**第一条条件** `response_status NOT IN ('上传成功','单据重复')`——`单据重复` 自身就不满足它。第二条那个按 `(company, djbh)` 的 `NOT EXISTS` 管的是另一件事："同一单号后来传成功了，它的旧失败记录不再显示"。两条都是既有口径，不是本票引入的。
 - **补传失败的任务从"待补传"里消失**（翻成"已处理"）是刻意的：`待补传` 的含义是"还没被人处理过的门店单据"。
 - **`docs/adr/0010` 的待确认项仍未确认**：首次真传刻意选了 `321`（`uploadretail`，只用 `refUserId`，不碰 `fromUserId`/`toUserId`/`physicType`）。`104`/`203` 的真传仍需外部系统工程师确认发货/收货语义后再做。
 - **补传面对的现实**：平台对**已被申报过的销售单**返回业务错误「存在已出售的码」——即补传不是"重放"，而是真的在申报；外部系统若已传过同一张单，本项目会得到业务错误而不是静默重复。首次真传的三单结果（1 成功 / 1 上传失败 / 1 单据重复）见 `.scratch/retail-chain/issues/06-retail-single-retransmit.md`。

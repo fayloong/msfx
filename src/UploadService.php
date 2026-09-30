@@ -116,7 +116,7 @@ class UploadService
 
         foreach ($bills as $index => $bill) {
             $context = $contexts[$index];
-            $billCodes = $this->splitBillCodes($bill['djbh'], $bill['sn']);
+            $billCodes = TraceSplitter::splitByCount($bill['djbh'], $bill['sn'], self::MAX_TRACE_CODES);
 
             foreach ($billCodes as $subBillCode => $traceCodes) {
                 $result = $this->uploadSingle($subBillCode, $bill, $traceCodes, $context);
@@ -258,25 +258,6 @@ class UploadService
             'company' => $context['company'],
             'credential' => $context['credential_key'],
         ]);
-    }
-
-    /**
-     * 拆分追溯码：超过 3500 个自动拆分单号。
-     */
-    public function splitBillCodes(string $billCode, string $traceCodes): array
-    {
-        $codes = array_filter(explode(',', $traceCodes));
-        if (count($codes) <= self::MAX_TRACE_CODES) {
-            return [$billCode => $traceCodes];
-        }
-
-        $chunks = array_chunk($codes, self::MAX_TRACE_CODES);
-        $result = [];
-        foreach ($chunks as $i => $chunk) {
-            $suffix = $i + 1;
-            $result[$billCode . '_' . $suffix] = implode(',', $chunk);
-        }
-        return $result;
     }
 
     /**
