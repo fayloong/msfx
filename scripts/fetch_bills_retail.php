@@ -1,7 +1,9 @@
 <?php
 /**
  * 从零售源库（dyt 链接服务器）采集门店单据写入上传任务表
- * 用法: php scripts/fetch_bills_retail.php [日期 Y-m-d]（⚠️ 当前口径**无日期过滤**，日期参数只打印不生效）
+ * 用法: php scripts/fetch_bills_retail.php [日期 Y-m-d | --all]
+ *   缺省/日期  → 只采该日（默认当天）的单据，**cron 走这条**
+ *   --all      → **一次性全量快照**：不带 bill_time 条件，把外部系统尚未上传的历史单全部入库
  *
  * 只采集入库、不上传——零售单据由外部系统上传，本项目只做"可见 + 人工补传"（见 docs/adr/0007）。
  * 落库 task_status='待补传'（不复用"等待上传"，那语义是"cron 会来取走并上传"）、source='retail'；
@@ -19,11 +21,12 @@
  *   1. **单条 SQL**：zsm_ls LEFT JOIN zsm_ls_code，不再分"先头后码"两步。
  *   2. **带 NOT EXISTS(update_state)**：只采外部系统尚未上传的单，待补传清单里不再有已上传的单。
  *      代价见 ADR 0007：已上传的单在页面上不可见；update_state 无企业列，跨门店单号重复时它自身会串。
- *   3. **无 bill_time 日期过滤**：每轮全表扫（bill_time 无索引），日期参数不生效。
+ *   3. **默认按 bill_time 限当日**（cron 的口径）；历史欠账用 **`--all` 一次性快照**补——
+ *      `--all` 不带日期条件、全表扫（bill_time 无索引），**跑一次即可，别挂进 cron**。
  *   4. LEFT JOIN 会放大行数：321 存在 14 列值全同的重复行，同一 bill_code 最多 120 行。
  *      故去重挪到 PHP 侧——追溯码用关联数组去重（保序，同 zsm_ls_code 的一码一行），
- *      单据头字段取首次出现的行（重复行各列本就相同）。行数可能到数十万，走 queryEach 逐行消费，
- *      不经 query() 攒数组（那会撞上 CLI 的 memory_limit=128M）。
+ *      单据头字段取首次出现的行（重复行各列本就相同）。`--all` 时行数可能到数十万，
+ *      走 queryEach 逐行消费，不经 query() 攒数组（那会撞上 CLI 的 memory_limit=128M）。
  *
  * 采集口径见 .scratch/retail-chain/spec.md §5；认领走 App\Enterprise::claim()（见 ADR 0008）：
  * 按单据类型取 ID 列（321/116 → from_user_id，104/203 → to_user_id）命中门店登记过的任一平台 ID，
@@ -56,16 +59,22 @@ const RETAIL_BILL_TYPES = [104, 203, 321, 116];
 /** 单号 IN 列表分块大小（规避超长 SQL 与参数上限） */
 const IN_CHUNK_SIZE = 500;
 
-$dateArg = $argv[1] ?? null;
+$arg = $argv[1] ?? null;
+$snapshotAll = ($arg === '--all');
 
-if ($dateArg !== null && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateArg)) {
-    echo "[fetch_bills_retail] 日期格式无效: {$dateArg}，需要 YYYY-MM-DD\n";
+if ($arg !== null && !$snapshotAll && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $arg)) {
+    echo "[fetch_bills_retail] 参数无效: {$arg}，需要 YYYY-MM-DD 或 --all\n";
     exit(1);
 }
 
-echo "[fetch_bills_retail] 开始采集（测试阶段口径：全表扫描、无日期过滤、剔除外部系统已上传的单）\n";
-if ($dateArg !== null) {
-    echo "[fetch_bills_retail] 注意: 日期参数 {$dateArg} 本轮不生效——SQL 不带 bill_time 过滤\n";
+// 采集日期：--all 为 null（不加 bill_time 条件，一次性全量快照）；否则缺省当天
+$date = $snapshotAll ? null : ($arg ?? date('Y-m-d'));
+
+if ($snapshotAll) {
+    echo "[fetch_bills_retail] 开始采集（--all 全量快照：不带日期条件，把外部系统尚未上传的历史单全部入库）\n";
+    echo "[fetch_bills_retail] 注意: 这是一次性入口，跑一次即可——**别挂进 cron**\n";
+} else {
+    echo "[fetch_bills_retail] 开始采集，日期: {$date}（只采该日单据，剔除外部系统已上传的单）\n";
 }
 
 try {
@@ -89,6 +98,13 @@ try {
             where bill_type in (" . implode(', ', RETAIL_BILL_TYPES) . ")
             AND not exists(select * from dyt.bs_msfx.dbo.update_state a where a.bill_code=ls.bill_code)";
 
+    // 日期条件走参数绑定（bill_time 是 varchar(10) 纯日期，等值比较即日期比较）；--all 时不加此条件
+    $params = [];
+    if ($date !== null) {
+        $sql .= "\n            AND ls.bill_time = ?";
+        $params[] = $date;
+    }
+
     echo "[fetch_bills_retail] 正在从源库拉取单据与追溯码...\n";
 
     // ── PHP 侧收口：LEFT JOIN 的重复行在此合并 ──
@@ -97,7 +113,7 @@ try {
     $bills = [];
     $rawRows = 0;
 
-    $ok = $source->queryEach($sql, [], function (array $row) use (&$bills, &$rawRows): void {
+    $ok = $source->queryEach($sql, $params, function (array $row) use (&$bills, &$rawRows): void {
         $rawRows++;
         $billCode = trim((string)($row['bill_code'] ?? ''));
         if ($billCode === '') {

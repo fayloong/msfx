@@ -86,8 +86,8 @@ root/
 ├── scripts/
 │   ├── fetch_bills.php           # cron 从 SQL Server 采集**批发**单据写入上传任务表
 │   ├── fetch_bills_retail.php    # cron 从 dyt 链接服务器采集**零售门店**单据（单条 SQL：LEFT JOIN + NOT EXISTS(update_state)
-│   │                             #  过滤，测试阶段口径；去重在 PHP 侧，走 queryEach 逐行消费；认领走 Enterprise::claim；
-│   │                             #  落库 source=retail / task_status=待补传）
+│   │                             #  过滤，测试阶段口径；默认当日，`--all` 为一次性全量快照入口；去重在 PHP 侧，
+│   │                             #  走 queryEach 逐行消费；认领走 Enterprise::claim；落库 source=retail / task_status=待补传）
 │   ├── upload_pending.php        # cron 批量上传队列中等待中的任务（只取批发主体的"等待上传"）
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
@@ -173,11 +173,13 @@ root/
 
 零售单据由外部系统上传，本项目只做"**可见** + 人工补传"（见 `docs/adr/0007`）：本脚本**只采集入库、不上传**，不调任何平台接口，故不受 8-20 点限流窗口约束（cron 与 fetch_bills 同频、错开 5 分钟，见下方 cron 时间表）。
 
-> ⚠️ **2026-09-30 起为测试阶段临时口径**（用户指定，与 ADR 0007 的原始决定**相反**，测试结束需回收）：采集改为**单条 SQL**（`zsm_ls LEFT JOIN zsm_ls_code`）+ **`NOT EXISTS(update_state)` 过滤**（只采外部系统尚未上传的单）+ **无 `bill_time` 日期过滤**（每轮全表扫，日期参数只打印不生效）。代价照 ADR 0007：已上传的单在页面上不可见；`update_state` 无企业列，跨门店单号重复时它自身会串。原先的"两步 SQL + 全量"口径见 git 历史。
+> ⚠️ **2026-09-30 起为测试阶段临时口径**（用户指定，与 ADR 0007 的原始决定**相反**，测试结束需回收）：采集改为**单条 SQL**（`zsm_ls LEFT JOIN zsm_ls_code`）+ **`NOT EXISTS(update_state)` 过滤**（只采外部系统尚未上传的单）。代价照 ADR 0007：已上传的单在页面上不可见；`update_state` 无企业列，跨门店单号重复时它自身会串。原先的"两步 SQL + 全量"口径见 git 历史。
+>
+> **日期：cron 限当日，历史欠账走 `--all` 一次全量**（2026-09-30 用户定）——不带参数 = 当日；`--all` = 不带 `bill_time` 条件的一次性全量快照，把外部系统尚未上传的历史单一次性入库，**跑一次即可、别挂进 cron**。
 
 - **源**：dyt 链接服务器（`dyt.msfx.dbo.zsm_ls` 单据头 + `zsm_ls_code` 追溯码，**一码一行**；`bs_msfx.dbo.update_state` 单号 + 状态两列，**只读**、仅用于过滤），复用 `SqlSrvHelper` 同一条连接直接查 4 段式名；全程只读 SELECT，不写源库
-- **单条 SQL（测试阶段口径）**：`LEFT JOIN` + `NOT EXISTS(update_state)`，无日期过滤。**必须 LEFT JOIN 而非内连接**——没码的单也要采（它是待补传队列里值得看见的一条）
-- **去重在 PHP 侧收口**：`321` 存在 14 列值全同的完全重复行（同一单号最多 120 行），连接结果随之放大最多 120 倍——追溯码用关联数组去重（保序），单据头字段取首次出现的行（重复行各列本就相同）。行数可能到数十万，走 `SqlSrvHelper::queryEach` **逐行消费**而非 `query()` 攒数组（后者会撞上 CLI 的 `memory_limit=128M`）
+- **单条 SQL（测试阶段口径）**：`LEFT JOIN` + `NOT EXISTS(update_state)` + `bill_time = ?`（默认当日；`--all` 时不加这一段）。**必须 LEFT JOIN 而非内连接**——没码的单也要采（它是待补传队列里值得看见的一条）
+- **去重在 PHP 侧收口**：`321` 存在 14 列值全同的完全重复行（同一单号最多 120 行），连接结果随之放大最多 120 倍——追溯码用关联数组去重（保序），单据头字段取首次出现的行（重复行各列本就相同）。`--all` 时行数可能到数十万，走 `SqlSrvHelper::queryEach` **逐行消费**而非 `query()` 攒数组（后者会撞上 CLI 的 `memory_limit=128M`）
 - **`physic_type` 必须显式取**：老 SQL 里没有这列，但补传装配要它（ADR 0010）——漏掉它，`104`/`203` 那些单会被 SDK 的 `check()` 拒掉且**永远补不出去**
 - **单据类型写死四种** `104`/`203`/`321`/`116`（`bill_type` 是 int；第五种 `999` 语义未明，用户判定不采）；`bill_time` 是 `varchar(10)` 纯日期
 - **无计数门卫**（`fetch_bill_counter.json` 那套是为"重视图查询空转"设计的，零售是幂等去重，门卫只省一次扫描却多一份状态文件）；**不需要拆单**（实测单张单据码数上限 1,718 < 3500）
@@ -375,10 +377,13 @@ php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php 2026-07-28
 
 # 采集零售门店单据（dyt 链接服务器；只读源库、不调平台接口，随时可跑）
 # 落库 task_status='待补传' / source='retail'，需要 nginx 或跑完 chown（同 init_db 的属主注意事项）
-# ⚠️ 2026-09-30 起为测试阶段临时口径：单条 SQL（LEFT JOIN + NOT EXISTS(update_state) 过滤掉外部系统
-#    已上传的单）、**无日期过滤**（全表扫，下面的日期参数只打印不生效）
-php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php
-php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php 2026-09-28  # 日期不生效
+# ⚠️ 2026-09-30 起为测试阶段临时口径：单条 SQL（LEFT JOIN + NOT EXISTS(update_state)，
+#    只采外部系统尚未上传的单）
+php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php             # 当天（cron 的口径）
+php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php 2026-09-28  # 指定日期
+# 一次性全量快照：不加 bill_time 条件，把外部系统尚未上传的历史单全部入库
+# ⚠️ 跑一次即可、别挂进 cron；建议错开 :00/:30（那是 fetch_bills 的写库窗口）
+php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php --all
 
 # 批量上传队列中等待上传的任务（只取批发主体的记录：task_status='等待上传' AND company=批发主体）
 # 零售单据是 task_status='待补传'，本脚本不取；即便状态被误改，UploadService 的守卫也会拒传
