@@ -38,8 +38,8 @@
 
 - **批量查询上传状态 (Batch Check)**：由**两个脚本**分担、共用同一套查询/更新语义，仅调度频率不同，各带独立 flock 锁（`LOCK_EX|LOCK_NB`，锁被占用直接退出防并发）。两者取数一律**只查批发主体**（`company` 白名单）——拿门店单号去查只会得到"信息不存在"，白烧调用还可能把状态翻错。
 
-  - **来源 1 `scripts/check_bill_status.php`**（等待上传任务，高频，cron 8-20 点每 30 分钟）：查 `upload_tasks` 中 `task_status=等待上传` 的任务 → 逐个调 `ApiClient::searchBillDetail()`（API 间隔 0.5s）→ 已上传的标记任务 `已处理` 并写 `upload_logs`（来源 `batch_check`）；"信息不存在"仅更新 `updated_at`
-  - **来源 2 `scripts/check_failed_logs.php`**（失败记录，低频，每天 20:40）：查 `upload_logs` 中未上传成功的记录 → 按 `djbh` 去重（同单多条失败记录只查一次 API）→ 平台存在则把记录翻转为"上传成功"并同步关联任务（`task_id>0` 标 `已处理`）；"信息不存在"仅 touch
+  - **来源 1 `scripts/check_bill_status.php`**（等待上传任务，高频，cron 8-20 点每 30 分钟）：查 `upload_tasks` 中 `task_status=等待上传` 的任务 → 逐个调 `ApiClient::searchBillDetail()`（API 间隔 0.5s）→ 已上传的标记任务 `已处理` 并写 `upload_logs`（来源 `batch_check`）；"信息不存在"只动时间戳、不改状态
+  - **来源 2 `scripts/check_failed_logs.php`**（失败记录，低频，每天 20:40）：查 `upload_logs` 中未上传成功的记录 → 按 `djbh` 去重（同单多条失败记录只查一次 API）→ 平台存在则把记录翻转为"上传成功"并同步关联任务（`task_id>0` 标 `已处理`）；"信息不存在"同样只动时间戳
 
   查询受**新鲜度门卫**约束：两表各带 `last_checked_at` 列记录上次成功查询时间，距上次查询不足 30 分钟（常量 `CHECK_INTERVAL_MINUTES`）的单据直接跳过。循环内"已确认在平台跳过"（SQLite 已有上传成功/单据重复记录，按 `(company, djbh)` 判重）不调 API：`check_bill_status` 对任务直接标记 `已处理` 并一并 touch；`check_failed_logs` 保留历史记录、`continue` 不 touch。**仅 API 异常不 touch**，下次 cron 自动重查。新单据 `last_checked_at` 为 NULL，天然立即查。
 

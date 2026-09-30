@@ -377,6 +377,15 @@ FROM upload_tasks WHERE task_status = '等待上传'
    - 官方文档与之一致：uploadinoutbill（apiId 52555）/ uploadretail（apiId 52554）
    - 故：**不是所有单据都需要单位 ID**——321/116 只需要 `refUserId` 一个
 
+用户在本轮定的两条：
+
+- **零售补传入口做两处**：数据页单条补传（工单 06）+ 手动上传页选定门店后的批量补传（工单 07）
+- **lsyd 入参 `fromUserId` / `toUserId` 照搬源表同名列**（`zsm_ls.from_user_id` / `to_user_id`），仅 `uploadinoutbill` 用。
+  ⚠️ 与之并存的一条待确认：SDK 的 docblock 把这两个字段写作"发货企业 entId" / "收货企业 entId"（发货/收货语义），
+  而源表 104/203 两类的 `from_user_id` 都只有总部一个值、`to_user_id` 才是门店（不随调拨方向翻转）。
+  若严格按发货/收货语义，203 应反向使用两列——这条无法从代码自证，**需向外部系统工程师确认**（工单 05 里标为暂定，
+  确认结果只改那条断言）。`refUserId` 取**凭据**的 `ref_ent_id` 则无争议（SDK docblock 写死："该入参是 ref_ent_id，不是 ent_id"）
+
 ### 2026-09-30 工单 09 文档收尾（第九轮会话）
 
 把上方"实施状态"表**回填为实际完成情况**（01–08 各带提交号，09 本票），文首 Status 由 `ready-for-agent` 改为 `done`，
@@ -385,11 +394,5 @@ FROM upload_tasks WHERE task_status = '等待上传'
 **本轮只改文档**，未动 `src/` / `scripts/` / `config/`，未写 `data/msfx.db`。复核方式、发现与结论见
 `issues/09-docs-closeout.md` 的"验证证据"。上方 to-tickets 轮那句"工单 09 收尾时会把该表回填"至此兑现。
 
-
-
-- **零售补传入口做两处**：数据页单条补传（工单 06）+ 手动上传页选定门店后的批量补传（工单 07）
-- **lsyd 入参 `fromUserId` / `toUserId` 照搬源表同名列**（`zsm_ls.from_user_id` / `to_user_id`），仅 `uploadinoutbill` 用。
-  ⚠️ 与之并存的一条待确认：SDK 的 docblock 把这两个字段写作"发货企业 entId" / "收货企业 entId"（发货/收货语义），
-  而源表 104/203 两类的 `from_user_id` 都只有总部一个值、`to_user_id` 才是门店（不随调拨方向翻转）。
-  若严格按发货/收货语义，203 应反向使用两列——这条无法从代码自证，**需向外部系统工程师确认**（工单 05 里标为暂定，
-  确认结果只改那条断言）。`refUserId` 取**凭据**的 `ref_ent_id` 则无争议（SDK docblock 写死："该入参是 ref_ent_id，不是 ent_id"）
+另：本节首次落位时错插到了第五轮"用户在本轮定的两条"与其两条 bullet 之间（把引导句删掉了、把 bullet 挂到了本节之下）。
+**"专治文档错位"的收尾票自己制造了一处错位**——已由 code-review 的 Spec 轴指出并修正，引导句归位、本节移到文末。

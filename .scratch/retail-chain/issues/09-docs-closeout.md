@@ -1,7 +1,7 @@
 # 09: 文档收尾复核
 
 - Type: task
-- Status: done（2026-09-30）
+- Status: done（2026-09-30，代码与文档已收尾；验收第 3 项由收尾的 push 动作兑现）
 - Blocked by: 02, 03, 04, 05, 06, 07, 08（均已 done）
 - 关联：`CLAUDE.md` 的"文档同步规则"
 
@@ -55,7 +55,7 @@
 
 - **cron 表**（`crontab -l`）：`fetch_bills` `0,30 0,1,2,3,8-23`、`fetch_bills_retail` `5,35 0,1,2,3,8-23`、`check_bill_status` `*/30 8-20`、`check_failed_logs` `40 20`、`cleanup_logs` `0 3` 五条在跑，`check_quantity` **未调度**——与文档的表逐条一致
 - **取数白名单**：`upload_pending` / `check_bill_status` / `check_failed_logs` / `check_quantity` 四处 SQL 都带 `company = ?`；`fetch_bills_retail` 全程只 `SELECT`（不写源库）
-- **ADR**：0001–0011 编号连续、无缺号；全部 `ADR NNNN` 交叉引用都能落到具体文件，**无悬空引用**
+- **ADR**：仓库**没有独立的 ADR 索引文件**（`docs/adr/` 下只有 0001–0011 正文，没有 README 之类的索引）——故票面所称"索引"实为**各文档对 ADR 的引用**，按此核对：编号 0001–0011 连续、无缺号；全部 `ADR NNNN` 交叉引用都能落到具体文件，**无悬空引用**
 - **测试用例 16** 与 `CLAUDE.md` 对它的描述逐字相符（2000 码的 104 在上限 10000 下不拆、4000 码的 321 在 3500 下拆 3500+500）
 - **企业枚举**：`config/enterprises.php` 实为 1 批发 + 15 门店 = 16 家 → 下拉 17 项（+`未识别`）✓；`enterprises.local.php` 已配 **5** 套门店凭据 ✓ —— 与 spec「外部依赖」表的"已有 5 家"一致，**该项文档无需改，复核通过**
 - **两个模块的公开口**与文档描述一致（`Enterprise::route/claim/credential/selectableNames/defaultCredentialKey/credentialConfigured/wholesaleSubject`、`RetailRetransmit::retransmit/rejectedProgress` 等均在位）
@@ -105,3 +105,22 @@
 - `scripts/` 三个游离文件：**补文件树说明，三个都不动**（不删 0 字节的 `cron_handle.php`——那是代码改动）
 - ADR 0006–0011：**补齐状态行**
 - 失败记录页 `quantity_check` 来源标签/下拉缺失：**只记欠账、代码不动**
+
+## code-review 收口（2026-09-30，fixed point `3690c07`）
+
+两轴（Standards / Spec）各出一个子代理并行审（纯文档 diff：10 个 `.md`、131 增 23 删）。逐条处理：
+
+**修掉的（4 条，两轴各两条）**
+
+- **【Standards，硬违规】`CONTEXT.md` 重写 Batch Check 节时我自己引了一处新漂移**：两个来源的子条都写成"信息不存在"仅更新 `updated_at`，而 `scripts/check_bill_status.php:142` 与 `scripts/check_failed_logs.php:163` 的该分支**都写 `last_checked_at`**（源码注释就写着"仅 touch"），`CLAUDE.md` 也写"查询成功（含信息不存在）…都会 touch"。**这条本来正是本票要修的错，改稿时换了个位置又犯一次**。改成"只动时间戳、不改状态"，与下一段的 touch 规则对齐
+- **【Standards，硬违规】`CLAUDE.md` 新增的 `asset` 路由行断言了不受支持的机制**：原写"`return false` 让 Nginx 接手"，但 `/etc/nginx/conf.d/mashangfangxin.conf` 的 `location /` 只有 `try_files $uri $uri/ /index.php?$args`（静态资源另走 `location ~* \.(css|js|svg|…)$`），**没有任何路由指向 `page=asset`**。改为只陈述可核事实（分支位置、在 `Auth::require()` 之前、**当前不可达**），不替它编造机制
+- **【Standards，硬违规】`spec.md` 被改坏结构**：新章节是**顶替**了第五轮那句"用户在本轮定的两条："而插进去的（而不是追加到文末），把它引出的两条 bullet 留成孤儿、挂到了我的标题之下——**专治文档错位的收尾票自己制造了一处错位**。引导句归位，本节移到文末
+- **【Spec】`done` 与"验收项未勾"自相矛盾**：验收第 3 项"两个远程都已推送"在提交那一刻确实不成立，而 Status 已写 done。已把 Status 补注为"验收第 3 项由收尾的 push 动作兑现"，该项**在 push 成功后由收尾的第三次提交勾上**——不预先勾一个当时为假的框
+
+**未采纳的（判断题，理由记下备查）**
+
+- *"零售采集的同一批细节在 `CLAUDE.md` / `CONTEXT.md` / `spec` 三处复述（Duplicated Code）"*：三处读者不同（CLAUDE.md 是操作口径、CONTEXT.md 是领域流程、spec 是设计决策留档），且 `CONTEXT.md` 那条已用"口径细节见 CLAUDE.md 的「零售单据采集」"收敛。压成一处会让领域文档只剩一个指针，不划算
+- *"六份 ADR 加同一状态行属 Shotgun Surgery"*：0001–0005 已是该格式，属**补齐既定格式**，不是引入新形状
+- *"`Status: done` 不在 `docs/agents/triage-labels.md` 的五标签内"*：02–08 已沿用，非本次引入
+
+**两轴都核过并确认属实的（摘要）**：文件树新增三脚本确在盘上（`cron_handle.php` 0 字节、除文档外全仓无引用）、`failed.php` 的 `sourceLabels` 与来源下拉确无 `quantity_check`（新记的缺口属实）、ADR 状态行日期与各自首次提交日一致、15 家门店与大源堂示例与 `config/enterprises.php` 相符、`selectableNames()` = 16 家 + `未识别` = 17 项、`src` 16 / `api` 15 / `views` 7 与文件树无多无少、常用命令 10+6 全在、七个状态值与六个来源值全命中、crontab 五条与表一致（`check_quantity` 未调度）、测试用例 16 描述与代码逐字相符。**无范围蔓延**：`src/` / `scripts/` / `config/` 与 `data/msfx.db` 一字未动。

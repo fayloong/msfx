@@ -127,7 +127,7 @@ root/
 | `failed` | `views/failed.php` | 失败记录 |
 | `manual-upload` | `views/manual_upload.php` | 手动上传 |
 | `api` | `api/{action}.php` | AJAX API 端点（导出实际走 `page=api&action=export`，前端按钮以此调用） |
-| `asset` | —（Nginx 直接处理） | 静态资源分支：`return false` 让 Nginx 接手；**位于登录校验之前**，故不需要也不受认证影响 |
+| `asset` | —（`return false` 结束脚本，无输出） | 静态资源分支（`index.php:37`），**位于登录校验之前**故不经过认证。**当前 nginx 配置里没有路由指向它**（`location /` 只 `try_files $uri $uri/ /index.php?$args`，静态资源另有 `location ~* \.(css\|js\|svg\|…)$`），因此实际不可达——保留原因未见于代码 |
 
 所有页面（除 login、api 与 asset）需要登录。API 端点内部自行处理认证。
 
