@@ -24,7 +24,7 @@ return [
             'name' => '河药医药（河源）有限公司',
             'type' => 'wholesale',
             'credentials' => [
-                'main' => ['label' => '主主体', 'primary' => true],
+                'main' => ['label' => '主主体'],
             ],
         ],
 

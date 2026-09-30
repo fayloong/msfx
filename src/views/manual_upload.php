@@ -6,7 +6,7 @@ require_once __DIR__ . '/layout.php';
 // 用哪套凭据不由页面选（门店与凭据 1:1，见 docs/adr/0012），真正的校验在
 // src/api/tasks_batch_retry_retail.php 与 App\RetailRetransmit——页面是显示层，不是可信边界
 $companies = [];      // [{name, type}] 顶部下拉
-$retailStores = [];   // 门店名 => 凭据是否已配齐（门店名缺席 = 该店不在配置里）
+$retailStores = [];   // 门店名 => 'ready'|'pending'|'no_slot'（门店名缺席 = 该店不在配置里）
 $defaultCompany = ''; // 默认选中批发主体：页面进来就是现在这套批发表单
 $configError = '';
 $wholesaleWarning = '';
@@ -193,8 +193,8 @@ layout('手动上传', 'manual-upload');
                     批量补传（已选 <span id="retail-selected-count">0</span> 条）
                 </button>
             </div>
-            <!-- 该门店能不能补传的说明：正常门店为空，待配凭据/不在配置/配置载入失败时写明原因 -->
-            <div class="form-text mb-3" id="retail-credential-hint"></div>
+            <!-- 该门店能不能补传的说明：正常门店为空，待配凭据/没声明凭据位/不在配置/配置载入失败时写明原因 -->
+            <div class="form-text mb-3" id="retail-store-hint"></div>
 
             <div class="table-responsive">
                 <table class="table table-sm table-hover align-middle mb-0">
@@ -313,7 +313,7 @@ layout('手动上传', 'manual-upload');
         const tbody = document.getElementById('retail-tbody');
         const emptyEl = document.getElementById('retail-empty');
         const countHint = document.getElementById('retail-count-hint');
-        const credHint = document.getElementById('retail-credential-hint');
+        const storeHint = document.getElementById('retail-store-hint');
         const batchBtn = document.getElementById('btn-retail-batch');
 
         tbody.innerHTML = '';
@@ -324,17 +324,23 @@ layout('手动上传', 'manual-upload');
         updateSelection();
 
         // 该门店能不能补传——取消人工选凭据后，页面只剩这一个判断（用哪套凭据由服务端按门店取，
-        // 见 docs/adr/0012。门店名缺席 = 不在配置里；值为 false = 待配凭据）
-        batchBtn.dataset.ready = retailStores[company] === true ? '1' : '';
+        // 见 docs/adr/0012）。状态值见 Enterprise::retailCredentialReady()：
+        // 门店名缺席 = 不在配置里；'no_slot' = 配置里没声明凭据位（配置缺口）；
+        // 'pending' = 待配凭据（等密钥，预期内的正常状态）；'ready' = 可补传
+        const storeState = retailStores[company];
+        batchBtn.dataset.ready = storeState === 'ready' ? '1' : '';
 
         if (retailConfigError) {
-            credHint.textContent = '企业配置载入失败，零售补传不可用。';
+            storeHint.textContent = '企业配置载入失败，零售补传不可用。';
         } else if (!(company in retailStores)) {
-            credHint.textContent = '该门店不在企业配置中，无法补传。';
-        } else if (!batchBtn.dataset.ready) {
-            credHint.textContent = '待配凭据：该门店的 AppKey/SECRETKEY 尚未到手（预期内的正常状态，不是异常），补齐前不能补传。清单照常可见。';
+            storeHint.textContent = '该门店不在企业配置中，无法补传。';
+        } else if (storeState === 'no_slot') {
+            storeHint.textContent = '该门店在配置里没有声明凭据位（config/enterprises.php 缺这一项），无法补传——'
+                + '这是配置缺口，不是"等密钥到手"那种正常状态。清单照常可见。';
+        } else if (storeState === 'pending') {
+            storeHint.textContent = '待配凭据：该门店的 AppKey/SECRETKEY 尚未到手（预期内的正常状态，不是异常），补齐前不能补传。清单照常可见。';
         } else {
-            credHint.textContent = '';   // 正常态不提示：能补传就没什么要说的，多一句话只是噪声
+            storeHint.textContent = '';   // 正常态不提示：能补传就没什么要说的，多一句话只是噪声
         }
 
         try {

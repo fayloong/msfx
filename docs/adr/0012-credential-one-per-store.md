@@ -14,9 +14,9 @@
 
 ## Decision
 
-1. **门店与凭据 1:1**：`App\Enterprise::validate()` 在企业声明超过一套凭据时**拒绝载入**（配置错误，不是警告）。`primary` 字段仍在结构里解析，但单套时代不参与任何决策。
+1. **门店与凭据 1:1**：`App\Enterprise::validate()` 在企业声明超过一套凭据时**拒绝载入**（配置错误，不是警告）。`primary` 标记随之删除——取凭据的 `soleCredentialKey()` 只取唯一那套，连配置里的 `primary` 声明也一并去掉（留着会让"放开多套"变成一次静默的行为变化）。
 2. **补传用哪套凭据不由调用方给**：`App\RetailRetransmit::retransmit()` 不再接收凭据键，内部走新增的 `Enterprise::credentialFor($company)`（该企业那套，含 `key`）；两个端点（`tasks_retry_retail` / `tasks_batch_retry_retail`）入参随之去掉 `credential`。**少一个可传错的参数，就少一条把单据报到错误主体的路径**——这与"守卫放在服务端而不是调用方"是同一条理由。
-3. **页面不再渲染凭据下拉**，只保留"这家能不能补传"一个事实：`Enterprise::retailCredentialReady()` 返回 `门店名 => 凭据是否已配齐`，两个视图共用（此前各自拼一份凭据清单）。不可补传的两种原因照旧分开显示——`未识别`（真异常）与`待配凭据`（预期内状态）。
+3. **页面不再渲染凭据下拉**，只保留"这家能不能补传"：`Enterprise::retailCredentialReady()` 返回 `门店名 => 'ready'|'pending'|'no_slot'`，两个视图共用（此前各自拼一份凭据清单）。不可补传的原因照旧分开显示——`未识别`（认领失败，真异常）、`待配凭据`（等密钥，预期内状态）、`no_slot`（配置里没声明凭据位，配置缺口：**不能混进"待配凭据"说成正常状态**，那是误导操作者的说法）。
 
 ## Consequences
 

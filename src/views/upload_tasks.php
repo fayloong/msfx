@@ -313,8 +313,9 @@ layout('上传任务', 'upload-tasks');
 </div>
 
 <script>
-// 服务端注入的门店凭据清单：门店名 => [{key, label, configured}]，**不含任何密钥**
-const retailStores = <?= json_encode($retailStores, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT) ?>;   // 门店名 => 凭据是否配齐
+// 服务端注入的门店补传可用性：门店名 => 'ready' | 'pending' | 'no_slot'（门店名缺席 = 不在配置里），
+// **不含任何密钥**。三种"不能补传"的原因由 Enterprise::retailCredentialReady() 分开给，见 docs/adr/0012
+const retailStores = <?= json_encode($retailStores, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT) ?>;
 const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) ?>;
 
 (function() {
@@ -444,7 +445,10 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         if (!(r.company in retailStores)) {
             return ['bg-danger', '门店不在配置中'];
         }
-        if (retailStores[r.company] !== true) {
+        if (retailStores[r.company] === 'no_slot') {
+            return ['bg-danger', '未声明凭据位'];   // 配置缺口，与"待配凭据"（等密钥）不是一回事
+        }
+        if (retailStores[r.company] !== 'ready') {
             return ['bg-secondary', '待配凭据'];
         }
         return null;
@@ -467,6 +471,9 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         if (text === '待配凭据') {
             return 'AppKey/SECRETKEY 尚未到手，暂时不能补传（预期内的正常状态，不是异常）';
         }
+        if (text === '未声明凭据位') {
+            return '企业配置里这家门店没有声明凭据位（config/enterprises.php 缺这一项）——配置缺口，补上凭据位才能补传';
+        }
         return '该门店不在企业配置中，无法补传';
     }
 
@@ -486,7 +493,10 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         if (!(r.company in retailStores)) {
             return disabled('该门店不在企业配置中，无法补传');
         }
-        if (retailStores[r.company] !== true) {
+        if (retailStores[r.company] === 'no_slot') {
+            return disabled('未声明凭据位：企业配置里这家门店没有凭据位（config/enterprises.php 缺这一项），补上才能补传');
+        }
+        if (retailStores[r.company] !== 'ready') {
             return disabled('待配凭据：AppKey/SECRETKEY 尚未到手，暂时不能补传（预期内的正常状态，不是异常）');
         }
         return `<button class="btn btn-sm btn-outline-warning btn-retail-retry" data-id="${r.id}">补传</button>`;
@@ -719,7 +729,7 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         const task = lastRows.find(t => t.id === id);
         if (!task) { alert('未找到该任务，请刷新后重试'); return; }
         // 按钮本身在不可补传时已是禁用态，这里再拦一次：绕开按钮直接调用的路径也该被挡住
-        if (retailStores[task.company] !== true) {
+        if (retailStores[task.company] !== 'ready') {
             alert('该门店的凭据尚未配齐（或不在企业配置中），无法补传');
             return;
         }

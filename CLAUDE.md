@@ -75,7 +75,7 @@ root/
 ├── config/
 │   ├── .env                      # 数据库连接 + API 凭证（迁移期）+ 管理员密码
 │   ├── enterprises.php           # 企业结构：企业名/类型(wholesale·retail)/凭据位(label) —— 入 git，无凭据
-│   │                             #   （`primary` 字段仍被解析，但门店与凭据已定为 1:1，它不参与任何决策，见 docs/adr/0012）
+│   │                             #   （门店与凭据已定为 1:1，结构里的 `primary` 标记已删除，见 docs/adr/0012）
 │   ├── enterprises.example.php   # enterprises.local.php 的模板（占位符）—— 入 git
 │   ├── enterprises.local.php     # 门店平台 ID + 凭据四字段明文 —— **不入 git**（.gitignore）
 │   └── sql.php                   # SQL Server 原始查询（**调试残留，口径以脚本为准**；批发采集口径含 a.is_zx='是' 已执行单据过滤，2026-08-27；
@@ -335,7 +335,7 @@ root/
 
 | 文件 | 内容 | 入 git |
 |------|------|--------|
-| `config/enterprises.php` | 企业结构：企业名 / 类型（`wholesale`·`retail`）/ 凭据位（`label`；`primary` 仍解析但不参与决策） | ✅ |
+| `config/enterprises.php` | 企业结构：企业名 / 类型（`wholesale`·`retail`）/ 凭据位（`label`；每家恰一套，无 `primary` 标记） | ✅ |
 | `config/enterprises.local.php` | 门店平台 ID 列表 + 凭据四字段明文（`appkey`/`secretkey`/`ref_ent_id`/`ent_id`） | ❌（`.gitignore`） |
 | `config/enterprises.example.php` | 模板（占位符） | ✅ |
 
@@ -344,7 +344,7 @@ root/
 - **待配凭据**：门店有名字与平台 ID 但没密钥时，单据照常认领，页面标"待配凭据"并禁用补传（15 家中当前已配 5 家）
 - 接口路由 `(企业类型, 单据类型)`：零售 `104`/`203` → `lsyd.uploadinoutbill`（码上限 10000）、`321`/`116` → `lsyd.uploadretail`（3500）；批发一律 kyt `uploadinoutbill`（3500）
 - `App\Enterprise` 是唯一入口：`loadFromFiles()` 载入并**强制自检**（平台 ID 不得跨企业重复、凭据的 `ref_ent_id`/`ent_id` 必须属于本企业、**每家企业只允许一套凭据**…），违反即抛异常——这些都是"违反了就会静默把单据传到错误主体"的错误
-- **取凭据的两个入口**：`Enterprise::credentialFor(企业名)` 返回该企业那套凭据（含 `key`，补传链路与端点用；待配凭据返回空凭据而非 null，由 `credentialConfigured()` 判定）；`Enterprise::retailCredentialReady()` 返回 `门店名 => 凭据是否已配齐`，供两个视图判断"这家能不能补传"（页面不再出凭据位键与 label）
+- **凭据相关的入口**：`credential(企业名, 键)` 按键取（`RetailRequestAssembler` 用它校验凭据归属）、`defaultCredentialKey(企业名)` 返回该企业的凭据键（编辑任务改企业时重设 `credential` 列）、`credentialFor(企业名)` 返回该企业那套凭据（含 `key`，补传链路与端点用；待配凭据返回空凭据而非 null，由 `credentialConfigured()` 判定）、`retailCredentialReady()` 返回 `门店名 => 'ready'|'pending'|'no_slot'`（门店名缺席 = 不在配置中），供两个视图判断"这家能不能补传"——**三态把"待配凭据"（等密钥，正常态）与"没声明凭据位"（配置缺口）分开**，页面不再出凭据位键与 label
 - **批发主体入口 `Enterprise::wholesaleSubject()`**：返回 `['key' => 配置key, 'name' => 企业全名, 'credential_key' => 凭据位键]`，批发链路（采集落库 / cron 取数 / 手动上传 / 三个检查脚本）取"本项目的自动上传主体"的唯一入口，免得各脚本各自硬编码企业名与凭据键。**批发企业不是恰好一家时抛异常**而不是静默取第一个——那正是"把单据申报到错误主体"的经典路径。
   - `credential_key` 是**键**（落库到 `upload_tasks.credential` 的值），凭据数组由 `Enterprise::credential(企业名, 键)` 取——两者形状不同，别混用
   - 它与 `scripts/init_db.php` 的迁移回填常量（`BACKFILL_COMPANY` / `BACKFILL_CREDENTIAL`）必须一致，否则历史行会被各处 `company` 白名单静默漏掉；`tests/enterprise_config_test.php` 有断言钉住这个等式，改企业名或换凭据键时两处 + 历史数据要一起动

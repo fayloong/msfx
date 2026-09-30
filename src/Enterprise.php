@@ -95,7 +95,7 @@ class Enterprise
     /**
      * 载入（合并）配置。测试用固化数组调用，生产用 loadFromFiles()。
      *
-     * @param array $structure 结构：['companies' => [['key','name','type','credentials'=>[key=>['label','primary']]]]]
+     * @param array $structure 结构：['companies' => [['key','name','type','credentials'=>[key=>['label']]]]]
      * @param array $local     取值：['ids' => [企业key => [平台ID...]], 'credentials' => [企业key => [凭据key => [四字段]]]]
      * @throws \RuntimeException 配置违反不变量时抛出
      */
@@ -122,7 +122,7 @@ class Enterprise
             foreach ($company['credentials'] ?? [] as $credentialKey => $declared) {
                 $secrets = $localCredentials[$key][$credentialKey] ?? [];
                 $credentials[(string)$credentialKey] = array_merge(
-                    ['label' => '', 'primary' => false],
+                    ['label' => ''],
                     is_array($declared) ? $declared : [],
                     ['key' => (string)$credentialKey],
                     is_array($secrets) ? $secrets : []
@@ -240,7 +240,7 @@ class Enterprise
         return [
             'key' => $key,
             'name' => $matched[$key]['name'],
-            'credential_key' => self::primaryCredentialKey($key),
+            'credential_key' => self::soleCredentialKey($key),
         ];
     }
 
@@ -272,7 +272,7 @@ class Enterprise
             return [
                 'company' => self::$companies[$key]['name'],
                 'company_key' => $key,
-                'credential' => self::primaryCredentialKey($key),
+                'credential' => self::soleCredentialKey($key),
                 'matched_by' => 'id',
                 // ID 认到了、名字却对不上任何企业 → 源库名字可疑（错值/改名/已关店），调用方记警告日志
                 'name_unmatched' => $name !== '' && !isset(self::$nameIndex[$name]),
@@ -284,7 +284,7 @@ class Enterprise
             return [
                 'company' => self::$companies[$key]['name'],
                 'company_key' => $key,
-                'credential' => self::primaryCredentialKey($key),
+                'credential' => self::soleCredentialKey($key),
                 'matched_by' => 'name',
                 'name_unmatched' => false,
             ];
@@ -335,19 +335,26 @@ class Enterprise
         if ($found === null) {
             return null;
         }
-        $key = self::primaryCredentialKey($found['key']);
+        $key = self::soleCredentialKey($found['key']);
         return $key === null ? null : $found['credentials'][$key];
     }
 
     /**
-     * 零售门店的补传可用性（页面用）：门店名 => 凭据是否已配齐。
+     * 零售门店的补传可用性（页面用）：门店名 => 三态之一。
      *
-     * 两个视图（手动上传页的门店分支、上传任务页的零售补传入口）都只需要这一个事实：
-     * **能不能补传**。门店名不在返回的数组里 = 该门店不在配置中（页面据此提示"不在企业配置中"）。
+     *   'ready'    凭据已配齐，可以补传
+     *   'pending'  凭据位在、四字段没填齐——**待配凭据**，等 AppKey/SECRETKEY 到手即可，预期内的正常状态
+     *   'no_slot'  连凭据位都没在配置里声明——**配置缺口**，不是等就能好的那种
+     *
+     * 门店名不在返回的数组里 = 该门店不在配置中。三种"不能补传"分开给，是因为它们要不同的人做
+     * 不同的事（等授权 / 补配置 / 查配置或源库），混成一句"不可用"会误导操作者——尤其别把
+     * `no_slot` 说成"预期内的正常状态"（它是配置漏了，链路那头 fail-closed 照样拦得住，
+     * 但页面上的说明得是真的）。
+     *
      * 页面曾经还要渲染凭据下拉、故得拿到凭据位键与 label；取消人工选凭据后这些都不必再出后端，
      * 少一份"哪些字段能出页面"的口径要维护。
      *
-     * @return array<string,bool>
+     * @return array<string,string>
      */
     public static function retailCredentialReady(): array
     {
@@ -359,7 +366,9 @@ class Enterprise
                 continue;
             }
             $credential = self::credentialFor($company['name']);
-            $ready[$company['name']] = $credential !== null && self::credentialConfigured($credential);
+            $ready[$company['name']] = $credential === null
+                ? 'no_slot'
+                : (self::credentialConfigured($credential) ? 'ready' : 'pending');
         }
         return $ready;
     }
@@ -389,7 +398,7 @@ class Enterprise
     public static function defaultCredentialKey(string $company): ?string
     {
         $found = self::find($company);
-        return $found === null ? null : self::primaryCredentialKey($found['key']);
+        return $found === null ? null : self::soleCredentialKey($found['key']);
     }
 
     /** 凭据四字段是否填齐（未填齐 = 待配凭据，页面禁用补传） */
@@ -442,8 +451,7 @@ class Enterprise
             }
 
             // 门店与凭据已定为 1:1（docs/adr/0012）：多套凭据会让"补传用哪套"重新变成一个要人做的
-            // 选择，而页面上已经没有这个选择项了——故在配置层直接拒绝，而不是悄悄取 primary 那套。
-            // （`primary` 字段仍在解析，只是单套时代它不再参与任何决策。）
+            // 选择，而页面上已经没有这个选择项了——故在配置层直接拒绝，而不是悄悄取其中一套。
             if (count($company['credentials']) > 1) {
                 $errors[] = "{$key}: 声明了 " . count($company['credentials']) . " 套凭据（"
                     . implode('、', array_keys($company['credentials']))
@@ -495,18 +503,16 @@ class Enterprise
         }
     }
 
-    /** primary 凭据键；单套凭据无需显式标记，取唯一那套 */
-    private static function primaryCredentialKey(string $companyKey): ?string
+    /**
+     * 该企业唯一那套凭据的键（没有凭据位时 null）。
+     *
+     * `validate()` 已保证每家至多一套，"取哪套"因此没有第二个答案——**`primary` 标记不再被读取**：
+     * 它在多套时代用来在结构文件声明的几套之间指定默认，如今那个问题不存在（见 docs/adr/0012）。
+     * 留着这个分支会让"放开多套"变成一次静默的行为变化，不如让它现在就不可达。
+     */
+    private static function soleCredentialKey(string $companyKey): ?string
     {
         $credentials = self::$companies[$companyKey]['credentials'] ?? [];
-        if (empty($credentials)) {
-            return null;
-        }
-        foreach ($credentials as $credentialKey => $credential) {
-            if (!empty($credential['primary'])) {
-                return (string)$credentialKey;
-            }
-        }
-        return (string)array_key_first($credentials);
+        return empty($credentials) ? null : (string)array_key_first($credentials);
     }
 }

@@ -52,7 +52,7 @@ $structure = ['companies' => [
         'credentials' => ['main' => ['label' => '主主体', 'primary' => true]],
     ],
     [
-        // 每家企业恰一套凭据（docs/adr/0012）；primary 仍在结构里解析，只是单套时代不参与任何决策
+        // 每家企业恰一套凭据（docs/adr/0012）；结构里的 primary 标记已废弃（写在这里只验证它不再影响任何取值）
         'key' => 's1', 'name' => '门店一', 'type' => 'retail',
         'credentials' => ['main' => ['label' => '主授权', 'primary' => true]],
     ],
@@ -115,10 +115,12 @@ check('credentialFor：待配凭据门店返回空凭据而非 null（认领得�
 check('credentialFor：连凭据位都没声明 → null', Enterprise::credentialFor('门店四') === null);
 check('credentialFor：未知企业 → null', Enterprise::credentialFor('不存在') === null);
 
-// retailCredentialReady：两个视图只问"这家能不能补传"这一个事实
+// retailCredentialReady：两个视图只问"这家能不能补传"这一个事实，但三种"不能"要分得开——
+// 待配凭据是等密钥（正常态），没声明凭据位是配置缺口（不是等就能好的）
 $ready = Enterprise::retailCredentialReady();
-check('retailCredentialReady：已配齐门店为 true', ($ready['门店二'] ?? null) === true);
-check('retailCredentialReady：待配凭据门店为 false', ($ready['门店三'] ?? null) === false);
+check('retailCredentialReady：已配齐门店为 ready', ($ready['门店二'] ?? null) === 'ready');
+check('retailCredentialReady：待配凭据门店为 pending', ($ready['门店三'] ?? null) === 'pending');
+check('retailCredentialReady：没声明凭据位的门店为 no_slot（配置缺口，别混进待配凭据）', ($ready['门店四'] ?? null) === 'no_slot', json_encode($ready, JSON_UNESCAPED_UNICODE));
 check('retailCredentialReady：不含批发企业', !array_key_exists('批发企业', $ready));
 
 // ---------- 用例 3: 认领——ID 优先，且按单据类型选列 ----------

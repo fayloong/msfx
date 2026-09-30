@@ -5,6 +5,8 @@
 - Blocked by: 03, 05
 - 关联：spec.md §8/§11、docs/adr/0006-credential-as-routing-subject.md、docs/adr/0007-retail-no-platform-reconciliation.md、docs/adr/0011-retail-retransmit-metadata-and-manual-trigger.md
 
+> **2026-09-30 修订（[ADR 0012](../../../docs/adr/0012-credential-one-per-store.md)）**：本票交付的"页面选凭据"已被推翻——门店与凭据定为 1:1（每家企业恰一套），补传由服务端按门店取凭据，页面不再有凭据下拉、端点入参不含 `credential`。本票其余交付（三关 fail-closed、元数据取自落库行、失败也翻"已处理"、日志来源 `retail_retry`）不变。票面正文作为当时的实现记录不改。
+
 ## 要交付的行为
 
 在上传任务页看到一条"待补传"的门店单据，选一套凭据点补传，**单据真的到了平台**，结果落进日志与任务状态；
