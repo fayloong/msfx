@@ -112,6 +112,11 @@ $structure = ['companies' => [
         'key' => 's2', 'name' => '门店乙', 'type' => 'retail',
         'credentials' => ['main' => ['label' => '主授权']],
     ],
+    [
+        // 凭据位已声明、密钥还没到手（"待配凭据"是合法状态）：单据能认领、装配必须拒
+        'key' => 's3', 'name' => '门店丙', 'type' => 'retail',
+        'credentials' => ['main' => ['label' => '主授权']],
+    ],
 ]];
 
 $local = [
@@ -119,6 +124,7 @@ $local = [
         'ws' => ['WSREF', 'WSENT'],
         'xj' => ['XJ-REF', 'XJ-ENT'],
         's2' => ['S2-SAME'],
+        's3' => ['S3-ID'],
     ],
     'credentials' => [
         'ws' => ['main' => ['appkey' => 'ws-appkey', 'secretkey' => 'ws-secret', 'ref_ent_id' => 'WSREF', 'ent_id' => 'WSENT']],
@@ -316,13 +322,42 @@ checkThrows('缺 trace_codes → 拒绝',
     ),
     '未通过 SDK 校验');
 
-checkThrows('凭据未配（ref_ent_id 空 = 待配凭据）→ 拒绝',
+$pendingCredential = Enterprise::credential('门店丙', 'main');
+check('fixture: 门店丙是待配凭据（有凭据位、四字段未填）',
+    $pendingCredential !== null && !Enterprise::credentialConfigured($pendingCredential));
+
+checkThrows('凭据未配（待配凭据门店）→ 拒绝（refUserId 取不到值，不猜）',
     fn() => RetailRequestAssembler::assemble(
         bill('321', 'TEST-DJBH-NOCRED'),
-        $company,
-        ['appkey' => '', 'secretkey' => '', 'ref_ent_id' => '', 'ent_id' => '']
+        '门店丙',
+        $pendingCredential
     ),
     '未通过 SDK 校验');
+
+// 凭据归属：(企业, 凭据) 是调用方给的两个独立参数，配错即错主体（refUserId 取的是凭据的 ref_ent_id）
+checkThrows('拿批发企业的凭据装配门店单据 → 拒绝（否则 refUserId 会是总部主体）',
+    fn() => RetailRequestAssembler::assemble(bill('321', 'TEST-DJBH-WRONGCRED'), $company, $wholesaleCredential),
+    '不属于企业');
+
+checkThrows('同企业另一套凭据（凭据位存在但 ref_ent_id 不符）→ 拒绝',
+    fn() => RetailRequestAssembler::assemble(bill('321', 'TEST-DJBH-SWAPCRED'), $company, $credentialS2),
+    '不属于企业');
+
+checkThrows('凭据位不存在（伪造 key）→ 拒绝',
+    fn() => RetailRequestAssembler::assemble(
+        bill('321', 'TEST-DJBH-FAKEKEY'),
+        $company,
+        ['key' => 'no-such-credential', 'appkey' => 'x', 'secretkey' => 'y', 'ref_ent_id' => 'XJ-REF', 'ent_id' => 'XJ-ENT']
+    ),
+    '不属于企业');
+
+checkThrows('凭据未标 key → 拒绝（无法确认它属于该企业）',
+    fn() => RetailRequestAssembler::assemble(
+        bill('321', 'TEST-DJBH-NOKEY'),
+        $company,
+        ['appkey' => 'x', 'secretkey' => 'y', 'ref_ent_id' => 'XJ-REF', 'ent_id' => 'XJ-ENT']
+    ),
+    '不属于企业');
 
 checkThrows('缺单号 → 拒绝',
     fn() => RetailRequestAssembler::assemble(

@@ -35,7 +35,7 @@ class RetailRequestAssembler
      * @param string $company    企业名（即 company 列的值）
      * @param array  $credential 该企业的凭据（四字段），refUserId 取其中的 ref_ent_id
      * @return array{request: object, limit: int} limit = 该接口的追溯码上限，调用方据此拆单
-     * @throws \RuntimeException 非零售企业 / 单据类型无路由 / 必填项缺失（经请求类 check() 判定）
+     * @throws \RuntimeException 非零售企业 / 凭据不属于该企业 / 单据类型无路由 / 必填项缺失（经请求类 check() 判定）
      */
     public static function assemble(array $bill, string $company, array $credential): array
     {
@@ -45,6 +45,20 @@ class RetailRequestAssembler
         // 拿零售模板去装配批发单据、或拿批发主体装配门店单据，都会把单据报到错误主体。
         if (!Enterprise::isRetail($company)) {
             throw new \RuntimeException("单号 {$djbh}: 「{$company}」不是零售企业，本装配只做零售 lsyd 接口");
+        }
+
+        // 传入的凭据必须**确实属于**这家企业：(企业, 凭据) 是调用方给的两个独立参数，配错即错主体
+        // （UploadService::resolveContext 用"按企业 + 凭据键现取"从构造上避免了这件事，本接缝收的是
+        // 凭据数组本身，故在此比对）。只比对 ref_ent_id：它是装配唯一从凭据取值的字段。
+        // 凭据的 key 由 Enterprise::load() 盖上，故取自 Enterprise::credential() 的凭据天然通过
+        $credentialKey = trim((string)($credential['key'] ?? ''));
+        $configured = $credentialKey === '' ? null : Enterprise::credential($company, $credentialKey);
+        if ($configured === null || (string)($configured['ref_ent_id'] ?? '') !== (string)($credential['ref_ent_id'] ?? '')) {
+            throw new \RuntimeException(
+                "单号 {$djbh}: 传入的凭据不属于企业「{$company}」"
+                . ($credentialKey === '' ? '（凭据未标 key，无法确认归属）' : "（凭据位 {$credentialKey}）")
+                . '，拒绝装配'
+            );
         }
 
         $billType = BillType::normalize((string)($bill['bill_type'] ?? ''), $djbh);
