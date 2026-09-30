@@ -1,7 +1,7 @@
 # 12: 门店分支补传清单移植上传任务页能力（筛选 / 导出 / 刷新 / 批量删除 / 字段与操作）
 
 - Type: task
-- Status: done（2026-09-30）
+- Status: done（2026-09-30；提交 `5d8154d`、收口 `7c10875`，gitee 与 origin 均已跟上）
 - Blocked by: 无（11 已完成）
 - 关联：`issues/10-retail-list-pagination-and-trace.md`（清单分页与追溯码弹窗的参照实现）、`src/views/upload_tasks.php`（筛选栏 / 导出 / 刷新 / 批量删除 / 行操作的**参照实现**）、`src/RecordQuery.php`、`docs/adr/0011-retail-retransmit-metadata-and-manual-trigger.md`
 
