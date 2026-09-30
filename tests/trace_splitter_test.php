@@ -6,7 +6,7 @@
  *
  * 测试目标: 追溯码的两种拆法——
  *   splitByCharLimit(): 导出 xlsx 按字符数拆行（用例 1-10）
- *   splitByCount():     上传按码数拆单（用例 11-15），上限由调用方给
+ *   splitByCount():     上传按码数拆单（用例 11-16），上限由调用方给
  *                       （批发 kyt 3500、零售 lsyd 10000/3500，见 App\Enterprise::route()）
  * 两者共用的语义:
  *   - 按逗号 split 并过滤空值
@@ -14,7 +14,7 @@
  *   - 已带后缀的单号再拆时追加后缀（xxx_1 → xxx_1_1, xxx_1_2…）
  *   - 不超限时原样返回（不改写、不过滤、不加后缀）
  * 注: splitByCount 原为 UploadService::splitBillCodes（无测试），随工单 06 收进本类以消除
- * 拆单逻辑的第二份实现，故用例 11-15 同时是批发拆单的回归网。
+ * 拆单逻辑的第二份实现，故用例 11-16 同时是批发拆单的回归网。
  */
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -170,6 +170,23 @@ check('按码数：空码被过滤后不拆', count(TraceSplitter::splitByCount(
 
 // ---------- 用例 15: splitByCount 非法上限（≤0）不拆、不抛 ----------
 check('按码数：上限 0 不拆', count(TraceSplitter::splitByCount('JHGWMS001', $exact, 0)) === 1);
+
+// ---------- 用例 16: 工单 07 验收第 3 条（同一批里混有超大码量的单据时按该接口的上限拆分） ----------
+// 上限不是本用例给死的常量，而是**接口路由**给的：104/203 → lsyd.uploadinoutbill 10000、
+// 321/116 → lsyd.uploadretail 3500。路由上限本身钉在 tests/enterprise_config_test.php
+// （Enterprise::route()），本用例钉"在那个上限下怎么拆"，两个文件合起来才是那条验收。
+// 真实零售单码数上限实测 1,718，故这条分支在日常数据上不触发——它是给"连外部系统当初都传不上去的
+// 超大单"留的补传出口，只能离线验（构造 4000 码的假单真传 = 向平台申报一张不存在的单据，不可逆）。
+$r = TraceSplitter::splitByCount('WRKA0100026502', implode(',', makeCodes(2000)), 10000);  // 104 调拨入库
+check('2000 码的 104（上限 10000）不拆', count($r) === 1, '实际 ' . count($r) . ' 片');
+
+$r = TraceSplitter::splitByCount('XLSK5600100185373', implode(',', makeCodes(4000)), 3500); // 321 使用出库
+check('4000 码的 321（上限 3500）拆 2 片', count($r) === 2, '实际 ' . count($r) . ' 片');
+check('4000 码的 321：首片 3500、尾片 500',
+    substr_count($r['XLSK5600100185373_1'], ',') + 1 === 3500
+    && substr_count($r['XLSK5600100185373_2'], ',') + 1 === 500);
+check('4000 码的 321：分片命名 单号_1/_2',
+    array_keys($r) === ['XLSK5600100185373_1', 'XLSK5600100185373_2'], implode(',', array_keys($r)));
 
 echo "\n";
 if ($failures === 0) {
