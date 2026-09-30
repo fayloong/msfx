@@ -59,8 +59,8 @@
   - 五个测试文件全绿：`trace_splitter` / `quantity_check` / `enterprise_config` / `retail_upload` / `retail_retention`
   - `php -l` 五个改动文件均无语法错误
 - [x] 文档同步：CLAUDE.md / CONTEXT.md / ADR 0013 / spec 实施状态表 / 本票，与代码同一次提交
-- [ ] 已推送 gitee（优先）与 origin
-  - **留空待兑现**：本条在 push 之前不可能为真，按 09 票的先例先留空，push 后补一次提交勾上
+- [x] 已推送 gitee（优先）与 origin
+  - 本票的代码与文档提交（`d0e75c9` 实现、`8c7456a` code-review 收口）已推抵两远端，`git ls-remote` 核对过；**勾选本条所在的这次提交由收尾 push 一并送出**（按 09 票先例：留空 → push → 补提交勾上，不预支当时为假的框）
 
 ## 实现笔记
 
