@@ -9,7 +9,7 @@
  *
  * 用法（列表 API 与导出完全一致）：
  *   $q = RecordQuery::build(RecordQuery::TYPE_FAILED, $_GET);
- *   $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs {$q['where']}", $q['params']);
+ *   $db->queryOne("SELECT COUNT(*) as cnt FROM {$q['count_from']} {$q['where']}", $q['params']);
  *   $db->query("{$q['select']} {$q['where']} {$q['order']} LIMIT ? OFFSET ?",
  *              array_merge($q['params'], [$perPage, $offset]));
  *
@@ -23,20 +23,25 @@ class RecordQuery
     public const TYPE_UPLOADED = 'uploaded';
     public const TYPE_FAILED = 'failed';
 
+    /** 合法类型全集（导出的 type 参数白名单用它，免得那个白名单成为第二份类型枚举） */
+    public const TYPES = [self::TYPE_TASKS, self::TYPE_UPLOADED, self::TYPE_FAILED];
+
     /**
      * 构造一条记录的查询（WHERE + SELECT + ORDER），三页共用。
      *
-     * @param string              $type  TYPE_TASKS / TYPE_UPLOADED / TYPE_FAILED
-     * @param array<string,mixed> $query 筛选参数（生产传 $_GET）
-     * @return array{select:string, where:string, params:array<int,string>, order:string}
-     *         where 为 '' 或 'WHERE a AND b'（不含前导空格）
+     * @param string              $type    TYPE_TASKS / TYPE_UPLOADED / TYPE_FAILED
+     * @param array<string,mixed> $filters 筛选参数（生产传 $_GET；本类不读超全局）
+     * @return array{select:string, where:string, count_from:string, params:array<int,string>, order:string}
+     *         where 为 '' 或 'WHERE a AND b'（不含前导空格）；
+     *         count_from 是 `SELECT COUNT(*) … FROM` 的表名——由本类给出，免得调用方
+     *         各自再写一遍表名（写错就会出现"计数与数据来自不同表"、页面对不上导出）
      * @throws \InvalidArgumentException 未知类型——**不静默返回空条件**：
      *         失败页因此会把全表当失败记录吐出来（而这正是它最不该出错的地方）
      */
-    public static function build(string $type, array $query): array
+    public static function build(string $type, array $filters): array
     {
         $isTasks = $type === self::TYPE_TASKS;
-        if (!$isTasks && $type !== self::TYPE_UPLOADED && $type !== self::TYPE_FAILED) {
+        if (!in_array($type, self::TYPES, true)) {
             throw new \InvalidArgumentException(
                 "RecordQuery: 未知的记录类型「{$type}」（只认 tasks / uploaded / failed）"
             );
@@ -75,8 +80,8 @@ class RecordQuery
         // tasks 页无固定口径：任务状态由下拉的默认值"等待上传"给出
 
         // ---------- 关键词（命中范围与各页表格列一致） ----------
-        if (!empty($query['search'])) {
-            $search = '%' . $query['search'] . '%';
+        if (!empty($filters['search'])) {
+            $search = '%' . $filters['search'] . '%';
             if ($isTasks) {
                 $add("(djbh LIKE ? OR ent_name LIKE ? OR trace_codes LIKE ? OR task_status LIKE ?"
                     . " OR request_status LIKE ? OR response_status LIKE ?)",
@@ -89,42 +94,42 @@ class RecordQuery
         }
 
         // ---------- 等值筛选 ----------
-        if ($isTasks && !empty($query['task_status'])) {
-            $add("task_status = ?", (string)$query['task_status']);
+        if ($isTasks && !empty($filters['task_status'])) {
+            $add("task_status = ?", (string)$filters['task_status']);
         }
-        if (!empty($query['response_status'])) {
+        if (!empty($filters['response_status'])) {
             // 失败页的"请求失败"是**请求层**状态（与响应状态同列展示、取值不同），照搬页面下拉语义
-            if ($type === self::TYPE_FAILED && $query['response_status'] === '请求失败') {
+            if ($type === self::TYPE_FAILED && $filters['response_status'] === '请求失败') {
                 $add("{$column}request_status = '请求失败'");
             } else {
-                $add("{$column}response_status = ?", (string)$query['response_status']);
+                $add("{$column}response_status = ?", (string)$filters['response_status']);
             }
         }
-        if (!empty($query['source'])) {
-            $add("{$column}source = ?", (string)$query['source']);
+        if (!empty($filters['source'])) {
+            $add("{$column}source = ?", (string)$filters['source']);
         }
         // 所属企业：下拉的值就是 company 列的值（未识别也在下拉里，照常筛得出来）
-        if (!empty($query['company'])) {
-            $add("{$column}company = ?", (string)$query['company']);
+        if (!empty($filters['company'])) {
+            $add("{$column}company = ?", (string)$filters['company']);
         }
 
         // ---------- 日期范围 ----------
         // 三页的"默认最近 7 天"维度**不一样**（上传任务页=单据日期，已上传/失败页=任务创建时间），
         // 前端据此决定传哪一组参数名；这里只做参数名→列的映射，不猜维度。
         if ($isTasks) {
-            self::addRange($add, $query, 'rq', 'date_from', 'date_to');
-            self::addRange($add, $query, 'date(created_at)', 'created_from', 'created_to');
+            self::addRange($add, $filters, 'rq', 'date_from', 'date_to');
+            self::addRange($add, $filters, 'date(created_at)', 'created_from', 'created_to');
         } else {
-            self::addRange($add, $query, "date({$column}created_at)", 'date_from', 'date_to');
-            self::addRange($add, $query, "{$column}rq", 'rq_from', 'rq_to');
+            self::addRange($add, $filters, "date({$column}created_at)", 'date_from', 'date_to');
+            self::addRange($add, $filters, "{$column}rq", 'rq_from', 'rq_to');
         }
 
         // ---------- 单号 / 往来单位 ----------
-        if (!empty($query['djbh'])) {
-            $add("{$column}djbh LIKE ?", '%' . $query['djbh'] . '%');
+        if (!empty($filters['djbh'])) {
+            $add("{$column}djbh LIKE ?", '%' . $filters['djbh'] . '%');
         }
-        if (!empty($query['ent_name'])) {
-            $add("{$column}ent_name LIKE ?", '%' . $query['ent_name'] . '%');
+        if (!empty($filters['ent_name'])) {
+            $add("{$column}ent_name LIKE ?", '%' . $filters['ent_name'] . '%');
         }
 
         return [
@@ -133,6 +138,8 @@ class RecordQuery
                 : 'SELECT upload_logs.*, t.bill_type AS t_bill_type FROM upload_logs'
                     . ' LEFT JOIN upload_tasks t ON t.id = upload_logs.task_id',
             'where' => empty($conditions) ? '' : 'WHERE ' . implode(' AND ', $conditions),
+            // 计数用哪张表也由本类说了算：调用方复述表名，就可能出现"计数查 A 表、数据查 B 表"
+            'count_from' => $isTasks ? 'upload_tasks' : 'upload_logs',
             'params' => $params,
             'order' => $isTasks ? 'ORDER BY id DESC' : 'ORDER BY upload_logs.id DESC',
         ];
@@ -146,13 +153,13 @@ class RecordQuery
      *
      * @param \Closure(string, string...):void $add
      */
-    private static function addRange(\Closure $add, array $query, string $expression, string $fromKey, string $toKey): void
+    private static function addRange(\Closure $add, array $filters, string $expression, string $fromKey, string $toKey): void
     {
-        if (!empty($query[$fromKey])) {
-            $add("{$expression} >= ?", (string)$query[$fromKey]);
+        if (!empty($filters[$fromKey])) {
+            $add("{$expression} >= ?", (string)$filters[$fromKey]);
         }
-        if (!empty($query[$toKey])) {
-            $add("{$expression} <= ?", (string)$query[$toKey]);
+        if (!empty($filters[$toKey])) {
+            $add("{$expression} <= ?", (string)$filters[$toKey]);
         }
     }
 }

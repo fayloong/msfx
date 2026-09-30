@@ -321,6 +321,20 @@ class Enterprise
     }
 
     /**
+     * 页面"所属企业"下拉与编辑弹窗的选项：全部企业名 + `未识别`。
+     *
+     * `未识别` **不是一个企业**，但它确实是 `company` 列的一个取值（门店认领失败的行）——
+     * 那正是需要人去查配置或源库的那批，必须能单独筛出来。三数据页共用这一份，
+     * 免得"哪些选项该出现"在三个视图里各写一遍（本项目的常见漂移来源）。
+     *
+     * @return array<int,string>
+     */
+    public static function selectableNames(): array
+    {
+        return array_merge(self::names(), [self::UNIDENTIFIED]);
+    }
+
+    /**
      * 某企业名下的 primary 凭据键——"这家默认会用哪套"。
      *
      * 编辑上传任务改"所属企业"时据此重设 credential 列：重传用哪套授权由 (company, credential)

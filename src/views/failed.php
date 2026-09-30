@@ -1,14 +1,12 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
-// "所属企业"筛选下拉与编辑弹窗的选项：企业枚举 + `未识别`。
-// 未识别**不是一个企业**，但它确实是 company 列的一个取值（门店认领失败的行），
-// 页面上必须能把它单独筛出来——那正是需要人去查配置或源库的那批。
-$companyOptions = [App\Enterprise::UNIDENTIFIED];
+// "所属企业"筛选下拉与编辑弹窗的选项（企业枚举 + `未识别`）由 Enterprise::selectableNames()
+// 给出单一一份，三数据页共用。配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常。
 try {
-    $companyOptions = array_merge(App\Enterprise::names(), $companyOptions);
+    $companyOptions = App\Enterprise::selectableNames();
 } catch (\Throwable $e) {
-    // 企业配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常
+    $companyOptions = [App\Enterprise::UNIDENTIFIED];
 }
 
 layout('失败记录', 'failed');
@@ -207,7 +205,7 @@ layout('失败记录', 'failed');
 							<option value="<?= htmlspecialchars($name) ?>"><?= htmlspecialchars($name) ?></option>
 						<?php endforeach; ?>
 					</select>
-					<div class="form-text">改动会同时重设该任务的凭据为该企业的主授权，重传即按新主体申报。</div>
+					<div class="form-text">改动只作用于该任务：凭据同时重设为该企业的主授权，重传即按新主体申报；日志里已记下的那次申报主体不受影响。</div>
 				</div>
 				<div class="mb-3">
 					<label class="form-label">单号</label>
@@ -508,15 +506,21 @@ layout('失败记录', 'failed');
     }
 
     async function doSaveEdit() {
-        const body = JSON.stringify({
+        const company = document.getElementById('edit-company').value;
+        const payload = {
             id: document.getElementById('edit-id').value,
             rq: document.getElementById('edit-rq').value,
             djbh: document.getElementById('edit-djbh').value,
             ent_name: document.getElementById('edit-ent-name').value,
             trace_codes: document.getElementById('edit-trace-codes').value,
             bill_type: document.getElementById('edit-bill-type').value,
-            company: document.getElementById('edit-company').value,
-        });
+        };
+        // 只在**企业真的改了**时才把 company 送上去：服务端见到该键就会把 credential 重设为主授权，
+        // 而"这次实际用了哪套凭据"是审计值（备用凭据补传成功后由补传流程写入）——
+        // 改个日期顺手把它退回主授权，是在动一个与本次编辑无关的字段。
+        // 顺带：company 为空串的行（理论上不该有）也因此能正常保存其余字段，不会被 400 卡住。
+        if (company !== editOriginalCompany) payload.company = company;
+        const body = JSON.stringify(payload);
         try {
             const resp = await fetch('index.php?page=api&action=tasks', {
                 method: 'PUT',

@@ -51,7 +51,7 @@ if ($method === 'GET') {
     $query = RecordQuery::build(RecordQuery::TYPE_TASKS, $_GET);
 
     // 总数
-    $countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_tasks {$query['where']}", $query['params']);
+    $countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM {$query['count_from']} {$query['where']}", $query['params']);
     $total = $countRow['cnt'] ?? 0;
 
     // 数据

@@ -21,7 +21,7 @@ if (!Auth::check()) {
 }
 
 $type = $_GET['type'] ?? '';
-if (!in_array($type, ['tasks', 'uploaded', 'failed'], true)) {
+if (!in_array($type, RecordQuery::TYPES, true)) {
     http_response_code(400);
     echo json_encode(['error' => '无效的 type 参数'], JSON_UNESCAPED_UNICODE);
     exit;

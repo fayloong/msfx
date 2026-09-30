@@ -23,7 +23,7 @@ $offset = ($page - 1) * $perPage;
 // 筛选条件构造在 App\RecordQuery——本页、另两页与导出共用同一份实现（见该类注释）
 $query = RecordQuery::build(RecordQuery::TYPE_UPLOADED, $_GET);
 
-$countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs {$query['where']}", $query['params']);
+$countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM {$query['count_from']} {$query['where']}", $query['params']);
 $total = $countRow['cnt'] ?? 0;
 
 $rows = $db->query(

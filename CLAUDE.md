@@ -33,7 +33,7 @@ root/
 │   ├── Config.php                # .env 配置加载
 │   ├── Database.php              # SQLite 数据库封装（单例）
 │   ├── Auth.php                  # 单用户 session 认证
-│   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检、批发主体入口（wholesaleSubject）、某企业的主授权凭据键（defaultCredentialKey，编辑任务改企业时用）
+│   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检、批发主体入口（wholesaleSubject）、三数据页"所属企业"下拉选项（selectableNames）、某企业的主授权凭据键（defaultCredentialKey，编辑任务改企业时用）
 │   ├── BillType.php              # 单据类型码归一化（字母前缀 ↔ 3 位数字码）
 │   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算、上传响应状态解析 resolveUploadResponseStatus——批发与零售补传共用，平台响应怎么读只在这一个文件里回答）
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合、fetchWmsCodesByDjbhList 第 2 级码基线现查）
@@ -135,8 +135,9 @@ root/
 
 三个数据页工具栏均有"导出 xlsx"按钮：按当前生效筛选条件全量导出（前端已计算关键词忽略默认日期后的参数）。导出走 `page=api&action=export`（`api/export.php`），**流式生成**（sheet XML 逐行写临时文件 + ZipArchive 打包，不用 PhpSpreadsheet 避免全量驻留内存）；追溯码按字符数拆行（`App\TraceSplitter::splitByCharLimit`，每行 ≤32000 字符 ≈ 1523 码，超限时一单多行、单号加 `_N` 后缀，命名对齐上传拆分、已带后缀的单号追加后缀），拆行兜底（单条码自身超 32000 字符的极端情况）仍截断并追加 `…(共N个码)`，其余列超限追加 `…(已截断)`；无匹配数据时前端拦截提示、后端仍输出带表头的空文件。导出列与页面表格对齐（来源列导出机器值 cron/manual/...，单据类型导出归一化 3 位码），文件名 `上传任务/已上传/失败记录_YYYY-MM-DD.xlsx`。
 
-**三数据页的"所属企业"筛选与导出列（工单 08）**：三页表格都有"所属企业"列（上传任务页工单 03 加、已上传页工单 06 加、失败记录页工单 08 补齐，三页呈现一致），筛选栏都有"所属企业"下拉，选项＝`App\Enterprise` 企业枚举 + `未识别`（已配 16 家企业，共 17 项；未识别不是一个企业，但确实是 `company` 列的一个取值——门店认领失败的那批，必须能单独筛出来）。**按 `company` 去重**，最近的一版配置里每家恰好一个凭据位，故"一门店多套凭据时显示 `门店名（label）`"当前无可观察效果。xlsx 三类导出都含"所属企业"列（位置与页面表格一致，在"单据类型"之后）。
+**三数据页的"所属企业"筛选与导出列（工单 08）**：三页表格都有"所属企业"列（上传任务页工单 03 加、已上传页工单 06 加、失败记录页工单 08 补齐）。筛选栏都有"所属企业"下拉，选项由 `Enterprise::selectableNames()` 给出（企业枚举 + `未识别`，已配 16 家企业共 17 项；`未识别` 不是一个企业，但确实是 `company` 列的一个取值——门店认领失败的那批，必须能单独筛出来）。**按 `company` 去重**，最近的一版配置里每家恰好一个凭据位，故"一门店多套凭据时显示 `门店名（label）`"当前无可观察效果。xlsx 三类导出都含"所属企业"列（位置与页面表格一致，在"单据类型"之后）。
 
+- **`未识别` 的呈现三页并不相同**：只有上传任务页另加红色徽标 + 整行标红（它是操作页，那批单等着人处置）；已上传/失败两个日志页只作普通文字——工单 06 定的就是日志页不标红，本票未改
 - **"企业下拉不算关键词"**：三页都有"输入关键词时丢掉默认 7 天日期范围"的逻辑，那里的关键词**只算单号与往来单位**。企业下拉是筛选维度，算进来会让"选了企业"顺手把默认日期范围也丢掉，日期行为被无声改变
 - **三页的默认 7 天维度不同**（上传任务页＝单据日期 `date_from/to`；已上传/失败页＝任务创建时间 `date_from/to`，单据日期改用 `rq_from/to`），映射写在 `RecordQuery::addRange` 的调用处，改参数名时别搞混
 - **筛选构造单一事实源 `App\RecordQuery`**：`tasks/uploaded/failed/export` 四个入口都调它，原先那 4 份拷贝已删。已知的一处漂移顺带消失——`export.php` 的失败记录分支曾无条件走 NOT EXISTS、缺了页面版那句 `source = 'quantity_check' OR` 豁免，结果是失败记录页看得见的数量对账告警、导出的 xlsx 里没有。**仪表盘那张卡片仍是第 5 份拷贝**（`views/dashboard.php`，其 NOT EXISTS 既没限定 `company` 也没有该豁免），本轮明确不动，等零售接入稳定后再统一
@@ -269,7 +270,7 @@ root/
 | task_status | TEXT | 等待上传（批发，cron 会取）/ **待补传**（零售采集落库，仅人工补传——**不复用"等待上传"**，那语义是"cron 会来取走并上传"）/ 已处理 |
 | source | TEXT | **retail**（`fetch_bills_retail` 零售采集）/ cron（批发采集）/ manual / batch_check / batch_retry |
 | company | TEXT | 所属企业中文全名（页面"所属企业"列的值与筛选键；`未识别` 表示门店认领失败） |
-| credential | TEXT | 该企业 primary 凭据键（如 `main`）；只作审计，不参与任何键；零售待配凭据时为 NULL；零售补传成功后会被覆盖为**这次实际用的那套** |
+| credential | TEXT | 该企业 primary 凭据键（如 `main`）；只作审计，不参与任何键；零售待配凭据时为 NULL；零售补传成功后会被覆盖为**这次实际用的那套**；编辑任务把所属企业改成不在配置中的企业时也写 NULL（守卫届时明确拒传，不静默换主体）。**只在企业真的改了时才重设**——页面只在该情形才把 `company` 送上来，改个日期不会把审计值退回主授权 |
 | from_user_id | TEXT | 零售专用：源表 `zsm_ls.from_user_id` 照搬（补传装配的 `fromUserId`，仅 104/203 用）。批发行与工单 06 之前采的零售行为空 |
 | to_user_id | TEXT | 零售专用：源表 `zsm_ls.to_user_id` 照搬（补传装配的 `toUserId`，仅 104/203 用；321/116 源库本就为空） |
 | physic_type | TEXT | 零售专用：源表 `zsm_ls.physic_type`（实测全表恒为 `3`；补传装配的 `physicType`，仅 104/203 用） |

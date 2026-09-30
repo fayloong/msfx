@@ -26,7 +26,7 @@ $offset = ($page - 1) * $perPage;
 // xlsx 里没有，正是这个票要修的漂移（见该类注释）。
 $query = RecordQuery::build(RecordQuery::TYPE_FAILED, $_GET);
 
-$countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM upload_logs {$query['where']}", $query['params']);
+$countRow = $db->queryOne("SELECT COUNT(*) as cnt FROM {$query['count_from']} {$query['where']}", $query['params']);
 $total = $countRow['cnt'] ?? 0;
 
 $rows = $db->query(

@@ -1,14 +1,12 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
-// "所属企业"筛选下拉的选项：企业枚举 + `未识别`。
-// 未识别**不是一个企业**，但它确实是 company 列的一个取值（门店认领失败的行），
-// 页面上必须能把它单独筛出来——那正是需要人去查配置或源库的那批。
-$companyOptions = [App\Enterprise::UNIDENTIFIED];
+// "所属企业"筛选下拉的选项（企业枚举 + `未识别`）由 Enterprise::selectableNames() 给出单一一份，
+// 三数据页共用。配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常。
 try {
-    $companyOptions = array_merge(App\Enterprise::names(), $companyOptions);
+    $companyOptions = App\Enterprise::selectableNames();
 } catch (\Throwable $e) {
-    // 企业配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常
+    $companyOptions = [App\Enterprise::UNIDENTIFIED];
 }
 
 layout('上传成功', 'uploaded');
