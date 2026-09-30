@@ -2,11 +2,12 @@
 /**
  * 企业（申报主体）与凭据：配置解析、门店认领、接口路由
  *
- * 为什么"凭据是路由主体、门店与凭据是 1:N"：见 docs/adr/0006-credential-as-routing-subject.md
+ * 为什么"凭据是路由主体"：见 docs/adr/0006-credential-as-routing-subject.md；
+ * 为什么门店与凭据是 **1:1**（每家企业恰一套，补传不由人选凭据）：见 docs/adr/0012。
  * 完整设计：见 .scratch/retail-chain/spec.md
  *
  * 配置分两文件（凭据绝不入 git）：
- *   config/enterprises.php        结构：企业名 / 类型 / 凭据位（label、primary）
+ *   config/enterprises.php        结构：企业名 / 类型 / 凭据位（label）
  *   config/enterprises.local.php  取值：平台 ID 列表 + 凭据四字段明文
  */
 namespace App;
@@ -202,7 +203,7 @@ class Enterprise
     }
 
     /**
-     * 批发申报主体：['key' => 配置 key, 'name' => 企业全名, 'credential_key' => primary 凭据位键]。
+     * 批发申报主体：['key' => 配置 key, 'name' => 企业全名, 'credential_key' => 凭据位键]。
      *
      * 批发链路（采集落库 / cron 取数 / 手动上传 / 检查脚本）取"本项目的自动上传主体"的唯一入口，
      * 免得各脚本各自硬编码企业名与凭据键。当前只有河药一家批发企业，故按类型取唯一那家；
@@ -246,8 +247,8 @@ class Enterprise
     /**
      * 门店认领：平台 ID 优先 → 名字回退 → 未识别。
      *
-     * 返回的 credential 是**该企业的 primary 凭据键**（表达"默认会用哪套"）；采集时据此落库，
-     * 补传时若人工切到备用凭据，由补传流程覆盖该行的 credential 值。
+     * 返回的 credential 是**该企业唯一那套凭据的键**（每家企业恰一套，见 docs/adr/0012）；
+     * 采集时据此落库，补传时写回的也是同一套（`credential` 列只作审计，不参与任何键）。
      * 无凭据的企业（待配凭据）credential 为 null，但 company 仍能认领——页面标"待配凭据"并禁用补传。
      *
      * @param string      $billType   单据类型码（104/203/321/116…）
@@ -313,11 +314,54 @@ class Enterprise
         return $routes[BillType::normalize($billType)] ?? $routes['*'] ?? null;
     }
 
-    /** 取某企业的一套凭据（补传时按页面所选凭据键取用；不存在返回 null） */
+    /** 取某企业的一套凭据（按凭据键取；不存在返回 null） */
     public static function credential(string $company, string $credentialKey): ?array
     {
         $found = self::find($company);
         return $found['credentials'][$credentialKey] ?? null;
+    }
+
+    /**
+     * 某企业**那套**凭据（含 `key` 字段）——门店与凭据已定为 1:1（见 docs/adr/0012），
+     * 故"这家用哪套"在配置里只有一个答案，不需要（也不该）由页面或调用方指定。
+     *
+     * 返回 null 的两种情形：企业不在配置里、该企业没声明任何凭据位。
+     * **待配凭据**（凭据位在、四字段未填齐）返回的是那套空凭据而非 null——调用方用
+     * `credentialConfigured()` 判定后拒传，与 `claim()` 的语义一致（认领得到、但还不能传）。
+     */
+    public static function credentialFor(string $company): ?array
+    {
+        $found = self::find($company);
+        if ($found === null) {
+            return null;
+        }
+        $key = self::primaryCredentialKey($found['key']);
+        return $key === null ? null : $found['credentials'][$key];
+    }
+
+    /**
+     * 零售门店的补传可用性（页面用）：门店名 => 凭据是否已配齐。
+     *
+     * 两个视图（手动上传页的门店分支、上传任务页的零售补传入口）都只需要这一个事实：
+     * **能不能补传**。门店名不在返回的数组里 = 该门店不在配置中（页面据此提示"不在企业配置中"）。
+     * 页面曾经还要渲染凭据下拉、故得拿到凭据位键与 label；取消人工选凭据后这些都不必再出后端，
+     * 少一份"哪些字段能出页面"的口径要维护。
+     *
+     * @return array<string,bool>
+     */
+    public static function retailCredentialReady(): array
+    {
+        self::ensureLoaded();
+
+        $ready = [];
+        foreach (self::$companies as $company) {
+            if ($company['type'] !== self::TYPE_RETAIL) {
+                continue;
+            }
+            $credential = self::credentialFor($company['name']);
+            $ready[$company['name']] = $credential !== null && self::credentialConfigured($credential);
+        }
+        return $ready;
     }
 
     /**
@@ -335,7 +379,7 @@ class Enterprise
     }
 
     /**
-     * 某企业名下的 primary 凭据键——"这家默认会用哪套"。
+     * 某企业名下的凭据键——每家企业恰一套（docs/adr/0012），故这也是"这家用哪套"的唯一答案。
      *
      * 编辑上传任务改"所属企业"时据此重设 credential 列：重传用哪套授权由 (company, credential)
      * 两列共同决定，只改企业不改凭据会让 UploadService 的守卫以"取不到可用凭据"拒传
@@ -397,7 +441,15 @@ class Enterprise
                 }
             }
 
-            $primaryCount = 0;
+            // 门店与凭据已定为 1:1（docs/adr/0012）：多套凭据会让"补传用哪套"重新变成一个要人做的
+            // 选择，而页面上已经没有这个选择项了——故在配置层直接拒绝，而不是悄悄取 primary 那套。
+            // （`primary` 字段仍在解析，只是单套时代它不再参与任何决策。）
+            if (count($company['credentials']) > 1) {
+                $errors[] = "{$key}: 声明了 " . count($company['credentials']) . " 套凭据（"
+                    . implode('、', array_keys($company['credentials']))
+                    . "）——每家企业只允许一套凭据（见 docs/adr/0012）";
+            }
+
             foreach ($company['credentials'] as $credentialKey => $credential) {
                 $filled = 0;
                 foreach (self::CREDENTIAL_FIELDS as $field) {
@@ -415,13 +467,6 @@ class Enterprise
                         }
                     }
                 }
-                if (!empty($credential['primary'])) {
-                    $primaryCount++;
-                }
-            }
-            if (count($company['credentials']) > 1 && $primaryCount !== 1) {
-                $errors[] = "{$key}: 有 " . count($company['credentials'])
-                    . " 套凭据，须恰好一套标 primary（当前 {$primaryCount} 套）";
             }
         }
 

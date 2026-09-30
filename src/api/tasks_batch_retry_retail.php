@@ -5,10 +5,11 @@
  * 本文件只做「校验请求 + 取任务行 + 逐条反馈 + 汇总」：补传的流程（三关 fail-closed、拆单、调用、
  * 写日志、翻任务状态）全在 App\RetailRetransmit —— 票面要求批量与单条共用同一份实现，不要写第二份。
  *
- * 入参：{ids: int[], company: string, credential: string}
+ * 入参：{ids: int[], company: string}
  * - company 是操作者在页面上选定的门店：整批单据必须都属于它。混进别家门店的 id 说明调用方或页面
  *   出了问题，**整批拒绝**而不是挑着传——一次请求里出现两家门店没有任何正当来由。
- * - credential 由操作者显式选择，一套管整批（本轮不做多套凭据的自动分发规则，由人指定比猜一套规则可靠）
+ * - 用哪套凭据**不由调用方给**：门店与凭据是 1:1（docs/adr/0012），服务端据 company 取该门店那套。
+ *   入参里没有这个键，也就没有"传错一套"的路径。
  *
  * 逐条隔离：某条被 fail-closed 拒绝（非零售 / 待配凭据 / 无路由 / 装配缺项）或已不存在，只影响它自己，
  * 其余照常补传——批量入口里一条坏单不该让整批停摆。这是与单条入口唯一的差异（那里异常一路冒到 _final）。
@@ -39,7 +40,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $input = json_decode(file_get_contents('php://input'), true);
 $rawIds = $input['ids'] ?? [];
 $company = trim((string)($input['company'] ?? ''));
-$credentialKey = trim((string)($input['credential'] ?? ''));
 
 if (!is_array($rawIds)) {
     http_response_code(400);
@@ -57,11 +57,6 @@ if ($company === '') {
     echo json_encode(['error' => '缺少 company 参数'], JSON_UNESCAPED_UNICODE);
     exit;
 }
-if ($credentialKey === '') {
-    http_response_code(400);
-    echo json_encode(['error' => '未选择凭据'], JSON_UNESCAPED_UNICODE);
-    exit;
-}
 
 // ── 请求级校验，全在打开流之前：这类"整批都不该发"的情形要一次说清，而不是逐条报 N 遍 ──
 
@@ -72,17 +67,17 @@ if (!Enterprise::isRetail($company)) {
     exit;
 }
 
-// 凭据必须是这家门店的、且四字段填齐。纵深而非重复：RetailRetransmit 逐条还会再拦一次
-// （它才是可信边界，这里只是让"整批都发不出去"的情形早点说清）
-$credential = Enterprise::credential($company, $credentialKey);
+// 凭据取该门店**那套**（每家企业恰一套，docs/adr/0012），且四字段填齐。纵深而非重复：
+// RetailRetransmit 逐条还会再拦一次（它才是可信边界，这里只是让"整批都发不出去"的情形早点说清）
+$credential = Enterprise::credentialFor($company);
 if ($credential === null) {
     http_response_code(400);
-    echo json_encode(['error' => "门店「{$company}」没有凭据位「{$credentialKey}」，拒绝补传"], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['error' => "门店「{$company}」没有凭据位，拒绝补传"], JSON_UNESCAPED_UNICODE);
     exit;
 }
 if (!Enterprise::credentialConfigured($credential)) {
     http_response_code(400);
-    echo json_encode(['error' => "门店「{$company}」的凭据「{$credentialKey}」尚未配齐（AppKey/SECRETKEY 未到手），拒绝补传"], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['error' => "门店「{$company}」的凭据尚未配齐（AppKey/SECRETKEY 未到手），拒绝补传"], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -140,7 +135,7 @@ $retransmit = new RetailRetransmit();
 foreach ($tasks as $task) {
     try {
         // 逐条调用同一份实现；某条被拒只影响它自己，进度由 shared 实现逐子单回调
-        $result = $retransmit->retransmit($task, $credentialKey, $db, $emit);
+        $result = $retransmit->retransmit($task, $db, $emit);
         $result['failed'] === 0 ? $okTasks++ : $badTasks++;
     } catch (\Throwable $e) {
         $badTasks++;

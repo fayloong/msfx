@@ -52,9 +52,9 @@ $structure = ['companies' => [
         'credentials' => ['main' => ['label' => '主主体', 'primary' => true]],
     ],
     [
-        // primary 声明在**结构**里（哪个是默认授权是结构性事实，不随密钥是否到手变化）
+        // 每家企业恰一套凭据（docs/adr/0012）；primary 仍在结构里解析，只是单套时代不参与任何决策
         'key' => 's1', 'name' => '门店一', 'type' => 'retail',
-        'credentials' => ['main' => ['label' => '主授权', 'primary' => true], 'backup' => ['label' => '备用授权']],
+        'credentials' => ['main' => ['label' => '主授权', 'primary' => true]],
     ],
     [
         'key' => 's2', 'name' => '门店二', 'type' => 'retail',
@@ -81,10 +81,7 @@ $local = [
     ],
     'credentials' => [
         'ws' => ['main' => ['appkey' => 'wsk', 'secretkey' => 'wss', 'ref_ent_id' => 'WSREF', 'ent_id' => 'WSENT']],
-        's1' => [
-            'main' => ['appkey' => 'k1', 'secretkey' => 's1', 'ref_ent_id' => 'ID1', 'ent_id' => 'ID1'],
-            'backup' => ['appkey' => 'k1b', 'secretkey' => 's1b', 'ref_ent_id' => 'ID1', 'ent_id' => 'ID1'],
-        ],
+        's1' => ['main' => ['appkey' => 'k1', 'secretkey' => 's1', 'ref_ent_id' => 'ID1', 'ent_id' => 'ID1']],
         's2' => ['main' => ['appkey' => 'k2', 'secretkey' => 's2', 'ref_ent_id' => 'ID2', 'ent_id' => 'ID2']],
         // s3 故意不给凭据 → 待配凭据（ids 有、凭据空）
     ],
@@ -108,10 +105,26 @@ check('s2 凭据已配置', Enterprise::credentialConfigured(Enterprise::credent
 check('取不存在的凭据返回 null', Enterprise::credential('门店二', 'nope') === null);
 check('取不存在企业的凭据返回 null', Enterprise::credential('不存在', 'main') === null);
 
+// credentialFor：门店与凭据 1:1（docs/adr/0012），故"这家用哪套"只有一个答案。
+// 返回值带 key（日志/任务行的 credential 列要写它），调用方不需要自己知道凭据位键叫什么
+$c = Enterprise::credentialFor('门店二');
+check('credentialFor 取该企业那套（带 key）',
+    ($c['key'] ?? '') === 'main' && ($c['appkey'] ?? '') === 'k2', json_encode($c, JSON_UNESCAPED_UNICODE));
+check('credentialFor：待配凭据门店返回空凭据而非 null（认领得到、还不能传）',
+    Enterprise::credentialFor('门店三') !== null && !Enterprise::credentialConfigured(Enterprise::credentialFor('门店三')));
+check('credentialFor：连凭据位都没声明 → null', Enterprise::credentialFor('门店四') === null);
+check('credentialFor：未知企业 → null', Enterprise::credentialFor('不存在') === null);
+
+// retailCredentialReady：两个视图只问"这家能不能补传"这一个事实
+$ready = Enterprise::retailCredentialReady();
+check('retailCredentialReady：已配齐门店为 true', ($ready['门店二'] ?? null) === true);
+check('retailCredentialReady：待配凭据门店为 false', ($ready['门店三'] ?? null) === false);
+check('retailCredentialReady：不含批发企业', !array_key_exists('批发企业', $ready));
+
 // ---------- 用例 3: 认领——ID 优先，且按单据类型选列 ----------
 $r = Enterprise::claim('321', 'ID1', '', '');
 check('321 用 from_user_id 认领', $r['company'] === '门店一' && $r['matched_by'] === 'id', json_encode($r, JSON_UNESCAPED_UNICODE));
-check('认领带 primary 凭据键', $r['credential'] === 'main', (string)$r['credential']);
+check('认领带该门店凭据键', $r['credential'] === 'main', (string)$r['credential']);
 
 $r = Enterprise::claim('116', 'ID1', '', '');
 check('116 用 from_user_id 认领', $r['company'] === '门店一' && $r['matched_by'] === 'id');
@@ -130,9 +143,9 @@ check('历史/别名 ID 可认领', $r['company'] === '门店一' && $r['matched
 
 $r = Enterprise::claim('203', '', 'ID3', '');
 check('待配凭据门店仍能认领（不因缺凭据而丢单）', $r['company'] === '门店三');
-// 采集时 credential 预填 primary 键（表达"默认会用哪套"）；该凭据是否已配齐密钥是另一回事，
+// 采集时 credential 预填该门店那套的键；该凭据是否已配齐密钥是另一回事，
 // 页面据 credentialConfigured() 决定是否禁用补传
-check('待配凭据门店 credential 仍预填 primary 键', $r['credential'] === 'main', (string)$r['credential']);
+check('待配凭据门店 credential 仍预填该凭据键', $r['credential'] === 'main', (string)$r['credential']);
 
 $r = Enterprise::claim('321', 'ID4', '', '');
 check('结构未声明凭据位 → credential 为 null', $r['company'] === '门店四' && $r['credential'] === null, json_encode($r, JSON_UNESCAPED_UNICODE));
@@ -196,10 +209,10 @@ $bad = $local;
 $bad['ids']['s2'] = ['ID2', 'ID1'];
 checkRejects('平台 ID 重复 → 拒绝载入', $structure, $bad, '平台 ID 重复');
 
-// (c) 多套凭据但没标 primary（primary 声明在结构里）
+// (c) 一家企业声明多套凭据 → 拒绝载入（门店与凭据 1:1；多套会让"补传用哪套"重新变成要人做的选择）
 $badStructure = $structure;
-unset($badStructure['companies'][1]['credentials']['main']['primary']);
-checkRejects('多套凭据未标 primary → 拒绝载入', $badStructure, $local, '须恰好一套标 primary');
+$badStructure['companies'][1]['credentials']['backup'] = ['label' => '备用授权'];
+checkRejects('多套凭据 → 拒绝载入', $badStructure, $local, '每家企业只允许一套凭据');
 
 // (d) 凭据字段残缺（填一半）
 $bad = $local;
@@ -244,7 +257,7 @@ Enterprise::reset();
 Enterprise::load($structure, $local);
 $w = Enterprise::wholesaleSubject();
 check('批发主体：唯一批发企业', $w['key'] === 'ws' && $w['name'] === '批发企业', json_encode($w, JSON_UNESCAPED_UNICODE));
-check('批发主体：带 primary 凭据键', $w['credential_key'] === 'main', (string)$w['credential_key']);
+check('批发主体：带凭据键', $w['credential_key'] === 'main', (string)$w['credential_key']);
 
 // 凭据位已声明、密钥还没到手（"待配凭据"是合法状态）→ credential 仍预填该凭据位键，
 // 由调用方用 credentialConfigured() 判定后拒传（与 claim() 的语义一致，见用例 3）

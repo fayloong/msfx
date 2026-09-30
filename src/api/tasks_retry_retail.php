@@ -12,10 +12,11 @@
  * **补传是向平台的真实申报**，装配错一项就是把单据报到错误主体、在平台上不可逆，
  * 故所有校验都发生在第一次平台调用之前（见 docs/adr/0006 / docs/adr/0007）。
  *
- * 入参：{id: 任务 ID, credential: 凭据位键}
+ * 入参：{id: 任务 ID}
  * - 单据元数据一律取自**采集时落库的记录**，不接受调用方传任何单据字段（票面：不提供从零手工录入。
  *   手工录 4 个平台 ID 几乎必然出错，且本轮不查平台，录错了察觉不了）
- * - 凭据由操作者在页面上**显式选择**（本轮不做多套凭据的自动分发规则，由人指定比猜一套规则可靠）
+ * - 用哪套凭据**不由调用方给**：门店与凭据是 1:1（docs/adr/0012），服务端据任务行的 company
+ *   取该门店那套。入参里没有这个键，也就没有"传错一套"的路径
  */
 
 use App\Auth;
@@ -37,16 +38,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $input = json_decode(file_get_contents('php://input'), true);
 $id = $input['id'] ?? null;
-$credentialKey = trim((string)($input['credential'] ?? ''));
 
 if (!$id) {
     http_response_code(400);
     echo json_encode(['error' => '缺少 id 参数'], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-if ($credentialKey === '') {
-    http_response_code(400);
-    echo json_encode(['error' => '未选择凭据'], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -68,7 +63,7 @@ while (ob_get_level()) { ob_end_clean(); }
 ob_implicit_flush(true);
 
 try {
-    $result = (new RetailRetransmit())->retransmit($task, $credentialKey, $db, function (array $progress) {
+    $result = (new RetailRetransmit())->retransmit($task, $db, function (array $progress) {
         echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
         flush();
     });

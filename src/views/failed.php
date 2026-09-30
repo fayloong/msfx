@@ -515,9 +515,9 @@ layout('失败记录', 'failed');
             trace_codes: document.getElementById('edit-trace-codes').value,
             bill_type: document.getElementById('edit-bill-type').value,
         };
-        // 只在**企业真的改了**时才把 company 送上去：服务端见到该键就会把 credential 重设为主授权，
-        // 而"这次实际用了哪套凭据"是审计值（备用凭据补传成功后由补传流程写入）——
-        // 改个日期顺手把它退回主授权，是在动一个与本次编辑无关的字段。
+        // 只在**企业真的改了**时才把 company 送上去：服务端见到该键就会把 credential 重设为该企业的凭据键，
+        // 而"这次实际用了哪套凭据"是审计值（补传流程写回的那套）——
+        // 改个日期顺手把它重设一遍，是在动一个与本次编辑无关的字段。
         // 顺带：company 为空串的行（理论上不该有）也因此能正常保存其余字段，不会被 400 卡住。
         if (company !== editOriginalCompany) payload.company = company;
         const body = JSON.stringify(payload);

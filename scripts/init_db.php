@@ -9,7 +9,7 @@
  *
  * 多企业支持（见 .scratch/retail-chain/spec.md §7、docs/adr/0006）：
  *   upload_tasks / upload_logs 各加 company（企业中文全名：页面"所属企业"列的值与筛选键）
- *   + credential（该企业 primary 凭据键，如 main；只作审计，不参与任何键，去重键是 (company, djbh)）
+ *   + credential（该企业凭据键，如 main；只作审计，不参与任何键，去重键是 (company, djbh)）
  *   ent_list 加 company 并把唯一约束 ent_name → (company, ent_name)——SQLite 改不了约束，只能重建表
  *
  * 零售补传（工单 06）：

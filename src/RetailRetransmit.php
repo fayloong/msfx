@@ -20,8 +20,8 @@
  * 平台自身的单号唯一性就是兜底。
  *
  * 限流侧同理：平台限流池按 AppKey 计，零售用的是各门店自己的 AppKey，与河药的 `check_bill_status`
- * 8-20 点窗口不共享池子。**但配置并不禁止两套凭据共用同一个 AppKey**（同一开发者账号下的多个企业本就
- * 可以合法共用，故 `Enterprise::validate()` 不拦），所以真有门店与河药共用 AppKey 时，"补传不受
+ * 8-20 点窗口不共享池子。**但配置并不禁止不同企业的凭据共用同一个 AppKey**（同一开发者账号下的多个企业
+ * 本就可以合法共用，故 `Enterprise::validate()` 不拦），所以真有门店与河药共用 AppKey 时，"补传不受
  * 8-20 点窗口约束"这条就不再成立——那时才需要拿锁与错峰，别默认它永远成立。
  */
 namespace App;
@@ -39,14 +39,13 @@ class RetailRetransmit
     /**
      * 补传一条零售单据（必要时拆单，逐个子单调用平台）。
      *
-     * @param array    $task          落库的任务行（元数据一律取自这里，不接受调用方传单据字段）
-     * @param string   $credentialKey 操作者显式选择的凭据位键（必须是该门店的）
-     * @param Database $db            任务状态写回用
+     * @param array    $task 落库的任务行（元数据一律取自这里，不接受调用方传单据字段）
+     * @param Database $db   任务状态写回用
      * @param callable|null $onProgress 每个子单的结果回调（收到一条真实结果即调一次）
      * @return array{total:int, success:int, failed:int} total/success/failed 均按**子单**计
-     * @throws \RuntimeException 校验不过（非零售企业 / 凭据不属于该门店或未配齐 / 无路由 / 装配必填项缺失）
+     * @throws \RuntimeException 校验不过（非零售企业 / 门店无凭据位或未配齐 / 无路由 / 装配必填项缺失）
      */
-    public function retransmit(array $task, string $credentialKey, Database $db, ?callable $onProgress = null): array
+    public function retransmit(array $task, Database $db, ?callable $onProgress = null): array
     {
         $djbh = (string)$task['djbh'];
         $company = trim((string)($task['company'] ?? ''));
@@ -59,18 +58,20 @@ class RetailRetransmit
             throw new \RuntimeException("单号 {$djbh}: 「{$company}」不是零售企业，本入口只补传门店单据");
         }
 
-        // 2) 凭据必须是这家门店的、且四字段填齐（待配凭据的门店页面已禁用，这里再拦一次——
-        //    页面只是显示层，不是可信边界）
-        $credential = Enterprise::credential($company, $credentialKey);
+        // 2) 凭据 = 该门店**那套**（每家企业恰一套，见 docs/adr/0012），且四字段填齐。
+        //    凭据不由调用方指定：页面上已没有可选的东西，端点也就不该有"传哪套凭据"这个入参——
+        //    少一个可传错的参数，就少一条"把单据报到错误主体"的路径。待配凭据的门店页面已禁用，
+        //    这里再拦一次（页面只是显示层，不是可信边界）
+        $credential = Enterprise::credentialFor($company);
         if ($credential === null) {
-            throw new \RuntimeException("单号 {$djbh}: 门店「{$company}」没有凭据位「{$credentialKey}」，拒绝补传");
+            throw new \RuntimeException("单号 {$djbh}: 门店「{$company}」没有凭据位，拒绝补传");
         }
         if (!Enterprise::credentialConfigured($credential)) {
             throw new \RuntimeException(
-                "单号 {$djbh}: 门店「{$company}」的凭据「{$credentialKey}」尚未配齐"
-                . "（AppKey/SECRETKEY 未到手），拒绝补传"
+                "单号 {$djbh}: 门店「{$company}」的凭据尚未配齐（AppKey/SECRETKEY 未到手），拒绝补传"
             );
         }
+        $credentialKey = (string)$credential['key'];
 
         // 3) 元数据全部取自落库行。工单 06 之前采的行缺 from_user_id/to_user_id/physic_type，
         //    装配末尾的 check() 会把它们拦下（fail-closed），不会拼出一个"看着合法、却报错主体"的请求
@@ -221,8 +222,9 @@ class RetailRetransmit
     /**
      * 翻转任务状态并记下这次实际用了哪套凭据。
      *
-     * credential 列是审计值：采集时预填该门店的 primary，人工切到备用凭据时在这里被覆盖
-     * （去重键是 (company, djbh)，credential 不参与任何键，见 docs/adr/0006）。
+     * credential 列是审计值：采集时预填该门店那套凭据的键，这里写回的是同一套——每家企业恰一套
+     * （见 docs/adr/0012），故这一写不改变取值，只是把"这次用了哪套"记成事实。
+     * 去重键是 (company, djbh)，credential 不参与任何键（见 docs/adr/0006）。
      */
     private function updateTaskStatus(Database $db, int $taskId, string $credentialKey, array $attempt): void
     {

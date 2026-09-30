@@ -1,30 +1,20 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
-// 顶部"所属企业"下拉与零售分支要用的企业/凭据清单：**只含企业名、类型、凭据位键与 label**，
-// 不含任何密钥（密钥留在服务端）。页面据此切换分支、渲染凭据下拉、把"待配凭据"写成禁用原因；
-// 真正的校验在 src/api/tasks_batch_retry_retail.php 与 App\RetailRetransmit——页面是显示层，不是可信边界
+// 顶部"所属企业"下拉与零售分支要用的企业清单：**只含企业名、类型与"该店凭据是否配齐"**，
+// 不含任何密钥（密钥留在服务端）。页面据此切换分支、把"待配凭据"写成禁用原因；
+// 用哪套凭据不由页面选（门店与凭据 1:1，见 docs/adr/0012），真正的校验在
+// src/api/tasks_batch_retry_retail.php 与 App\RetailRetransmit——页面是显示层，不是可信边界
 $companies = [];      // [{name, type}] 顶部下拉
-$retailStores = [];   // 门店名 => [{key, label, configured}]
+$retailStores = [];   // 门店名 => 凭据是否已配齐（门店名缺席 = 该店不在配置里）
 $defaultCompany = ''; // 默认选中批发主体：页面进来就是现在这套批发表单
 $configError = '';
 $wholesaleWarning = '';
 try {
     foreach (App\Enterprise::all() as $company) {
         $companies[] = ['name' => $company['name'], 'type' => $company['type']];
-        if ($company['type'] !== App\Enterprise::TYPE_RETAIL) {
-            continue;
-        }
-        $credentials = [];
-        foreach ($company['credentials'] as $key => $credential) {
-            $credentials[] = [
-                'key' => (string)$key,
-                'label' => (string)($credential['label'] ?? ''),
-                'configured' => App\Enterprise::credentialConfigured($credential),
-            ];
-        }
-        $retailStores[$company['name']] = $credentials;
     }
+    $retailStores = App\Enterprise::retailCredentialReady();
 } catch (\Throwable $e) {
     // 企业配置坏了不该让整页打不开：零售分支降级为不可用并写明原因；批发表单照常渲染
     // （批发上传届时会由服务端的守卫拒绝，那是服务端的事，页面先能用）
@@ -197,20 +187,13 @@ layout('手动上传', 'manual-upload');
             <span class="small text-muted" id="retail-count-hint"></span>
         </div>
         <div class="card-body">
-            <div class="row g-2 align-items-end mb-2">
-                <div class="col-md-6 col-lg-4">
-                    <label class="form-label fw-semibold">凭据 <span class="text-danger">*</span></label>
-                    <select class="form-select" id="retail-credential"></select>
-                </div>
-                <div class="col-md-6 col-lg-4">
-                    <button class="btn btn-warning" id="btn-retail-batch" disabled>
-                        <span class="spinner-border spinner-border-sm d-none" id="retail-batch-spinner"></span>
-                        批量补传（已选 <span id="retail-selected-count">0</span> 条）
-                    </button>
-                </div>
+            <div class="mb-2">
+                <button class="btn btn-warning" id="btn-retail-batch" disabled>
+                    <span class="spinner-border spinner-border-sm d-none" id="retail-batch-spinner"></span>
+                    批量补传（已选 <span id="retail-selected-count">0</span> 条）
+                </button>
             </div>
-            <!-- 提示挪到对齐行之外：它在部分门店为空（正常状态）、在部分门店有字，
-                 留在行内会让"批量补传"按钮随提示有无而上下跳 -->
+            <!-- 该门店能不能补传的说明：正常门店为空，待配凭据/不在配置/配置载入失败时写明原因 -->
             <div class="form-text mb-3" id="retail-credential-hint"></div>
 
             <div class="table-responsive">
@@ -276,7 +259,8 @@ layout('手动上传', 'manual-upload');
 
 <script>
 (function() {
-    const retailStores = <?= json_encode($retailStores, JSON_UNESCAPED_UNICODE) ?>;
+    // JSON_FORCE_OBJECT：这是"门店名 => bool"的映射，配置为空时也要出 {} 而不是 []（后者会被当成数组）
+    const retailStores = <?= json_encode($retailStores, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT) ?>;
     const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) ?>;
 
     const billTypeLabels = {
@@ -329,7 +313,6 @@ layout('手动上传', 'manual-upload');
         const tbody = document.getElementById('retail-tbody');
         const emptyEl = document.getElementById('retail-empty');
         const countHint = document.getElementById('retail-count-hint');
-        const credSelect = document.getElementById('retail-credential');
         const credHint = document.getElementById('retail-credential-hint');
         const batchBtn = document.getElementById('btn-retail-batch');
 
@@ -340,40 +323,18 @@ layout('手动上传', 'manual-upload');
         document.getElementById('retail-pagination').innerHTML = '';
         updateSelection();
 
-        // 凭据下拉：只列已配齐的（待配凭据的门店清单照常可见，但不能补传并写明原因）。
-        // 重建 options 前先记下当前选择——**翻页也会走这个函数**，无条件重建会把用户选的凭据
-        // 静默退回第一项；门店有多套凭据时，那等于"翻一页换一套申报主体"（当前配置每家只有
-        // 一个凭据位，所以看不出来，但那是配置的巧合，不是这段代码的性质）
-        const prevCredential = credSelect.value;
-        const all = retailStores[company] || [];
-        const usable = all.filter(c => c.configured);
-        const multi = all.length > 1;
-        if (retailConfigError || !all.length) {
-            credSelect.innerHTML = '<option value="">（无可用凭据）</option>';
-            credSelect.disabled = true;
-        } else if (!usable.length) {
-            credSelect.innerHTML = '<option value="">（待配凭据）</option>';
-            credSelect.disabled = true;
-        } else {
-            credSelect.disabled = false;
-            credSelect.innerHTML = usable.map(c =>
-                `<option value="${esc(c.key)}">${esc(multi ? company + '（' + c.label + '）' : company)}</option>`
-            ).join('');
-        }
-        credSelect.dataset.usable = usable.length ? '1' : '';
-        // 旧选择在新门店/新列表里仍可用就留着（换门店时同名凭据位保留也不违和：选的是"哪套授权"）
-        if (prevCredential && usable.some(c => c.key === prevCredential)) {
-            credSelect.value = prevCredential;
-        }
+        // 该门店能不能补传——取消人工选凭据后，页面只剩这一个判断（用哪套凭据由服务端按门店取，
+        // 见 docs/adr/0012。门店名缺席 = 不在配置里；值为 false = 待配凭据）
+        batchBtn.dataset.ready = retailStores[company] === true ? '1' : '';
 
         if (retailConfigError) {
             credHint.textContent = '企业配置载入失败，零售补传不可用。';
-        } else if (!all.length) {
+        } else if (!(company in retailStores)) {
             credHint.textContent = '该门店不在企业配置中，无法补传。';
-        } else if (!usable.length) {
+        } else if (!batchBtn.dataset.ready) {
             credHint.textContent = '待配凭据：该门店的 AppKey/SECRETKEY 尚未到手（预期内的正常状态，不是异常），补齐前不能补传。清单照常可见。';
         } else {
-            credHint.textContent = '';   // 正常态不提示：下拉里能选的就是可用的，多一句话只是噪声
+            credHint.textContent = '';   // 正常态不提示：能补传就没什么要说的，多一句话只是噪声
         }
 
         try {
@@ -437,8 +398,8 @@ layout('手动上传', 'manual-upload');
     // 计数取自勾选集而非 DOM——DOM 里只有当前页的行，翻页后仍在勾选集里的行数会少算
     function updateSelection() {
         document.getElementById('retail-selected-count').textContent = retailSelectedIds.size;
-        const credSelect = document.getElementById('retail-credential');
-        document.getElementById('btn-retail-batch').disabled = !retailSelectedIds.size || !credSelect.dataset.usable;
+        const batchBtn = document.getElementById('btn-retail-batch');
+        batchBtn.disabled = !retailSelectedIds.size || !batchBtn.dataset.ready;
     }
 
     // 追溯码弹窗：与上传任务页的"查看追溯码"同一套（全量列出 + 一键复制）。
@@ -510,9 +471,7 @@ layout('手动上传', 'manual-upload');
     document.getElementById('btn-retail-batch').addEventListener('click', async function() {
         const ids = Array.from(retailSelectedIds);
         const company = currentCompany();
-        const credential = document.getElementById('retail-credential').value;
         if (!ids.length) { alert('请先勾选要补传的单据'); return; }
-        if (!credential) { alert('该门店没有可用凭据，无法补传'); return; }
 
         // 二次确认：补传是对平台的真实申报，不可逆
         let confirmMsg = '确认对门店「' + company + '」的 ' + ids.length + ' 条单据发起补传？\n\n'
@@ -546,7 +505,7 @@ layout('手动上传', 'manual-upload');
             await streamFetch('index.php?page=api&action=tasks_batch_retry_retail', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ids, company, credential}),
+                body: JSON.stringify({ids, company}),
             }, logEl, summaryEl, titleEl, {unit: '单据', doneTitle: '补传完成'});
         } catch (err) {
             appendLog(logEl, 'error', '请求失败: ' + err.message);

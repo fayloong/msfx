@@ -1,26 +1,13 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
-// 零售补传要用的门店凭据清单：**只含凭据位键、label 与"是否已配齐"**，不含任何密钥
-// （密钥留在服务端，页面拿不到）。页面据此把"未识别 / 待配凭据"的行禁用并写明原因、
-// 渲染凭据下拉；真正的校验在 src/api/tasks_retry_retail.php——页面是显示层，不是可信边界
+// 零售补传要用的门店凭据可用性：门店名 => 凭据是否已配齐（**不含任何密钥**，页面也不需要——
+// 用哪套凭据由服务端按门店取，见 docs/adr/0012）。页面据此把"未识别 / 待配凭据"的行禁用并写明原因；
+// 真正的校验在 src/api/tasks_retry_retail.php——页面是显示层，不是可信边界
 $retailStores = [];
 $configError = '';
 try {
-    foreach (App\Enterprise::all() as $company) {
-        if ($company['type'] !== App\Enterprise::TYPE_RETAIL) {
-            continue;
-        }
-        $credentials = [];
-        foreach ($company['credentials'] as $key => $credential) {
-            $credentials[] = [
-                'key' => (string)$key,
-                'label' => (string)($credential['label'] ?? ''),
-                'configured' => App\Enterprise::credentialConfigured($credential),
-            ];
-        }
-        $retailStores[$company['name']] = $credentials;
-    }
+    $retailStores = App\Enterprise::retailCredentialReady();
 } catch (\Throwable $e) {
     // 企业配置坏了不该让整页打不开：零售补传降级为不可用并写明原因，
     // 页面其余部分与批发链路（不读企业配置）不受影响
@@ -271,7 +258,7 @@ layout('上传任务', 'upload-tasks');
     </div>
 </div>
 
-<!-- 零售补传弹窗：选凭据 + 二次确认（补传是对平台的真实申报） -->
+<!-- 零售补传弹窗：单据元数据 + 二次确认（补传是对平台的真实申报） -->
 <div class="modal fade" id="retailRetryModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -284,7 +271,7 @@ layout('上传任务', 'upload-tasks');
                     补传是<strong>向码上放心平台的真实申报，不可逆</strong>。请确认该单尚未被外部系统上传——
                     若外部系统已用另一套 AppKey 传过同一张单，补传会在平台上造成重复申报。
                 </div>
-                <dl class="row small mb-3">
+                <dl class="row small mb-0">
                     <dt class="col-3">单号</dt>
                     <dd class="col-9"><code id="rr-djbh"></code></dd>
                     <dt class="col-3">单据日期</dt>
@@ -296,12 +283,6 @@ layout('上传任务', 'upload-tasks');
                     <dt class="col-3">追溯码</dt>
                     <dd class="col-9" id="rr-codes"></dd>
                 </dl>
-                <label class="form-label">凭据 <span class="text-danger">*</span></label>
-                <select class="form-select" id="rr-credential"></select>
-                <div class="form-text">
-                    用哪套凭据上报由你指定（本轮不做自动分发规则）；备用凭据仅在主授权被平台限流时顶替，
-                    同一张单不会传两次。
-                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -333,7 +314,7 @@ layout('上传任务', 'upload-tasks');
 
 <script>
 // 服务端注入的门店凭据清单：门店名 => [{key, label, configured}]，**不含任何密钥**
-const retailStores = <?= json_encode($retailStores, JSON_UNESCAPED_UNICODE) ?>;
+const retailStores = <?= json_encode($retailStores, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT) ?>;   // 门店名 => 凭据是否配齐
 const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) ?>;
 
 (function() {
@@ -460,11 +441,10 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         if (r.source !== 'retail') {
             return null;
         }
-        const store = retailStores[r.company];
-        if (!store || !store.length) {
+        if (!(r.company in retailStores)) {
             return ['bg-danger', '门店不在配置中'];
         }
-        if (!store.some(c => c.configured)) {
+        if (retailStores[r.company] !== true) {
             return ['bg-secondary', '待配凭据'];
         }
         return null;
@@ -503,11 +483,10 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         if (r.company === '未识别') {
             return disabled('未识别：门店认领失败（配置漏了门店，或源库改了名），需人工核查后才能补传');
         }
-        const store = retailStores[r.company];
-        if (!store || !store.length) {
+        if (!(r.company in retailStores)) {
             return disabled('该门店不在企业配置中，无法补传');
         }
-        if (!store.some(c => c.configured)) {
+        if (retailStores[r.company] !== true) {
             return disabled('待配凭据：AppKey/SECRETKEY 尚未到手，暂时不能补传（预期内的正常状态，不是异常）');
         }
         return `<button class="btn btn-sm btn-outline-warning btn-retail-retry" data-id="${r.id}">补传</button>`;
@@ -523,7 +502,7 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         tbody.innerHTML = rows.map(r => {
             // 未识别 = 认领不到门店（配置漏了门店或源库改了名），真异常信号，整行标红提醒人去查
             const unidentified = r.company === '未识别';
-            // 零售行走补传入口（显式选凭据）；批发行保持原样的重传
+            // 零售行走补传入口（凭据由服务端按门店取）；批发行保持原样的重传
             const isRetail = r.source === 'retail';
             return `
             <tr${unidentified ? ' class="table-danger"' : ''}>
@@ -680,9 +659,9 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
             trace_codes: document.getElementById('edit-trace-codes').value,
             bill_type: document.getElementById('edit-bill-type').value,
         };
-        // 只在**企业真的改了**时才把 company 送上去：服务端见到该键就会把 credential 重设为主授权，
-        // 而"这次实际用了哪套凭据"是审计值（备用凭据补传成功后由补传流程写入）——
-        // 改个日期顺手把它退回主授权，是在动一个与本次编辑无关的字段。
+        // 只在**企业真的改了**时才把 company 送上去：服务端见到该键就会把 credential 重设为该企业的凭据键，
+        // 而"这次实际用了哪套凭据"是审计值（补传流程写回的那套）——
+        // 改个日期顺手把它重设一遍，是在动一个与本次编辑无关的字段。
         // 顺带：company 为空串的行（理论上不该有）也因此能正常保存其余字段，不会被 400 卡住。
         if (company !== editOriginalCompany) payload.company = company;
         const body = JSON.stringify(payload);
@@ -735,14 +714,15 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         }
     }
 
-    // ── 零售补传：单据元数据全部来自落库行，操作者只选凭据 ──
+    // ── 零售补传：单据元数据全部来自落库行，操作者什么都不用填 ──
     function openRetailRetry(id) {
         const task = lastRows.find(t => t.id === id);
         if (!task) { alert('未找到该任务，请刷新后重试'); return; }
-
-        const all = retailStores[task.company] || [];
-        const usable = all.filter(c => c.configured);
-        if (!usable.length) { alert('该门店没有可用凭据，无法补传'); return; }
+        // 按钮本身在不可补传时已是禁用态，这里再拦一次：绕开按钮直接调用的路径也该被挡住
+        if (retailStores[task.company] !== true) {
+            alert('该门店的凭据尚未配齐（或不在企业配置中），无法补传');
+            return;
+        }
 
         document.getElementById('rr-djbh').textContent = task.djbh;
         document.getElementById('rr-rq').textContent = task.rq || '-';
@@ -750,12 +730,6 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         document.getElementById('rr-company').textContent = task.company;
         document.getElementById('rr-codes').textContent =
             (task.trace_codes || '').split(',').filter(Boolean).length + ' 个';
-
-        // 门店只有一套凭据时下拉显示门店名；多套时显示「门店名（label）」——一眼看出用哪套授权
-        const multi = all.length > 1;
-        document.getElementById('rr-credential').innerHTML = usable.map(c =>
-            `<option value="${esc(c.key)}">${esc(multi ? task.company + '（' + c.label + '）' : task.company)}</option>`
-        ).join('');
 
         retailRetryTaskId = id;
         new bootstrap.Modal(document.getElementById('retailRetryModal')).show();
@@ -887,7 +861,6 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
     document.getElementById('btn-retail-retry-confirm').addEventListener('click', async () => {
         if (!retailRetryTaskId) return;
         const id = retailRetryTaskId;
-        const credential = document.getElementById('rr-credential').value;
         bootstrap.Modal.getInstance(document.getElementById('retailRetryModal')).hide();
 
         const modal = new bootstrap.Modal(document.getElementById('progressModal'));
@@ -903,7 +876,7 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
             await streamFetch('index.php?page=api&action=tasks_retry_retail', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({id: id, credential: credential}),
+                body: JSON.stringify({id: id}),
             }, logEl, summaryEl, titleEl);
             loadData();
         } catch (e) {

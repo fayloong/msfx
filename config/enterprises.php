@@ -3,7 +3,7 @@
  * 企业（申报主体）配置——**结构部分，不含任何凭据与平台 ID**（本文件入 git）
  *
  * 分两文件，凭据绝不入仓：
- *   本文件                        企业名 / 类型 / 凭据位（label、primary）
+ *   本文件                        企业名 / 类型 / 凭据位（label；每家企业恰一套，见 docs/adr/0012）
  *   config/enterprises.local.php  平台 ID 列表 + 凭据四字段明文（.gitignore，见 enterprises.example.php 模板）
  *
  * 企业名（name）= 数据库 upload_tasks.company / upload_logs.company 列的值，也是页面"所属企业"的显示值与筛选键。
