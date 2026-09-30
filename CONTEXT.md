@@ -83,7 +83,8 @@
     ↓ 同步写入
   SQLite upload_logs（查询用，保留 3 个月）
     ↓ 定时清理（scripts/cleanup_logs.php）
-  删除 3 个月前的 SQLite 记录
+  删除 3 个月前的 SQLite 记录（upload_logs 按 created_at、已处理任务按 updated_at），
+  另清超期的门店待补传单据（按 rq 单据日期，2 年——判的是单据多老，不是记录存了多久）
 ```
 
 ### 外部系统
