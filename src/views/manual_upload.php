@@ -320,13 +320,11 @@ layout('手动上传', 'manual-upload');
 
     // ── 零售分支：待补传清单（分页）+ 批量补传 ──
 
-    let retailRows = [];              // 当前页数据
     let retailRowIndex = new Map();   // id => 该行，**跨页累积**：补传二次确认要按 id 回查单据类型，而被选中的行不一定在当页
     let retailSelectedIds = new Set();// 勾选集**跨页保留**——翻一页就丢勾选的话，批量补传根本没法用
     let currentRetailPage = 1;
 
     function resetRetailListState() {
-        retailRows = [];
         retailRowIndex = new Map();
         retailSelectedIds = new Set();
         currentRetailPage = 1;
@@ -340,7 +338,6 @@ layout('手动上传', 'manual-upload');
         const credHint = document.getElementById('retail-credential-hint');
         const batchBtn = document.getElementById('btn-retail-batch');
 
-        retailRows = [];
         tbody.innerHTML = '';
         emptyEl.classList.add('d-none');
         countHint.textContent = '加载中...';
@@ -348,7 +345,11 @@ layout('手动上传', 'manual-upload');
         document.getElementById('retail-pagination').innerHTML = '';
         updateSelection();
 
-        // 凭据下拉：只列已配齐的（待配凭据的门店清单照常可见，但不能补传并写明原因）
+        // 凭据下拉：只列已配齐的（待配凭据的门店清单照常可见，但不能补传并写明原因）。
+        // 重建 options 前先记下当前选择——**翻页也会走这个函数**，无条件重建会把用户选的凭据
+        // 静默退回第一项；门店有多套凭据时，那等于"翻一页换一套申报主体"（当前配置每家只有
+        // 一个凭据位，所以看不出来，但那是配置的巧合，不是这段代码的性质）
+        const prevCredential = credSelect.value;
         const all = retailStores[company] || [];
         const usable = all.filter(c => c.configured);
         const multi = all.length > 1;
@@ -365,6 +366,10 @@ layout('手动上传', 'manual-upload');
             ).join('');
         }
         credSelect.dataset.usable = usable.length ? '1' : '';
+        // 旧选择在新门店/新列表里仍可用就留着（换门店时同名凭据位保留也不违和：选的是"哪套授权"）
+        if (prevCredential && usable.some(c => c.key === prevCredential)) {
+            credSelect.value = prevCredential;
+        }
 
         if (retailConfigError) {
             credHint.textContent = '企业配置载入失败，零售补传不可用。';
@@ -390,7 +395,7 @@ layout('手动上传', 'manual-upload');
             }
             currentRetailPage = data.page;
 
-            retailRows = data.data || [];
+            const retailRows = data.data || [];   // 当前页数据：只在本函数里用，不必是模块级状态
             retailRows.forEach(r => retailRowIndex.set(r.id, r));
             const total = data.total || 0;
             countHint.textContent = total ? ('共 ' + total + ' 条待补传') : '';
@@ -441,10 +446,12 @@ layout('手动上传', 'manual-upload');
         document.getElementById('btn-retail-batch').disabled = !retailSelectedIds.size || !credSelect.dataset.usable;
     }
 
-    // 追溯码弹窗：与上传任务页的"查看追溯码"同一套（全量列出 + 一键复制）
+    // 追溯码弹窗：与上传任务页的"查看追溯码"同一套（全量列出 + 一键复制）。
+    // 计数用裸 split，不加 filter——参照实现就是这么数的，且这样与列表"码数"列
+    // （SQL 数逗号 +1）口径一致，同一行的两处数字不会打架
     function showTrace(traceCodes) {
         document.getElementById('trace-count').textContent =
-            '共 ' + traceCodes.split(',').filter(Boolean).length + ' 个追溯码';
+            '共 ' + traceCodes.split(',').length + ' 个追溯码';
         document.getElementById('trace-content').textContent = traceCodes;
         new bootstrap.Modal(document.getElementById('traceModal')).show();
     }
