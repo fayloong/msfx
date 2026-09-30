@@ -8,13 +8,10 @@ $companies = [];      // [{name, type}] 顶部下拉
 $retailStores = [];   // 门店名 => [{key, label, configured}]
 $defaultCompany = ''; // 默认选中批发主体：页面进来就是现在这套批发表单
 $configError = '';
+$wholesaleWarning = '';
 try {
     foreach (App\Enterprise::all() as $company) {
         $companies[] = ['name' => $company['name'], 'type' => $company['type']];
-        if ($company['type'] === App\Enterprise::TYPE_WHOLESALE) {
-            $defaultCompany = $defaultCompany === '' ? $company['name'] : $defaultCompany;
-            continue;
-        }
         if ($company['type'] !== App\Enterprise::TYPE_RETAIL) {
             continue;
         }
@@ -34,7 +31,15 @@ try {
     $configError = $e->getMessage();
     $companies = [];
     $retailStores = [];
-    $defaultCompany = '';
+}
+
+// 默认选中的批发主体走 Enterprise::wholesaleSubject() 这个唯一入口，**不是"取第一家批发企业"**：
+// 后者在配置里出现两家批发企业时会让页面显示的主体与 manual_create 实际落库的主体不一致。
+// 它不是恰好一家时抛异常（那正是"把单据申报到错误主体"的经典路径）——页面不替它猜，只把话说清楚。
+try {
+    $defaultCompany = App\Enterprise::wholesaleSubject()['name'];
+} catch (\Throwable $e) {
+    $wholesaleWarning = $e->getMessage();
 }
 
 layout('手动上传', 'manual-upload');
@@ -70,6 +75,11 @@ layout('手动上传', 'manual-upload');
 <?php if ($configError !== ''): ?>
 <div class="alert alert-danger">
     <strong>企业配置载入失败，零售分支不可用：</strong><?= htmlspecialchars($configError) ?>
+</div>
+<?php elseif ($wholesaleWarning !== ''): ?>
+<div class="alert alert-warning">
+    <strong>批发主体无法唯一确定，请先修配置再用批发表单：</strong><?= htmlspecialchars($wholesaleWarning) ?>
+    （下拉里的批发企业是配置顺序的第一个，未必是上传实际会用的主体——服务端会拒绝无主体的上传）
 </div>
 <?php endif; ?>
 
@@ -249,7 +259,6 @@ layout('手动上传', 'manual-upload');
 
 <script>
 (function() {
-    const companyOptions = <?= json_encode($companies, JSON_UNESCAPED_UNICODE) ?>;
     const retailStores = <?= json_encode($retailStores, JSON_UNESCAPED_UNICODE) ?>;
     const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) ?>;
 
@@ -389,7 +398,18 @@ layout('手动上传', 'manual-upload');
         if (!credential) { alert('该门店没有可用凭据，无法补传'); return; }
 
         // 二次确认：补传是对平台的真实申报，不可逆
-        if (!confirm('确认对门店「' + company + '」的 ' + ids.length + ' 条单据发起补传？\n\n补传是向码上放心平台的真实申报，不可逆。')) return;
+        let confirmMsg = '确认对门店「' + company + '」的 ' + ids.length + ' 条单据发起补传？\n\n'
+            + '补传是向码上放心平台的真实申报，不可逆。';
+        // 104/203（调拨）的 fromUserId/toUserId 方向仍待外部系统工程师确认（ADR 0010）；
+        // 单条入口同样暴露该风险，但批量会一次放大成一批，故在确认框里点名
+        const byId = new Map(retailRows.map(r => [r.id, r]));
+        const ambiguous = ids.filter(id => ['104', '203'].includes((byId.get(id) || {}).bill_type));
+        if (ambiguous.length) {
+            confirmMsg += '\n\n⚠️ 本批含 ' + ambiguous.length + ' 张 104/203（调拨）单据：'
+                + '其 fromUserId/toUserId 照搬源表同名列，但发货/收货语义仍待外部系统工程师确认（ADR 0010）——'
+                + '方向若反，平台上会留下错误申报。请确认后再传。';
+        }
+        if (!confirm(confirmMsg)) return;
 
         const btn = this;
         const spinner = document.getElementById('retail-batch-spinner');

@@ -128,25 +128,12 @@ $emit = function (array $line) {
     flush();
 };
 
-/** 一条"没能进平台"的进度行：形状与真实结果一致（前端同一个渲染路径），response 里带原因 */
-$emitRejected = function (string $djbh, string $message) use ($emit, $company) {
-    $emit([
-        'djbh' => $djbh,
-        'ent_name' => '',
-        'company' => $company,
-        'success' => false,
-        'request_status' => '请求失败',
-        'response_status' => null,
-        'response' => json_encode(['error' => $message], JSON_UNESCAPED_UNICODE),
-    ]);
-};
-
 $okTasks = 0;
 $badTasks = 0;
 
 foreach ($missingIds as $id) {
     $badTasks++;
-    $emitRejected("任务 #{$id}", '任务不存在（可能已被删除），未补传');
+    $emit(RetailRetransmit::rejectedProgress("任务 #{$id}", $company, '任务不存在（可能已被删除），未补传'));
 }
 
 $retransmit = new RetailRetransmit();
@@ -157,7 +144,7 @@ foreach ($tasks as $task) {
         $result['failed'] === 0 ? $okTasks++ : $badTasks++;
     } catch (\Throwable $e) {
         $badTasks++;
-        $emitRejected((string)$task['djbh'], $e->getMessage());
+        $emit(RetailRetransmit::rejectedProgress((string)$task['djbh'], $company, $e->getMessage()));
     }
 }
 

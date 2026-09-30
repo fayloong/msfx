@@ -113,21 +113,46 @@ class RetailRetransmit
             $this->updateTaskStatus($db, $taskId, $credentialKey, $attempt);
 
             if ($onProgress) {
-                $onProgress([
-                    'djbh' => $billCode,
-                    'ent_name' => '',
-                    'company' => $company,
-                    'success' => $attempt['success'],
-                    'request_status' => $attempt['request_status'],
-                    'response_status' => $attempt['response_status'],
-                    'response' => $attempt['response'],
-                ]);
+                $onProgress(self::progressLine($billCode, $company, $attempt));
             }
 
             usleep(self::API_INTERVAL_US);
         }
 
         return ['total' => count($chunks), 'success' => $success, 'failed' => $failed];
+    }
+
+    /**
+     * 一条进度行的形状（前端逐行渲染的输入）。**真实结果与"没能进平台"共用这一个形状**——
+     * 前端只要认一套字段，不必为拒绝路径单写一个渲染分支。
+     */
+    private static function progressLine(string $djbh, string $company, array $attempt): array
+    {
+        return [
+            'djbh' => $djbh,
+            'ent_name' => '', // 零售没有往来单位（对手方 ID 在源表里），前端回落到 company 显示门店名
+            'company' => $company,
+            'success' => $attempt['success'],
+            'request_status' => $attempt['request_status'],
+            'response_status' => $attempt['response_status'],
+            'response' => $attempt['response'],
+        ];
+    }
+
+    /**
+     * 一条"没能进平台"的进度行：校验被拒（非零售 / 凭据不属于该门店或未配齐 / 无路由 / 装配缺项）
+     * 或任务已不存在。原因写在 `response` 里——与平台返回同一条渲染路径。
+     *
+     * 批量端点用它逐条报出被拒的单据；单条端点不经过这里（异常直接冒到 `_final`）。
+     */
+    public static function rejectedProgress(string $djbh, string $company, string $message): array
+    {
+        return self::progressLine($djbh, $company, [
+            'success' => false,
+            'request_status' => '请求失败',
+            'response_status' => null,
+            'response' => json_encode(['error' => $message], JSON_UNESCAPED_UNICODE),
+        ]);
     }
 
     /**
