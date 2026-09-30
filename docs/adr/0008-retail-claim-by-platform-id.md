@@ -1,5 +1,7 @@
 # 零售门店认领以平台 ID 为键；去重键退回 (company, djbh)
 
+- 状态：已接受（2026-09-29）
+
 零售单据采集入库时，**以门店的平台 ID 作为认领键**（源表 `from_user_id` / `to_user_id`，即凭据里的 `ent_id` / `ref_ent_id`），门店名只在 ID 缺失时作回退；同时把落库记录的去重键从三元组 `(company, credential, djbh)` **退回二元组 `(company, djbh)`**，`credential` 降级为审计列。
 
 ## Context

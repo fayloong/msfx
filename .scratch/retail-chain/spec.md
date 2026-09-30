@@ -1,20 +1,24 @@
-**Status:** ready-for-agent（设计已收口，工单 02–09 可直接开工；工单 01 已完成，见下方"实施状态"）
+**Status:** done（2026-09-30：工单 01–08 已完成并各自双推；09 为文档收尾，见下方"实施状态"）
 
 # 零售连锁门店接入（多企业支持）
 
-## 实施状态（2026-09-29）
+## 实施状态（2026-09-30）
 
 | # | 工单 | 状态 | 交付物 / 剩余范围 |
 |---|------|------|------------------|
 | 01 | 企业配置与凭据模型 | **✅ 已完成** | `src/Enterprise.php`（配置解析 / 门店认领 / 接口路由 / 配置自检）+ `config/enterprises{,.example,.local}.php` + `tests/enterprise_config_test.php`（49 项断言全绿）。提交 `2877779` |
-| 02 | SQLite 多企业改造 | ⬜ 未开始 | `upload_tasks`/`upload_logs` 各加 `company`+`credential` 两列；`ent_list` 唯一约束改 `UNIQUE(company, ent_name)`；历史数据回填 `河药医药（河源）有限公司` |
-| 03 | 【排雷】`upload_pending.php` 企业过滤 | ⬜ 未开始 | **本 feature 唯一"上线即可能污染生产数据"的点**：白名单过滤 + `UploadService` 取不到凭据即拒绝上传（不回落默认凭据）。依赖 02 |
-| 04 | SDK：lsyd 请求类并入 `top_sdk/` | ⬜ 未开始 | 解压 `top_sdk_retail.zip`、逐个比对 31 个差异 domain 类（纯注释差异 vs 字段变化）后并入 |
-| 05 | 零售单据采集 | ⬜ 未开始 | 采集 SQL 已定稿（§5，含按 `bill_code` 去重）；`App\Enterprise::claim()` 已就绪；**脚本未写** |
-| 06 | 三个检查脚本排除零售 | ⬜ 未开始 | `check_bill_status` / `check_failed_logs` / `check_quantity` + `api/failed.php` 均排除零售记录 |
-| 07 | 手动上传重构（企业下拉 + 零售补传） | ⬜ 未开始 | 页面顶部"所属企业"下拉；零售只支持重传已采集单据；依赖 04 与门店凭据 |
-| 08 | 页面：三数据页加"所属企业"列与筛选 | ⬜ 未开始 | 含导出 xlsx 加列 + 筛选参数 |
-| 09 | 文档同步收尾 | ⬜ 未开始 | 本 feature 收尾时统一复核 |
+| 02 | 多企业落库 + 零售对自动链路不可见（排雷） | **✅ 已完成** | `upload_tasks`/`upload_logs` 各加 `company`+`credential`；`ent_list` 唯一约束改 `UNIQUE(company, ent_name)`；历史行回填河药；**`UploadService` fail-closed 守卫**（企业 / 接口族 / 凭据三关，整批拒传、不回落默认凭据）+ `upload_pending` 与两个重传端点的白名单取数。提交 `15d9e16`（收口 `1e047d0`） |
+| 03 | 零售单据采集入库，上传任务页看得见 | **✅ 已完成** | `scripts/fetch_bills_retail.php`（两步 SQL、`Enterprise::claim()` 认领、`(company, djbh)` 幂等、失败非零退出）+ 上传任务页"所属企业"列与 `未识别` 标红 + 状态下拉补 `待补传`/来源下拉补 `零售采集` + `321`/`116` 类型标签补进四页。提交 `07d1e1c` |
+| 04 | 把 lsyd 请求类并入 `top_sdk/` | **✅ 已完成** | 逐类并入 2 个 lsyd 请求类（`uploadinoutbill`/`uploadretail`），既有文件一个字节未动；比对结论与排除的"整包覆盖"方案落 ADR 0009。提交 `5754551`（收口 `bfea0b7`） |
+| 05 | 零售补传的请求装配 + 测试接缝 | **✅ 已完成** | `App\RetailRequestAssembler`（纯函数：不调平台、不读库、不写日志）+ `tests/retail_upload_test.php`（含 `ref_ent_id ≠ ent_id` 的辨别力用例）；入参映射落 ADR 0010。提交 `00ef186`（收口 `ccb8303`） |
+| 06 | 零售单条补传（数据页重传入口与落库） | **✅ 已完成** | `App\RetailRetransmit` + `from_user_id`/`to_user_id`/`physic_type` 三列入库（无回填）+ 上传任务页补传按钮与凭据下拉 + 三关 fail-closed；首次真传实测（两单 + 一批四张）；决策落 ADR 0011。提交 `ed342f4`（收口 `17b978a`） |
+| 07 | 手动上传页"所属企业"下拉 + 零售批量补传 | **✅ 已完成** | 页面顶部企业下拉、批发分支行为不变；门店分支＝待补传清单 + 批量补传（整批限同一门店、逐条隔离、含 `104`/`203` 时二次确认额外警告）；两个补传入口共用 `App\RetailRetransmit`。提交 `f94dc9f`（收口 `3e1607c`） |
+| 08 | 三数据页"所属企业"筛选与导出 | **✅ 已完成** | 三页加列 + 下拉（`Enterprise::selectableNames()`）+ 三类导出加列；筛选构造收敛为 `App\RecordQuery` **单一事实源**（顺带修掉 `export.php` 失败分支漏 `quantity_check` 豁免的漂移）。提交 `50b6f2c`（收口 `3690c07`） |
+| 09 | 文档收尾复核 | **✅ 已完成** | 全局视图复核（文件 / 命令 / 状态值 / 来源值四类逐项静态核对）；本表回填；`CONTEXT.md` 流程章节据实修正；ADR 0006–0011 补状态行。见本票"验证证据" |
+
+> **注意**：上表 02–09 是**垂直切片**（tracer bullet）版，每票各自切穿"数据 → 后端 → 页面 → 验收"。
+> 2026-09-29 的 to-tickets 轮把最初的**横向切层**版整体替换掉了，那一版（另一套 02–09）留档在
+> `issues/_superseded/`，内容未删改。**两套编号不同物**，回看历史时别混。
 
 **已完成的设计侧工作（非代码）**：2026-09-29 对 `dyt` 源库的**只读**探测（开放问题 C、D 有答案，见 §5），结论落 `probe-findings-2026-09-29.md`；新增 ADR 0008、修订 ADR 0006；CLAUDE.md、CONTEXT.md 同步。
 
@@ -373,7 +377,15 @@ FROM upload_tasks WHERE task_status = '等待上传'
    - 官方文档与之一致：uploadinoutbill（apiId 52555）/ uploadretail（apiId 52554）
    - 故：**不是所有单据都需要单位 ID**——321/116 只需要 `refUserId` 一个
 
-用户在本轮定的两条：
+### 2026-09-30 工单 09 文档收尾（第九轮会话）
+
+把上方"实施状态"表**回填为实际完成情况**（01–08 各带提交号，09 本票），文首 Status 由 `ready-for-agent` 改为 `done`，
+表下补一条说明以区分前后**两套同号工单**（垂直切片版 vs `issues/_superseded/` 的横向切层版）。
+
+**本轮只改文档**，未动 `src/` / `scripts/` / `config/`，未写 `data/msfx.db`。复核方式、发现与结论见
+`issues/09-docs-closeout.md` 的"验证证据"。上方 to-tickets 轮那句"工单 09 收尾时会把该表回填"至此兑现。
+
+
 
 - **零售补传入口做两处**：数据页单条补传（工单 06）+ 手动上传页选定门店后的批量补传（工单 07）
 - **lsyd 入参 `fromUserId` / `toUserId` 照搬源表同名列**（`zsm_ls.from_user_id` / `to_user_id`），仅 `uploadinoutbill` 用。

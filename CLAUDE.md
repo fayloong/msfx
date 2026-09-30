@@ -54,7 +54,7 @@ root/
 │   │   ├── tasks_batch_delete.php # 批量删除上传任务
 │   │   ├── tasks_batch_retry.php  # 批量重传
 │   │   ├── uploaded.php          # 已上传记录列表（upload_logs success=1）
-│   │   ├── failed.php            # 失败记录列表（排除**同一企业内**该单号已有上传成功/单据重复记录的日志行——去重键是 (company, djbh)，裸 djbh 会让零售失败记录被同号批发成功单顶掉；quantity_check 来源记录豁免——数量对账仅查已上传成功单，若不豁免会被 NOT EXISTS 全隐藏，告警出口失效）
+│   │   ├── failed.php            # 失败记录列表（排除**同一企业内**该单号已有上传成功/单据重复记录的日志行——去重键是 (company, djbh)，裸 djbh 会让零售失败记录被同号批发成功单顶掉；quantity_check 来源记录豁免——数量对账仅查已上传成功单，若不豁免会被 NOT EXISTS 全隐藏，告警出口失效；**已知缺口**：该页"来源"列的标签表与来源下拉都没有 `quantity_check`，数量对账告警因此在页面上直出机器值、也按来源筛不出来——本轮未动）
 │   │   ├── logs_delete.php       # 删除单条日志记录
 │   │   ├── logs_batch_delete.php # 批量删除日志记录
 │   │   ├── manual_create.php     # 手动创建任务并立即上传
@@ -91,7 +91,10 @@ root/
 │   ├── cleanup_logs.php          # 清理超过 3 个月的 SQLite 日志与已完成任务
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列；按 djbh 关联处一律限定批发主体——djbh 不是跨企业唯一的）
 │   ├── init_db.php               # 初始化/迁移 SQLite 数据库及表结构（幂等；含 company/credential 列、历史回填、ent_list 唯一键重建）
-│   └── sqlite_query.php          # 调试工具：直接传 SQL 查询/操作 SQLite（表格输出）
+│   ├── sqlite_query.php          # 调试工具：直接传 SQL 查询/操作 SQLite（表格输出）
+│   ├── migrate_status_fields.php # 【一次性迁移，2026-07-29 已执行】旧 status/success 两列拆为 task_status/request_status/response_status
+│   ├── fix_response_status.php   # 【一次性修复，2026-07-29 已执行】按 resp/response 重解析，修正映射错误、显示为"未确定"的记录
+│   └── cron_handle.php           # 空文件（0 字节、全仓无引用）——归档残留，无用途，别指望它有行为
 ├── data/
 │   ├── msfx.db                   # SQLite 本地数据库（3 张表 + 索引）
 │   └── fetch_bill_counter.json   # fetch_bills 变化检测门卫基线（当天单据计数）
@@ -124,8 +127,9 @@ root/
 | `failed` | `views/failed.php` | 失败记录 |
 | `manual-upload` | `views/manual_upload.php` | 手动上传 |
 | `api` | `api/{action}.php` | AJAX API 端点（导出实际走 `page=api&action=export`，前端按钮以此调用） |
+| `asset` | —（Nginx 直接处理） | 静态资源分支：`return false` 让 Nginx 接手；**位于登录校验之前**，故不需要也不受认证影响 |
 
-所有页面（除 login 和 api）需要登录。API 端点内部自行处理认证。
+所有页面（除 login、api 与 asset）需要登录。API 端点内部自行处理认证。
 
 **上传任务页（工单 03，2026-09-30）**：表格含**"所属企业"列**（零售门店单即为门店名；`未识别` 整行标红 + 红色徽标，表示源库单据认领不到门店——真异常信号，需人工核查）；零售行（`source='retail'`，即采集来的门店单据）走**补传按钮**（工单 06 落地，批发行仍是原来的"重传"）——见"核心数据流 → 零售补传"。任务状态下拉含 `待补传`、来源下拉含 `零售采集`——**默认筛选是"等待上传"，门店单据要看需切到"待补传"或"全部"**。编辑弹窗可改"所属企业"（工单 08），**改后需二次确认**——那是"单据申报到哪个主体"的开关（失败记录页那份弹窗同样生效）。
 

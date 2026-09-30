@@ -12,7 +12,7 @@
 
 - **追溯码 (Trace Code)**：药品电子监管码，字符串类型。一个单据对应多个追溯码，以英文逗号分隔拼接为长文本。单次上传的追溯码上限**按接口区分**（批发 kyt 3500、零售 `lsyd.uploadinoutbill` 10000、`lsyd.uploadretail` 3500，取值为 `App\Enterprise::route()` 的 limit），超出时自动拆分为 `单号_1, 单号_2...`（**上传拆分**）。导出 xlsx 时因 Excel 单格字符上限（32767），按字符数（32000）再次拆行（**导出拆行**），每行一个分片、单号加 `_N` 后缀（已带后缀的单号追加后缀，如 `单号_1` → `单号_1_1`）；3500 码 ≈ 73500 字符，故导出拆行不能按 3500 码粒度。
 
-- **所属企业 (Company)**：**上传这张单的申报主体**——河药批发企业，或零售连锁的某家门店（形如"`<城市>` `<品牌>` 药房有限公司 `<门店>` 分店"，共 15 家门店，名单由部署配置提供）。以**中文企业名**作为标识（存在 `upload_tasks` / `upload_logs` 的 `company` 列）。所属企业决定用哪套凭据（见"凭据"）调哪个平台接口，因此它是多企业支持下的**路由主体**。
+- **所属企业 (Company)**：**上传这张单的申报主体**——河药批发企业，或零售连锁的某家门店（形如"大源堂智慧药房（河源）有限公司新江分店"，共 15 家门店，权威名单以部署配置 `config/enterprises.php` 为准）。以**中文企业名**作为标识（存在 `upload_tasks` / `upload_logs` 的 `company` 列）。所属企业决定用哪套凭据（见"凭据"）调哪个平台接口，因此它是多企业支持下的**路由主体**。
 
   零售单据的**认领**（采集时把单据归到哪家门店）**以门店的平台 ID 为准**：源表 `zsm_ls` 的 `from_user_id` / `to_user_id`（即凭据里的 `ent_id` / `ref_ent_id`），按单据类型取对应列——321/116 两类消费级单据取出库方向，104/203 两类调拨单据取入库方向。一家门店可登记**多个**平台 ID（历史 ID、源库错值），命中任意一个即认领成功。ID 缺失时才回退用 `oper_ic_name` 与配置里的门店名**精确相等**匹配；该列在 321/116 单据上**全空**，故不能作为主键。两者都匹配不上 → 照常入库但标 **`未识别`**，页面显著提示、禁用补传（丢单比错标更危险，必须能看见"有单没被认领"）。判定见 ADR 0008。
 
@@ -32,9 +32,16 @@
 
 ### 核心流程
 
-- **定时上传 (Cron Upload)**：分两步独立调度 —— `scripts/fetch_bills.php` 定时（当前 cron 每 30 分钟）从 SQL Server 采集单据写入 upload_tasks（source=cron, task_status=等待上传），采集带计数门卫（当天单据计数无变化则跳过）；`scripts/upload_pending.php` 读取所有等待上传任务（当前 crontab 未启用，手动触发），通过 UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速、追溯码超 3500 拆分）→ LogWriter 写 JSONL + SQLite。手动上传保持立即上传不变。
+- **定时上传 (Cron Upload)**：分两步独立调度 —— `scripts/fetch_bills.php` 定时（当前 cron 每 30 分钟）从 SQL Server 采集单据写入 upload_tasks（source=cron, task_status=等待上传），采集带计数门卫（当天单据计数无变化则跳过）；`scripts/upload_pending.php` **只读取批发主体的等待上传任务**（`company` 白名单，不是"排除零售/其他来源"的排除法——零售单压根不以"等待上传"落库；当前 crontab 未启用，手动触发），通过 UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速、追溯码超该接口上限拆分，上限取自 `App\Enterprise::route()`——批发 kyt 为 3500）→ LogWriter 写 JSONL + SQLite。手动上传保持立即上传不变。
 
-- **批量查询上传状态 (Batch Check)**：执行 `scripts/check_bill_status.php` → 双源合并（upload_tasks 等待上传 + upload_logs 非成功记录）按 djbh 去重 → 逐个调 `ApiClient::searchBillDetail()` 查询单据是否在平台存在 → 已上传的按来源更新状态或写日志 → 未上传的（信息不存在）按来源仅更新 `updated_at`。API 间隔 0.5s。查询受**新鲜度门卫**约束：两表各带 `last_checked_at` 列记录上次成功查询时间，距上次查询不足 30 分钟（常量 `CHECK_INTERVAL_MINUTES`）的单据直接跳过，避免高频 cron 下对无变化单据重复调 API；查询成功（含"信息不存在"）才 touch，API 异常与"已确认在平台跳过"不 touch 以便下次重查。新单据 `last_checked_at` 为 NULL 天然立即查。建议 cron 8-20 点每 5 分钟一次。
+- **零售采集 (Retail Collection)**：`scripts/fetch_bills_retail.php` 定时（cron 与 `fetch_bills` 同频、**错开 5 分钟**——两者都是写 SQLite 的进程）从 **dyt 链接服务器**采集门店单据：源表 `dyt.msfx.dbo.zsm_ls`（单据头）+ `zsm_ls_code`（追溯码，一码一行），**两步 SQL**（头先按 `bill_code` 去重——`321` 存在 14 列值全同的重复行，同一单号最多 120 行，不去重会让取码时追溯码被放大 120 倍；再按单号批量取码）。单据类型写死四种 `104`/`203`/`321`/`116`（`bill_type` 是 int；`999` 语义未明，用户判定不采）。认领走 `App\Enterprise::claim()`（平台 ID 优先、门店名回退），落库 `source='retail'` + `task_status=待补传`。**全程只读 SELECT、不调任何平台接口**，故不受 8-20 点限流窗口约束；**没有计数门卫**（幂等靠 `(company, djbh)` 去重）、**不需要拆单**（实测单张码数上限 1,718 < 3,500）。源库不可用时非零退出且不写库。见 ADR 0007 / 0008，口径细节见 CLAUDE.md 的"零售单据采集"。
+
+- **批量查询上传状态 (Batch Check)**：由**两个脚本**分担、共用同一套查询/更新语义，仅调度频率不同，各带独立 flock 锁（`LOCK_EX|LOCK_NB`，锁被占用直接退出防并发）。两者取数一律**只查批发主体**（`company` 白名单）——拿门店单号去查只会得到"信息不存在"，白烧调用还可能把状态翻错。
+
+  - **来源 1 `scripts/check_bill_status.php`**（等待上传任务，高频，cron 8-20 点每 30 分钟）：查 `upload_tasks` 中 `task_status=等待上传` 的任务 → 逐个调 `ApiClient::searchBillDetail()`（API 间隔 0.5s）→ 已上传的标记任务 `已处理` 并写 `upload_logs`（来源 `batch_check`）；"信息不存在"仅更新 `updated_at`
+  - **来源 2 `scripts/check_failed_logs.php`**（失败记录，低频，每天 20:40）：查 `upload_logs` 中未上传成功的记录 → 按 `djbh` 去重（同单多条失败记录只查一次 API）→ 平台存在则把记录翻转为"上传成功"并同步关联任务（`task_id>0` 标 `已处理`）；"信息不存在"仅 touch
+
+  查询受**新鲜度门卫**约束：两表各带 `last_checked_at` 列记录上次成功查询时间，距上次查询不足 30 分钟（常量 `CHECK_INTERVAL_MINUTES`）的单据直接跳过。循环内"已确认在平台跳过"（SQLite 已有上传成功/单据重复记录，按 `(company, djbh)` 判重）不调 API：`check_bill_status` 对任务直接标记 `已处理` 并一并 touch；`check_failed_logs` 保留历史记录、`continue` 不 touch。**仅 API 异常不 touch**，下次 cron 自动重查。新单据 `last_checked_at` 为 NULL，天然立即查。
 
 - **手动上传 (Manual Upload)**：页面最上方先选**所属企业**（选项来自 `App\Enterprise`），选定后显示该企业对应的内容——批发与零售的字段、接口、凭据完全不同。
 
@@ -59,7 +66,7 @@
 - **已处理**：上传完成（不论成功或失败），具体结果见 `request_status` 和 `response_status` 字段
 
 `request_status`（请求状态）：请求成功 / 请求失败
-`response_status`（响应状态）：上传成功 / 单据重复 / 上传失败 / 信息不存在 / 往来单位缺失 / 未确定
+`response_status`（响应状态）：上传成功 / 单据重复 / 上传失败 / 信息不存在 / 往来单位缺失 / 未确定 / 数量不符（**仅 `upload_logs`**，数量对账 `check_quantity` 专用——任务表不产生该值）
 
 状态颜色标签：等待上传(灰)、已处理(绿/黄/红取决于 response_status)。
 

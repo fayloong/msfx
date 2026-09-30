@@ -1,5 +1,7 @@
 # 零售接口按类并入现有 `top_sdk/`，不引入第二套 SDK、也不整体覆盖
 
+- 状态：已接受（2026-09-30）
+
 零售要用的两个接口（`alibaba.alihealth.drugtrace.top.lsyd.uploadinoutbill` / `...uploadretail`）以**逐类并入**的方式进入仓库里已有的 `top_sdk/top/request/`：只新增这两个请求类文件，`top_sdk/` 既有文件一个字节都不动（`TopClient.php` 的 `sdkVersion` 也不动）。**批发链路（`drug.kyt.*`）继续用现在这套请求类。**
 
 ## Context
