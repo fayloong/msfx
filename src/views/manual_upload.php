@@ -197,11 +197,10 @@ layout('手动上传', 'manual-upload');
             <span class="small text-muted" id="retail-count-hint"></span>
         </div>
         <div class="card-body">
-            <div class="row g-2 align-items-end mb-3">
+            <div class="row g-2 align-items-end mb-2">
                 <div class="col-md-6 col-lg-4">
                     <label class="form-label fw-semibold">凭据 <span class="text-danger">*</span></label>
                     <select class="form-select" id="retail-credential"></select>
-                    <div class="form-text" id="retail-credential-hint"></div>
                 </div>
                 <div class="col-md-6 col-lg-4">
                     <button class="btn btn-warning" id="btn-retail-batch" disabled>
@@ -210,13 +209,9 @@ layout('手动上传', 'manual-upload');
                     </button>
                 </div>
             </div>
-
-            <div class="alert alert-warning py-2 small mb-3">
-                补传是<strong>向码上放心平台的真实申报，不可逆</strong>。请确认所选单据尚未被外部系统上传——
-                若外部系统已用另一套 AppKey 传过同一张单，补传会在平台上造成重复申报。
-                单据元数据（日期 / 类型 / 追溯码 / fromUserId / toUserId / physicType）全部取自采集时落库的记录，
-                不接受手工填写。
-            </div>
+            <!-- 提示挪到对齐行之外：它在部分门店为空（正常状态）、在部分门店有字，
+                 留在行内会让"批量补传"按钮随提示有无而上下跳 -->
+            <div class="form-text mb-3" id="retail-credential-hint"></div>
 
             <div class="table-responsive">
                 <table class="table table-sm table-hover align-middle mb-0">
@@ -378,7 +373,7 @@ layout('手动上传', 'manual-upload');
         } else if (!usable.length) {
             credHint.textContent = '待配凭据：该门店的 AppKey/SECRETKEY 尚未到手（预期内的正常状态，不是异常），补齐前不能补传。清单照常可见。';
         } else {
-            credHint.textContent = '补传用的授权由此处显式选择（本轮不做多套凭据的自动分发规则）。';
+            credHint.textContent = '';   // 正常态不提示：下拉里能选的就是可用的，多一句话只是噪声
         }
 
         try {
