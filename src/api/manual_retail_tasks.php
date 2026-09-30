@@ -34,6 +34,7 @@ use App\BillType;
 use App\Database;
 use App\Enterprise;
 use App\RecordQuery;
+use App\TraceSplitter;
 
 /** 每页条数与上传任务页一致（api/tasks.php 里的 20），两页的分页条样式也是同一套 */
 const PER_PAGE = 20;
@@ -86,8 +87,8 @@ $rows = $db->query(
 foreach ($rows as &$row) {
     $row['id'] = (int)$row['id'];
     $row['trace_codes'] = (string)($row['trace_codes'] ?? '');
-    // 码数：逗号数 +1（空串单独判，否则会算成 1）——与页面"码数"列、追溯码弹窗的计数同口径
-    $row['code_count'] = trim($row['trace_codes']) === '' ? 0 : substr_count($row['trace_codes'], ',') + 1;
+    // 码数走单一来源（页面"码数"列、追溯码弹窗、导出都读这一个口径）
+    $row['code_count'] = TraceSplitter::countCodes($row['trace_codes']);
     $row['bill_type'] = BillType::normalize((string)($row['bill_type'] ?? ''), (string)($row['djbh'] ?? ''));
 }
 unset($row);

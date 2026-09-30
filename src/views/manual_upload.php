@@ -314,40 +314,17 @@ layout('手动上传', 'manual-upload');
                     <label class="form-label">单据类型</label>
                     <select class="form-select" id="re-bill-type">
                         <option value="">-- 请选择 --</option>
-                        <optgroup label="入库">
-                            <option value="102">102, 采购入库</option>
-                            <option value="103">103, 退货入库</option>
+                        <optgroup label="调拨">
                             <option value="104">104, 调拨入库</option>
-                            <option value="107">107, 供应入库</option>
-                            <option value="108">108, 召回入库</option>
-                            <option value="110">110, 赠品入库</option>
-                            <option value="111">111, 盘盈入库</option>
-                            <option value="112">112, 报废入库</option>
-                            <option value="113">113, 其他入库</option>
-                        </optgroup>
-                        <optgroup label="出库">
-                            <option value="201">201, 销售出库</option>
-                            <option value="202">202, 退货出库</option>
                             <option value="203">203, 调拨出库</option>
-                            <option value="204">204, 返工出库</option>
-                            <option value="205">205, 销毁出库</option>
-                            <option value="206">206, 抽检出库</option>
-                            <option value="207">207, 直调出库</option>
-                            <option value="209">209, 供应出库</option>
-                            <option value="211">211, 召回出库</option>
-                            <option value="212">212, 赠品出库</option>
-                            <option value="214">214, 盘亏出库</option>
-                            <option value="215">215, 损坏出库</option>
-                            <option value="216">216, 报废出库</option>
-                            <option value="217">217, 其他出库</option>
-                            <option value="237">237, 直调退货</option>
                         </optgroup>
                         <optgroup label="门店（消费者级）">
                             <option value="321">321, 使用出库</option>
                             <option value="116">116, 消费者退货入库</option>
                         </optgroup>
                     </select>
-                    <div class="form-text">改单据类型会改变补传走的接口（104/203 → 调拨接口；321/116 → 零售接口）。</div>
+                    <div class="form-text">只列门店单据的这四种（采集口径写死这四种，接口路由也只认这四种）——
+                        改成别的类型没有路由，补传会被服务端拒绝且页面不会有提示。104/203 → 调拨接口，321/116 → 零售接口。</div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">单号</label>
@@ -440,7 +417,8 @@ layout('手动上传', 'manual-upload');
 
 <script>
 (function() {
-    // JSON_FORCE_OBJECT：这是"门店名 => bool"的映射，配置为空时也要出 {} 而不是 []（后者会被当成数组）
+    // JSON_FORCE_OBJECT：这是"门店名 => 凭据状态"的映射（'ready'|'pending'|'no_slot'，门店名缺席 = 不在配置里），
+    // 配置为空时也要出 {} 而不是 []（后者会被当成数组）
     const retailStores = <?= json_encode($retailStores, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT) ?>;
     const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) ?>;
 
@@ -656,27 +634,35 @@ layout('手动上传', 'manual-upload');
         updateSelection();
     }
 
-    // 行内补传/重传按钮。不可补传时按钮禁用并**写明是哪一种原因**——"门店不在配置中 / 未声明
-    // 凭据位"是配置缺口（要人去查），"待配凭据"是预期内的正常状态（只是在等密钥），
-    // 混成一句"不可用"会把人引向错误的处置（三态口径见 Enterprise::retailCredentialReady）
+    // "这家门店为什么不能补传"的**唯一一份说法**：按钮的禁用原因与补传弹窗的兜底拦截都读它，
+    // 免得两处各写一句。原因必须**分开**（ADR 0012）："门店不在配置中 / 未声明凭据位"是配置缺口
+    // （要人去查），"待配凭据"是预期内的正常状态（只是在等密钥）——混成一句"不可用"
+    // 会把人引向错误的处置。返回值 null = 可以补传。
+    function retailRetryBlockReason(row) {
+        if (retailConfigError) {
+            return '企业配置载入失败，零售补传不可用';
+        }
+        if (!(row.company in retailStores)) {
+            return '该门店不在企业配置中，无法补传';
+        }
+        if (retailStores[row.company] === 'no_slot') {
+            return '未声明凭据位：企业配置里这家门店没有凭据位（config/enterprises.php 缺这一项），补上才能补传';
+        }
+        if (retailStores[row.company] !== 'ready') {
+            return '待配凭据：AppKey/SECRETKEY 尚未到手，暂时不能补传（预期内的正常状态，不是异常）';
+        }
+        return null;
+    }
+
+    // 行内补传/重传按钮：不可补传时禁用并把上面那句原因放进 title
     function retailRetryButton(r) {
         // 待补传的行按"补传"叫，已处理的按"重传"叫：同一件事，但后者是再来一次
         const label = r.task_status === '待补传' ? '补传' : '重传';
-        const disabled = (reason) => `<span class="d-inline-block" tabindex="0" title="${esc(reason)}">
+        const reason = retailRetryBlockReason(r);
+        if (reason !== null) {
+            return `<span class="d-inline-block" tabindex="0" title="${esc(reason)}">
                 <button class="btn btn-sm btn-outline-secondary" disabled style="pointer-events:none">${label}</button>
             </span>`;
-
-        if (retailConfigError) {
-            return disabled('企业配置载入失败，零售补传不可用');
-        }
-        if (!(r.company in retailStores)) {
-            return disabled('该门店不在企业配置中，无法补传');
-        }
-        if (retailStores[r.company] === 'no_slot') {
-            return disabled('未声明凭据位：企业配置里这家门店没有凭据位（config/enterprises.php 缺这一项），补上才能补传');
-        }
-        if (retailStores[r.company] !== 'ready') {
-            return disabled('待配凭据：AppKey/SECRETKEY 尚未到手，暂时不能补传（预期内的正常状态，不是异常）');
         }
         return `<button class="btn btn-sm btn-outline-warning btn-retail-retry" data-id="${r.id}">${label}</button>`;
     }
@@ -830,6 +816,18 @@ layout('手动上传', 'manual-upload');
 
     // ── 行操作：编辑 / 删除 / 补传（重传） ──
 
+    // 行上的类型若不在下拉的那四个里（理论上不该有：采集口径只写 104/203/321/116），补一个选项出来。
+    // 否则 <select> 赋值失败会静默落回空值，保存时把单据类型抹掉还没人察觉
+    // （上传任务页的编辑弹窗对"不在配置中的企业"用的是同一手法）
+    function ensureRetailBillTypeOption(select, billType) {
+        if (!billType) return;
+        if (Array.from(select.options).some(o => o.value === billType)) return;
+        const opt = document.createElement('option');
+        opt.value = billType;
+        opt.textContent = billType + '（不在门店单据类型里）';
+        select.appendChild(opt);
+    }
+
     function openRetailEdit(id) {
         const row = retailRowIndex.get(id);   // 行数据来自列表（**跨页索引**），不必再拉一次单条
         if (!row) { alert('未找到该任务，请刷新后重试'); return; }
@@ -837,7 +835,9 @@ layout('手动上传', 'manual-upload');
         document.getElementById('re-rq').value = row.rq || '';
         document.getElementById('re-djbh').value = row.djbh || '';
         document.getElementById('re-trace-codes').value = row.trace_codes || '';
-        document.getElementById('re-bill-type').value = row.bill_type || '';
+        const typeSelect = document.getElementById('re-bill-type');
+        ensureRetailBillTypeOption(typeSelect, row.bill_type);
+        typeSelect.value = row.bill_type || '';
         new bootstrap.Modal(document.getElementById('retailEditModal')).show();
     }
 
@@ -871,10 +871,22 @@ layout('手动上传', 'manual-upload');
         }
     });
 
+    // 删除类请求的统一出口：fetch 只在网络层失败时 reject，401/500 也会正常返回，
+    // 故**必须**自己看状态码与 success 字段——不查的话失败会被当成成功，勾选集随即被清掉、
+    // 清单也重拉了（行还在，人只会以为是自己没刷新）
+    async function deleteRequest(url, options) {
+        const resp = await fetch(url, options);
+        const result = await resp.json().catch(() => null);
+        if (!resp.ok || !(result && result.success)) {
+            throw new Error((result && result.error) || ('HTTP ' + resp.status));
+        }
+        return result;
+    }
+
     function deleteRetailSingle(id) {
         showConfirm('确定要删除该补传任务吗？', async () => {
             try {
-                await fetch('index.php?page=api&action=tasks&id=' + id, { method: 'DELETE' });
+                await deleteRequest('index.php?page=api&action=tasks&id=' + id, { method: 'DELETE' });
                 retailSelectedIds.delete(id);   // 勾选集里也要撤掉，否则它会一直占着"已选 N 条"
                 retailRowIndex.delete(id);
                 loadRetailTasks(currentCompany());
@@ -890,17 +902,17 @@ layout('手动上传', 'manual-upload');
     function openRetailRetry(id) {
         const row = retailRowIndex.get(id);
         if (!row) { alert('未找到该任务，请刷新后重试'); return; }
-        // 按钮本身在不可补传时已是禁用态，这里再拦一次：绕开按钮直接调用的路径也该被挡住
-        if (retailStores[row.company] !== 'ready') {
-            alert('该门店的凭据尚未配齐（或不在企业配置中），无法补传');
-            return;
-        }
+        // 按钮本身在不可补传时已是禁用态，这里再拦一次：绕开按钮直接调用的路径也该被挡住。
+        // 原因用与按钮**同一份**说法，不再另写一句合并版（ADR 0012 要求三态分开）
+        const reason = retailRetryBlockReason(row);
+        if (reason !== null) { alert(reason); return; }
         document.getElementById('rr-djbh').textContent = row.djbh;
         document.getElementById('rr-rq').textContent = row.rq || '-';
         document.getElementById('rr-bill-type').textContent = billTypeLabels[row.bill_type] || row.bill_type || '-';
         document.getElementById('rr-company').textContent = row.company;
-        document.getElementById('rr-codes').textContent =
-            (row.trace_codes || '').split(',').filter(Boolean).length + ' 个';
+        // 码数直接读服务端的 code_count：与"码数"列同一个数（这里曾用 split(',').length 另算一遍，
+        // 两处会在边界上各说各话），也不再受"空串 split 出 1"的影响
+        document.getElementById('rr-codes').textContent = row.code_count + ' 个';
         retailRetryTaskId = id;
         new bootstrap.Modal(document.getElementById('retailRetryModal')).show();
     }
@@ -982,7 +994,7 @@ layout('手动上传', 'manual-upload');
             + '删除只作用于本地的任务行：该单据若仍未被外部系统上传，且覆盖它那个日期的采集再次运行，'
             + '它会被重新采集入库。', async () => {
             try {
-                await fetch('index.php?page=api&action=tasks_batch_delete', {
+                await deleteRequest('index.php?page=api&action=tasks_batch_delete', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ids: ids}),

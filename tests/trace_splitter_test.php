@@ -188,6 +188,26 @@ check('4000 码的 321：首片 3500、尾片 500',
 check('4000 码的 321：分片命名 单号_1/_2',
     array_keys($r) === ['XLSK5600100185373_1', 'XLSK5600100185373_2'], implode(',', array_keys($r)));
 
+// ---------- 用例 17: countCodes（码数的单一口径） ----------
+// "码数"列、追溯码弹窗、导出的"码数"列都读这一个函数——分头各算的话，
+// 同一行的两处数字会各说各话（列说 3、弹窗说 4，看的人以为哪边漏了码）。
+check('码数：空串算 0（不是 1）', TraceSplitter::countCodes('') === 0, '实际 ' . TraceSplitter::countCodes(''));
+check('码数：纯空白算 0', TraceSplitter::countCodes('   ') === 0, '实际 ' . TraceSplitter::countCodes('   '));
+check('码数：单码算 1', TraceSplitter::countCodes('81326700350743284377') === 1);
+check('码数：两码算 2', TraceSplitter::countCodes('81326700350743284377,81326700350743284378') === 2);
+
+// 拆分不改变码总数（按码数拆、按字符数拆各验一次）：分片之和 == 原串的码数。
+// 这条一旦不成立，就是导出/上传悄悄丢了码——两个方向都不可逆
+$many = implode(',', makeCodes(4000));
+$byCount = TraceSplitter::splitByCount('XLSK5600100185373', $many, 3500);
+check('按码数拆后各片码数之和 == 原串码数',
+    array_sum(array_map([TraceSplitter::class, 'countCodes'], $byCount)) === 4000,
+    '实际 ' . array_sum(array_map([TraceSplitter::class, 'countCodes'], $byCount)));
+$byChar = TraceSplitter::splitByCharLimit('XLSK5600100185373', $many, 32000);
+check('按字符数拆后各行码数之和 == 原串码数',
+    array_sum(array_map([TraceSplitter::class, 'countCodes'], $byChar)) === 4000,
+    '实际 ' . array_sum(array_map([TraceSplitter::class, 'countCodes'], $byChar)));
+
 echo "\n";
 if ($failures === 0) {
     echo "全部通过 ✓\n";

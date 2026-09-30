@@ -21,7 +21,7 @@
 | 09 | 文档收尾复核 | **✅ 已完成** | 全局视图复核（文件 / 命令 / 状态值 / 来源值四类逐项静态核对）；本表回填；`CONTEXT.md` 流程章节据实修正；ADR 0006–0011 补状态行。见本票"验证证据" |
 | 10 | 待补传清单分页 + 每行"查看追溯码" | **✅ 已完成** | `manual_retail_tasks.php` 改为分页（每页 20 条，取代 200 条截断）并随列表回 `trace_codes`；门店分支加"追溯码"列 + 与上传任务页同款的弹窗与分页条；勾选集/页码跨页保持、末页被传空自动回退。**推翻 07 票两条决策**（该票已加注记）。见本票"验收" |
 | 11 | 门店数据 2 年保留期 + 待补传清单倒序 | **✅ 已完成** | `App\RetailRetention`（2 年截止日的**单一事实源**）+ 采集下限（`fetch_bills_retail`：`--all` 语义变为"最近 2 年"，显式超期日期拒绝并退出 1）+ 清理出口（`cleanup_logs` 新增第 3 条，按 `rq` 判、非 `created_at`）+ 清单排序改 `rq DESC, id DESC`。生产库清掉 236 条超期门店单（备份在仓库外）。依据是平台原话 `FAIL_BIZ_PARAM_BILL_TIME_BEFORE_ERROR`，决策落 ADR 0013。见本票"验收" |
-| 12 | 门店分支清单补齐上传任务页能力（筛选/导出/刷新/批删/字段与操作） | **✅ 已完成** | `RecordQuery` 加第 4 类 `retail_tasks`（source='retail' 写死、**company 必填**、排序 `rq DESC, id DESC`）——门店清单与导出因此共用同一段 WHERE；`manual_retail_tasks.php` 改走它并把 `task_status` 交给页面（默认待补传，可切已处理/全部）；`export.php` 加 `retail_tasks` 分支（列与门店表格对齐、文件名「门店补传_日期.xlsx」、缺 company 直接 400）；门店分支加筛选栏 / 导出 / 刷新 / 批量删除 / 行内编辑·删除·补传|重传，表格加"补传任务创建时间""状态""操作"三列；新增 `tests/record_query_test.php`。见本票「验收」与「实现笔记」 |
+| 12 | 门店分支清单补齐上传任务页能力（筛选/导出/刷新/批删/字段与操作） | **✅ 已完成** | `RecordQuery` 加第 4 类 `retail_tasks`（source='retail' 写死、**company 必填**、排序 `rq DESC, id DESC`）——门店清单与导出因此共用同一段 WHERE；`manual_retail_tasks.php` 改走它并把 `task_status` 交给页面（默认待补传，可切已处理/全部）；`export.php` 加 `retail_tasks` 分支（列与门店表格对齐、文件名「门店补传_日期.xlsx」、缺 company 直接 400）；门店分支加筛选栏 / 导出 / 刷新 / 批量删除 / 行内编辑·删除·补传|重传，表格加"补传任务创建时间""状态""操作"三列；新增 `tests/record_query_test.php`（码数口径收进 `TraceSplitter::countCodes`）。**推翻 07 票第三条固定口径**（该票已加注记）。见本票「验收」与「实现笔记」 |
 
 > **注意**：上表 02–09 是**垂直切片**（tracer bullet）版，每票各自切穿"数据 → 后端 → 页面 → 验收"。
 > 2026-09-29 的 to-tickets 轮把最初的**横向切层**版整体替换掉了，那一版（另一套 02–09）留档在

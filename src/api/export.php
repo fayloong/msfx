@@ -11,6 +11,7 @@
 use App\Auth;
 use App\BillType;
 use App\Database;
+use App\Enterprise;
 use App\RecordQuery;
 use App\TraceSplitter;
 
@@ -28,12 +29,20 @@ if (!in_array($type, RecordQuery::TYPES, true)) {
     exit;
 }
 
-// 门店补传清单（type=retail_tasks）缺 company 时 build() 会抛——那是**必须**的：没有门店的
-// 门店导出是一份"各家混在一起、看不出毛病"的文件。这里把它收成 400 而不是 500 空响应
-if ($type === RecordQuery::TYPE_RETAIL_TASKS && trim((string)($_GET['company'] ?? '')) === '') {
-    http_response_code(400);
-    echo json_encode(['error' => '门店补传清单导出必须指定 company（门店）'], JSON_UNESCAPED_UNICODE);
-    exit;
+// 门店补传清单（type=retail_tasks）必须先点名一家**零售企业**。这是纵深而不是重复：
+// RecordQuery 那层只保证"给了 company"（空则抛），挡不住"给了个别的企业名"——
+// company=未识别 或填成批发主体，同一条 WHERE 照样筛得出（或筛出空），导出会给出
+// 一份看不出毛病的 xlsx。与本项目"请求级校验 + 链路内再拦一次"的既有做法一致。
+if ($type === RecordQuery::TYPE_RETAIL_TASKS) {
+    $company = trim((string)($_GET['company'] ?? ''));
+    if (!Enterprise::isRetail($company)) {
+        http_response_code(400);
+        echo json_encode(
+            ['error' => '门店补传清单导出必须指定 company 且必须是零售企业（当前：' . ($company === '' ? '空' : $company) . '）'],
+            JSON_UNESCAPED_UNICODE
+        );
+        exit;
+    }
 }
 
 // 大导出可能耗时较长，放宽执行时间
@@ -42,7 +51,7 @@ set_time_limit(0);
 $db = Database::getInstance();
 $sqlite = $db->getDb();
 
-// ---------- 筛选条件构建：与三个列表 API 同一份实现（App\RecordQuery） ----------
+// ---------- 筛选条件构建：与各列表 API 同一份实现（App\RecordQuery） ----------
 // 这里曾经是第 4 份拷贝，并且已经漂了一次：失败记录分支漏掉 `source = 'quantity_check' OR`
 // 豁免，于是"失败记录页看得见的数量对账告警，导出的 xlsx 里没有"。现在导出与页面走同一段
 // 代码，"导出的行数与页面一致"是构造上的性质，不再靠人工核对（见该类注释）。
@@ -59,7 +68,9 @@ if ($type === RecordQuery::TYPE_RETAIL_TASKS) {
         '单据日期' => fn($r) => $r['rq'] ?? '',
         '单据类型' => fn($r) => BillType::normalize($r['bill_type'] ?? '', $r['djbh'] ?? ''),
         '追溯码' => fn($r) => truncateTraceCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
-        '码数' => fn($r) => traceCodeCount((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
+        // 取值用拆行后的 `_piece_trace_codes`：追溯码超 32000 字符被拆成多行时，
+        // 每行写的是**本行**的码数，与它自己那格追溯码对得上（而不是两行都写总数）
+        '码数' => fn($r) => TraceSplitter::countCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
         '补传任务创建时间' => fn($r) => $r['created_at'] ?? '',
         '任务状态' => fn($r) => $r['task_status'] ?? '',
         '响应状态' => fn($r) => $r['response_status'] ?? '',
@@ -114,17 +125,6 @@ function truncateTraceCodes(string $value): string
     }
     $count = substr_count($value, ',') + 1;
     return mb_substr($value, 0, CELL_TEXT_LIMIT) . '…(共' . $count . '个码)';
-}
-
-/**
- * 码数（门店补传清单的"码数"列）：逗号数 +1，空串算 0——与页面那列同口径。
- * 取值用拆行后的 `_piece_trace_codes`：追溯码超 32000 字符被拆成多行时，
- * 每行写的是**本行**的码数，与它自己那格追溯码对得上（而不是两行都写总数）。
- */
-function traceCodeCount(string $value): int
-{
-    $value = trim($value);
-    return $value === '' ? 0 : substr_count($value, ',') + 1;
 }
 
 function truncateCell(string $value): string

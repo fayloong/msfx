@@ -41,7 +41,7 @@ root/
 │   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 App\RetailRetransmit
 │   ├── RetailRetransmit.php      # 零售补传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态）：单条（tasks_retry_retail）与批量（tasks_batch_retry_retail）两个端点共用的唯一实现；装配仍走 RetailRequestAssembler，来源写 retail_retry
 │   ├── RetailRetention.php       # 门店数据保留期（平台硬性规定 2 年，不接受 2 年前的单据）：YEARS + cutoffDate() 是采集下限与清理下限的**唯一来源**；两个调用点必须共用，各写各的会让超期数据滞留
-│   ├── TraceSplitter.php         # 追溯码两种拆法：splitByCount 按码数拆单（上传用，上限取自 Enterprise::route()，批发 3500 / 零售 10000·3500）、splitByCharLimit 按字符数拆行（导出用，每行 ≤32000 字符）
+│   ├── TraceSplitter.php         # 追溯码两种拆法：splitByCount 按码数拆单（上传用，上限取自 Enterprise::route()，批发 3500 / 零售 10000·3500）、splitByCharLimit 按字符数拆行（导出用，每行 ≤32000 字符）；countCodes 数码——页面"码数"列、追溯码弹窗、导出共用这一个口径（空串算 0）
 │   ├── RecordQuery.php           # 数据页筛选条件单一事实源（build(类型, 参数) → WHERE/SELECT/ORDER/params，四类：tasks/uploaded/failed/retail_tasks）：列表 API 与导出**共用同一段代码**，"导出的行数与页面一致"是构造上的性质。曾经四处各写一份，export 的失败分支因此漏过 quantity_check 豁免。门店补传清单（retail_tasks）的两条固定口径写在这里：source='retail' 写死、**company 必填**（缺了直接抛，不静默退化成"全部门店混成一条清单"）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
 │   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载；queryEach 为逐行消费大结果集的
@@ -68,7 +68,8 @@ root/
 │   │   │                           #   排序 rq DESC, id DESC——单据日期倒序，新的在前）
 │   │   ├── template_download.php # 下载 xlsx 导入模板
 │   │   └── export.php            # 按当前筛选条件导出 xlsx（流式生成，内存 O(1)）；四类 type，retail_tasks（门店补传）
-│   │                             #   的列与门店表格对齐、文件名「门店补传_日期.xlsx」，缺 company 直接 400
+│   │                             #   的列与门店表格对齐、文件名「门店补传_日期.xlsx」；
+│   │                             #   缺 company 或 company 不是零售企业（未识别/批发主体）都 400 并指名当前值
 │   └── views/                    # 页面视图（PHP 模板）
 │       ├── layout.php            # 全局布局（左侧菜单 + 顶栏）
 │       ├── login.php             # 登录页

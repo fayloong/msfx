@@ -33,7 +33,7 @@ class RecordQuery
     public const TYPES = [self::TYPE_TASKS, self::TYPE_UPLOADED, self::TYPE_FAILED, self::TYPE_RETAIL_TASKS];
 
     /**
-     * 构造一条记录的查询（WHERE + SELECT + ORDER），三页共用。
+     * 构造一条记录的查询（WHERE + SELECT + ORDER），各数据页共用。
      *
      * @param string              $type    TYPE_TASKS / TYPE_UPLOADED / TYPE_FAILED / TYPE_RETAIL_TASKS
      * @param array<string,mixed> $filters 筛选参数（生产传 $_GET；本类不读超全局）

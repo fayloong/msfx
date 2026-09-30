@@ -25,6 +25,21 @@ class TraceSplitter
     public const DEFAULT_CHAR_LIMIT = 32000;
 
     /**
+     * 数一串追溯码里有几个码：逗号数 + 1，空白串算 0。
+     *
+     * 口径曾经散在四个地方（门店清单接口的 SQL、导出的 PHP 助手、页面"码数"列、追溯码弹窗的 JS），
+     * 页面上同一行的两处数字因此有各算各的风险——"码数"列说 3、弹窗说 4 会让人以为哪边漏了码。
+     * 收在这里，PHP 侧的调用方共用；JS 侧一律用服务端回的 `code_count`，不再自行切串。
+     *
+     * 空串单独判：`substr_count('', ',') + 1` 会算成 1，而"没有码"与"一个码"不是一回事。
+     */
+    public static function countCodes(string $traceCodes): int
+    {
+        $traceCodes = trim($traceCodes);
+        return $traceCodes === '' ? 0 : substr_count($traceCodes, ',') + 1;
+    }
+
+    /**
      * 按码数拆分追溯码（上传用），返回 [单号 => 追溯码] map。
      *
      * 不超限时**原样返回** [原单号 => 原始字符串]：不做过滤、不改写、不加后缀——
