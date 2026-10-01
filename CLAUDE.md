@@ -35,7 +35,7 @@ root/
 │   ├── Auth.php                  # 单用户 session 认证
 │   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检、批发主体入口（wholesaleSubject）、三数据页"所属企业"下拉选项（selectableNames）、某企业的凭据键（defaultCredentialKey，编辑任务改企业时用）、某企业那套凭据（credentialFor，门店与凭据 1:1）、页面补传可用性摘要（retailCredentialReady）
 │   ├── BillType.php              # 单据类型码归一化（字母前缀 ↔ 3 位数字码）
-│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算、上传响应状态解析 resolveUploadResponseStatus——批发与零售补传共用，平台响应怎么读只在这一个文件里回答）；queryEntInfo(名称, ref_ent_id) —— 查往来单位，**ref_ent_id 必须传申报主体自己那套**（不传才回落到 .env 的河药值）
+│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算、上传响应状态解析 resolveUploadResponseStatus——批发与零售补传共用，平台响应怎么读只在这一个文件里回答）；forCredential 按一套凭据造客户端（内部只挑 appkey/secretkey 两个字段）；queryEntInfo(名称, ref_ent_id) —— 查往来单位，**ref_ent_id 必传**（申报主体自己那套，没有默认值）
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合、fetchWmsCodesByDjbhList 第 2 级码基线现查）
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传；往来单位解析委托 EntDirectory
 │   ├── EntDirectory.php          # 往来单位名录：人填的名称 → 平台认的 ent_id（ent_list 缓存按 (company, ent_name) 隔离 → 未命中才调平台、查到才回写）；批发链路与门店手工建单共用一份
@@ -44,7 +44,7 @@ root/
 │   ├── RetailManualEntry.php     # 门店手工建单（在线新增 + xlsx 导入共用的唯一实现）：prepare() 校验/取凭据/查对手方（唯一一次平台往返，失败即拒建单）→ create() 落库 + 交 RetailRetransmit 上传；needsCounterparty/endpoints 是「哪两类要往来单位」「对手方落 from 还是 to」的纯规则，见 docs/adr/0015
 │   ├── BillSheetParser.php       # xlsx 导入表的解析：读表 → 按单号分组成「一单一条」（同单号多行合并、一行一个码也认）；批发与门店两个导入端点共用，只管「读成什么」、不管「合不合法」
 │   ├── RetailRetention.php       # 门店数据保留期（平台硬性规定 2 年，不接受 2 年前的单据）：YEARS + cutoffDate() 是采集下限与清理下限的**唯一来源**；两个调用点必须共用，各写各的会让超期数据滞留
-│   ├── TraceSplitter.php         # 追溯码两种拆法：splitByCount 按码数拆单（上传用，上限取自 Enterprise::route()，批发 3500 / 零售 10000·3500）、splitByCharLimit 按字符数拆行（导出用，每行 ≤32000 字符）；countCodes 数码——页面"码数"列、追溯码弹窗、导出共用这一个口径（空串算 0）
+│   ├── TraceSplitter.php         # 追溯码两种拆法：splitByCount 按码数拆单（上传用，上限取自 Enterprise::route()，批发 3500 / 零售 10000·3500）、splitByCharLimit 按字符数拆行（导出用，每行 ≤32000 字符）；countCodes 数码——页面"码数"列、追溯码弹窗、导出共用这一个口径（空串算 0）；normalizeInput 把人粘的一串码（一行一个）归一成逗号分隔，两条建单路径与 xlsx 解析共用
 │   ├── RecordQuery.php           # 数据页筛选条件单一事实源（build(类型, 参数) → WHERE/SELECT/ORDER/params，三类：tasks/uploaded/failed）：列表 API 与导出**共用同一段代码**，「导出的行数与页面一致」是构造上的性质。曾经四处各写一份，export 的失败分支因此漏过 quantity_check 豁免（第 4 类 retail_tasks 随门店补传清单撤销，见 docs/adr/0015）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
 │   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载；queryEach 为逐行消费大结果集的
@@ -157,7 +157,7 @@ root/
 
 **上传任务页（工单 03，2026-09-30）**：表格含**"所属企业"列**（零售门店单即为门店名；`未识别` 整行标红 + 红色徽标，表示源库单据认领不到门店——真异常信号，需人工核查）；零售行（`source='retail'`，即采集来的门店单据）走**补传按钮**（工单 06 落地，批发行仍是原来的"重传"）——见"核心数据流 → 零售补传"。来源下拉含 `零售采集`——**任务状态与批发共用 `等待上传`/`已处理` 两个值**（2026-10-01 统一，见 `docs/adr/0014`）：选门店 + 默认状态即可看到门店单据，不必再切状态。编辑弹窗可改"所属企业"（工单 08），**改后需二次确认**——那是"单据申报到哪个主体"的开关（失败记录页那份弹窗同样生效）；**零售行不显示"往来单位名称"**——零售单的对手方是平台 ID（采集的取自源表、手工建的由名称查出并当场落库），补传直接读那两列，留着这个框等于留一处"改了不生效"的静默陷阱。
 
-**手动上传页（工单 07 建页；门店分支 2026-10-01 与批发同构，见 `docs/adr/0015`）**：顶部先选"所属企业"，**两个分支都是"在线新增 + xlsx 批量导入"两张卡片**（批发分支的行为一字未变）。门店分支的差别只有三处：单据类型只列门店那四种（`104`/`203`/`321`/`116`）、**`321`/`116` 不显示"往来单位名称"**（对手是消费者，接口里没有对手方入参）、落库主体是所选门店且凭据由服务端按门店取。原先那份"门店补传清单"已撤——它是上传任务页的第二个实现，而门店行的补传/筛选/导出在那边本就有。批发与零售都有的两类单据类型（`321` 使用出库 / `116` 消费者退货入库，工单 03 起会采集入库）本次补进四个页面的类型标签表：缺了它们这三类零售单在页面上显示成 `-`。
+**手动上传页（工单 07 建页；门店分支 2026-10-01 与批发同构，见 `docs/adr/0015`）**：顶部先选"所属企业"，**两个分支都是"在线新增 + xlsx 批量导入"两张卡片**（批发分支的行为一字未变）。门店分支的差别只有三处：单据类型只列门店那四种（`104`/`203`/`321`/`116`）、**`321`/`116` 不显示"往来单位名称"**（对手是消费者，接口里没有对手方入参）、落库主体是所选门店且凭据由服务端按门店取。原先那份"门店补传清单"已撤——它是上传任务页的第二个实现，而门店行的补传/筛选/导出在那边本就有。批发与零售都有的两类单据类型（`321` 使用出库 / `116` 消费者退货入库，工单 03 起会采集入库）本次补进**三个数据页**的类型标签表：缺了它们这三类零售单在页面上显示成 `-`（手动上传页那份标签表随门店清单一起删了，那边的类型名写在下拉 option 里）。
 
 三个数据页面（upload-tasks / uploaded / failed）均支持筛选：单号、往来单位、状态、**单据日期**（`rq`）、**任务创建时间**（`created_at`）。日期筛选使用 flatpickr 范围选择器，一个输入框同时选起止日期，默认最近 7 天（含当天）。**关键词检索（单号/往来单位）不受默认日期范围限制**：输入关键词时若日期选择器仍是默认 7 天（用户未手动改过），前端自动不传日期参数实现全库检索；用户手动改过日期则关键词+日期正常组合过滤。分页最多显示 10 个页码，超出用省略号。
 
@@ -284,6 +284,7 @@ root/
   - **能不能建单看三态**：待配凭据（等密钥，预期内的正常状态）/ 未声明凭据位（配置缺口）/ 不在配置中——页面上写明是**哪一种**并禁用两个提交按钮。页面只是显示层，真正的关口是 `RetailManualEntry::prepare()` 的 fail-closed（绕开按钮直接调端点的路径照样被拦）
 - **建出来的门店单在上传任务页可见**（同一张表、同一个 `source`），行内补传/重传、编辑、删除、导出都在那一页——这就是撤掉手动上传页那份清单的前提
 - **`未识别` 不出现在门店分支里**（它不是一个企业）——那些单据在上传任务页标红，由人去查配置/源库
+- **已知缺口（2026-10-01，工单 14 的连带后果）**：门店单的**批量**补传随清单一起没了出口——上传任务页的"批量重传"走 `tasks_batch_retry.php → UploadService`（批发 kyt），批次里混入零售行会被 `resolveContext` **整批拒绝**。现在门店单只能逐条补传。要批量得另开一票改那个端点（按行分流到 `RetailRetransmit`），本票没做——补传是不可逆的真实申报，逐条是更保守的默认
 
 ### 日志链
 ```
@@ -313,12 +314,12 @@ root/
 | ent_name | TEXT | 往来单位名称。**采集来的零售行恒为空**（对手方 ID 直接来自源表 `from_user_id`/`to_user_id`）；**门店手工建的 `104`/`203` 会写**（人填的名称，用它查出 `from`/`to` 两个 ID；上传任务页对零售行隐藏这一格，改名称不会重解析 ID），`321`/`116` 仍为空 |
 | trace_codes | TEXT | 追溯码（逗号分隔） |
 | task_status | TEXT | 等待上传（批发：cron 会取；**零售采集落库也用这个值**——2026-10-01 统一，见 `docs/adr/0014`）/ 已处理。**门店单的"等待上传"不承诺 cron 会取走它**：`upload_pending.php` 按 company 白名单取数，门店单根本进不去，补传始终由人点 |
-| source | TEXT | **retail**（`fetch_bills_retail` 零售采集）/ cron（批发采集）/ manual / batch_check / batch_retry |
+| source | TEXT | **retail**（门店单据：`fetch_bills_retail` 采集的与手动上传页手工建的**共用这一个值**——上传任务页的补传按钮、门店徽标、`cleanup_logs` 的 2 年清理都认它，见 `docs/adr/0015`；要分辨采集与手工看日志的 `source`）/ cron（批发采集）/ manual / batch_check / batch_retry |
 | company | TEXT | 所属企业中文全名（页面"所属企业"列的值与筛选键；`未识别` 表示门店认领失败） |
 | credential | TEXT | 该企业那套凭据的键（如 `main`，门店与凭据 1:1）；只作审计，不参与任何键；零售待配凭据时为 NULL；零售补传成功后写回**这次实际用的那套**（单套时代即同一取值）；编辑任务把所属企业改成不在配置中的企业时也写 NULL（守卫届时明确拒传，不静默换主体）。**只在企业真的改了时才重设**——页面只在该情形才把 `company` 送上来，改个日期不会把审计值重置 |
-| from_user_id | TEXT | 零售专用：源表 `zsm_ls.from_user_id` 照搬（补传装配的 `fromUserId`，仅 104/203 用）。批发行与工单 06 之前采的零售行为空 |
-| to_user_id | TEXT | 零售专用：源表 `zsm_ls.to_user_id` 照搬（补传装配的 `toUserId`，仅 104/203 用；321/116 源库本就为空） |
-| physic_type | TEXT | 零售专用：源表 `zsm_ls.physic_type`（实测全表恒为 `3`；补传装配的 `physicType`，仅 104/203 用） |
+| from_user_id | TEXT | 零售专用（补传装配的 `fromUserId`，仅 104/203 用）。**采集来的行**＝源表 `zsm_ls.from_user_id` 照搬；**手工建的行**＝按发货/收货语义现算（入库＝对方 ent_id，见 `RetailManualEntry::endpoints`）。批发行、321/116 行、工单 06 之前采的零售行为空 |
+| to_user_id | TEXT | 零售专用（补传装配的 `toUserId`，仅 104/203 用）。采集来的＝源表 `zsm_ls.to_user_id` 照搬；手工建的＝出库时为对方 ent_id、入库时为本店 ent_id。321/116 为空 |
+| physic_type | TEXT | 零售专用（补传装配的 `physicType`，仅 104/203 用）：采集来的＝源表 `zsm_ls.physic_type`（实测全表恒为 `3`），手工建的＝常量 `RetailManualEntry::PHYSIC_TYPE`（同一个 `3`） |
 | bill_type | TEXT | 单据类型码（3 位数字，兼容旧字母前缀如 XSO；读取时经 `App\BillType::normalize` 归一化） |
 | request_status | TEXT | 请求成功/请求失败 |
 | response_status | TEXT | 上传成功/单据重复/上传失败/信息不存在/往来单位缺失/未确定（任务表不产生"数量不符"，该状态仅 quantity_check 写 upload_logs） |

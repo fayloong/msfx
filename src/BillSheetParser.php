@@ -46,11 +46,8 @@ class BillSheetParser
             $djbh = trim($row[1] ?? '');
             $billType = trim($row[2] ?? '');
             $entName = trim($row[3] ?? '');
-            $traceCodes = trim($row[4] ?? '');
-            // 一行一个追溯码的写法也认：换行归一后转逗号
-            $traceCodes = preg_replace('/\r\n|\r/', "\n", $traceCodes);
-            $traceCodes = preg_replace('/\n+/', ',', $traceCodes);
-            $traceCodes = trim($traceCodes, ',');
+            // 一行一个追溯码的写法也认：换行归一转逗号（与页面粘贴走同一个实现）
+            $traceCodes = TraceSplitter::normalizeInput(trim($row[4] ?? ''));
 
             // 跳过全空行
             if ($rq === '' && $djbh === '' && $billType === '' && $entName === '' && $traceCodes === '') {

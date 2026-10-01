@@ -167,3 +167,31 @@ ADR 0011 定的是**补传**：元数据（`from_user_id`/`to_user_id`/`physic_t
 - **一处需用户确认的运营前提**：门店 AppKey 是否被授权调 `listparts`（查往来单位）。未被授权时
   `104`/`203` 的手工建单会以"往来单位查不到"被拒（fail-closed，不会错报主体），`321`/`116` 不受影响。
   桩上无法验证这一点——真实验证需要一次只读的 `listparts` 调用（用某家门店的凭据查一个真实往来单位名）。
+
+### 2026-10-01 code-review 收口
+
+两条轴各跑了一个子代理（Standards / Spec），findings 逐条处置：
+
+**改了**
+
+| 轴 | 问题 | 处置 |
+|----|------|------|
+| Standards 1 | `CLAUDE.md` 表结构四行未同步（`source` / `from_user_id` / `to_user_id` / `physic_type`） | 四行都补上"手工建的怎么来"，`source` 行写明两个来源共用同一个值 |
+| Standards 2 / Spec 3 | `ADR 0011` 缺指向 0015 的修订注 | 加在文首修订块（①推翻"不提供从零录入" ②"两个入口"收窄为单条 + 手工建单，并点出批量补传的缺口） |
+| Standards 3 | `CLAUDE.md` 仍称"四个页面的类型标签表" | 改"三个数据页"，并注明手动上传页那份随清单一起删了 |
+| Standards smell 1 | 导入端点的 `$rejectLine` 与刚删掉的 `rejectedProgress()` 七键同形 | **恢复 `RetailRetransmit::rejectedProgress()`**（这次它有真调用方了），导入端点改调它——"拒绝行与真实结果同形状"回到一处定义 |
+| Standards smell 2 | `queryEntInfo($ent, ?string $refEntId = null)` 的 null 回落是死分支 | 参数改**必传**并去掉 `.env` 回落（那条回落正是"拿河药名录查门店往来单位"的错主体路径） |
+| Standards smell 3 | 「哪两类要对手方」前端手抄一份 | 常量为 public，页面**注入** `RETAIL_TYPES_WITH_PARTNER`（判据与 `needsCounterparty()` 同一处取值） |
+| Standards smell 4 | `new ApiClient(appkey, secretkey)` 三处手挑字段；追溯码归一两处新拷贝 | 加 `ApiClient::forCredential($credential)`（只挑两字段，挑错即错主体）；抽 `TraceSplitter::normalizeInput()`，批发建单 / 门店建单 / xlsx 解析三处共用，并补 6 条边界断言 |
+| Standards smell 5 | `EntDirectory::resolve(company, entName, client, refEntId)` 参数可配错（client 与 refEntId 同出一份凭据） | 签名改收**一个凭据**，内部自己取 client 与 `ref_ent_id`——从构造上免掉"拿甲的名录查乙的往来单位" |
+| Spec (c) 2 | 被 400 拒时表单照样被清空（粘好的追溯码连单号一起丢） | `streamFetch` 改为回"这次成功了吗"，两个绑定只在成功时清表单 / 清文件选择 |
+| Spec (c) 4 | ADR 0015 §4 写"physic_type 取常量 3"，实际 321/116 三列留空 | 措辞订正为"对手方三列只对调拨两类写" |
+| Spec (c) 5 | 导入汇总的"成功数"把平台业务拒传也算成功 | `create()` 之后按 `failed === 0` 计成功，否则进 `errors`（"上传未成功（子单成功 0 / 失败 1）"） |
+| Spec (b) | 门店模板文件名、`streamFetch` 抽 error 字段、删死进度条标记 | 票面已声明，保留 |
+
+**没改（附理由）**
+
+- **Spec (c) 1：批量补传没有出口**（中）—— 认定成立，但**修它=新开一票的功能**：上传任务页的批量重传走的是批发 kyt 端点，要支持零售得按行分流到 `RetailRetransmit`，那是对生产批发端点的改造，超出本票"撤掉清单"的范围。已在 CLAUDE.md 与 ADR 0015 各记一条**已知缺口**，并当面报给用户。补传是不可逆的真实申报，逐条是更保守的默认。
+- **Standards smell 6：`prepare()` 的名字看不出内含平台往返**（低）—— 名字在 ADR 0015、票面与三处注释里都已固定，改名要同步四处文档；类注释首段已写"平台往返只在这一步"，判断为收益不抵churn。
+
+**收口后复验**：7 个测试文件全绿（`trace_splitter_test.php` 因新增 `normalizeInput` 断言从 16 组变 22 组）；新建副本 + 离线桩复跑：门店导入（含一单平台业务拒传）汇总 3 单 → 成功 2 / 失败 1 且失败原因带子单数、门店 104 的 `from/to` 仍按语义落位、批发 `manual_create` 的 `listparts` 仍用 `.env` 的河药 `ref_ent_id`、页面注入的 `RETAIL_TYPES_WITH_PARTNER = ["104","203"]` 正确；内联 JS 括号配对与 40 个 DOM id 引用复核通过。副本与桩已删除。

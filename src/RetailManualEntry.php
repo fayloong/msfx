@@ -48,8 +48,11 @@ class RetailManualEntry
      * 该接口的 `fromUserId` / `toUserId` 是平台必填（ADR 0010）。
      * 另两类走 `lsyd.uploadretail`，接口里根本没有对手方入参——对手是消费者，
      * 不是平台注册的往来单位，页面对它们隐藏该输入框。
+     *
+     * **public 是刻意的**：页面把这一份注入给前端 JS（`manual_upload.php` 的
+     * `RETAIL_TYPES_WITH_PARTNER`），"哪个框该显"与"服务端要哪个"由同一处说了算。
      */
-    private const TYPES_WITH_COUNTERPARTY = ['104', '203'];
+    public const TYPES_WITH_COUNTERPARTY = ['104', '203'];
 
     /** 药品类型：源表 `zsm_ls.physic_type` 实测全表恒为 3（普药），批发链路同样硬编码 "3" */
     public const PHYSIC_TYPE = '3';
@@ -151,13 +154,7 @@ class RetailManualEntry
         $toUserId = '';
         $physicType = '';
         if (self::needsCounterparty($billType)) {
-            $client = new ApiClient((string)$credential['appkey'], (string)$credential['secretkey']);
-            $partner = EntDirectory::resolve(
-                $company,
-                $entName,
-                $client,
-                (string)$credential['ref_ent_id']
-            );
+            $partner = EntDirectory::resolve($company, $entName, $credential);
             if ($partner === null) {
                 throw new \RuntimeException(
                     "单号 {$djbh}: 往来单位「{$entName}」在门店「{$company}」名下查不到"

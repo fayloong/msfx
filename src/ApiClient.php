@@ -17,6 +17,18 @@ class ApiClient
     }
 
     /**
+     * 按**一套凭据**造客户端（AppKey 决定签名与平台限流池）。
+     *
+     * 内部只取 `appkey` / `secretkey` 两字段——凭据数组里还有 `ref_ent_id` / `ent_id`，
+     * 手工挑字段挑错一个就是把请求签到了别的主体名下。少一处手挑，少一条错主体的路径。
+     * 迁移期仍允许不传（回落 .env 的河药凭据，见构造函数），但生产链路一律走本方法。
+     */
+    public static function forCredential(array $credential): self
+    {
+        return new self((string)($credential['appkey'] ?? ''), (string)($credential['secretkey'] ?? ''));
+    }
+
+    /**
      * 执行 API 请求，区分网络异常和业务异常。
      *
      * @return array{success: bool, data: mixed, error: string, is_network_error: bool}
@@ -107,16 +119,16 @@ class ApiClient
      * 查询往来单位信息。
      *
      * $refEntId 是**申报主体**的单位编码（查出来的往来单位是相对它而言的）：批发传河药那套、
-     * 门店手工建单传该门店自己那套。不传时回落到 `.env` 的河药凭据（迁移期兼容；河药凭据本就
-     * 从那个键读，故批发链路行为不变）。用错主体的编码查，查到的是**别人名下的往来单位**——
-     * 门店单会因此把单据报到错误主体，故调用方一律显式传。
+     * 门店手工建单传该门店自己那套——**必传**，没有默认值（原本回落到 `.env` 的河药值，
+     * 那正是"拿河药的名录去查门店的往来单位"这条错主体路径）。用错主体的编码查，查到的是
+     * 别人名下的往来单位，单据随后会报到错误主体。
      *
      * @return array{ent_name: string, ent_id: string, ref_ent_id: string}|null
      */
-    public function queryEntInfo(string $entName, ?string $refEntId = null): ?array
+    public function queryEntInfo(string $entName, string $refEntId): ?array
     {
         $req = new \AlibabaAlihealthDrugKytListpartsRequest;
-        $req->setRefEntId($refEntId ?? Config::get('REFENTID_HYYY'));
+        $req->setRefEntId($refEntId);
         $req->setEntName($entName);
         $req->setAuditFlag("1");
         $req->setPageSize("20");

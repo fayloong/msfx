@@ -40,6 +40,20 @@ class TraceSplitter
     }
 
     /**
+     * 把**人粘进来的一串码**归一成逗号分隔：换行（含 CRLF）转逗号、连续分隔合并、去掉首尾逗号。
+     *
+     * 用户在页面上或 xlsx 单元格里都是一行一个码，两条建单路径（`manual_create` / 手工门店单）
+     * 与 xlsx 解析（`App\BillSheetParser`）读的是同一份约定——各写一份 preg_replace 的话，
+     * "同一个人同一个文件"在两条路径下会拼出不同的码串。
+     */
+    public static function normalizeInput(string $raw): string
+    {
+        $raw = preg_replace('/\r\n|\r/', "\n", $raw);
+        $raw = preg_replace('/\n+/', ',', $raw);
+        return trim($raw, ',');
+    }
+
+    /**
      * 按码数拆分追溯码（上传用），返回 [单号 => 追溯码] map。
      *
      * 不超限时**原样返回** [原单号 => 原始字符串]：不做过滤、不改写、不加后缀——

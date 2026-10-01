@@ -18,6 +18,7 @@ use App\Auth;
 use App\BillSheetParser;
 use App\Database;
 use App\RetailManualEntry;
+use App\RetailRetransmit;
 
 Auth::init();
 if (!Auth::check()) {
@@ -48,21 +49,6 @@ ini_set('output_buffering', 'off');
 while (ob_get_level()) { ob_end_clean(); }
 ob_implicit_flush(true);
 
-/**
- * 与真实上传结果同形状的一行（前端只认一套字段）：被拒的单据也走这条渲染路径。
- */
-$rejectLine = function (string $djbh, string $company, string $message): array {
-    return [
-        'djbh' => $djbh,
-        'ent_name' => '',
-        'company' => $company,
-        'success' => false,
-        'request_status' => '请求失败',
-        'response_status' => null,
-        'response' => json_encode(['error' => $message], JSON_UNESCAPED_UNICODE),
-    ];
-};
-
 try {
     $parsed = BillSheetParser::parse($_FILES['file']['tmp_name']);
     $groups = $parsed['groups'];
@@ -88,22 +74,30 @@ try {
             // 消息本身已经带单号（校验在 RetailManualEntry 里，单条入口也靠它指认），
             // 这里只补上**行号**——xlsx 的错要能指回表格里的哪几行
             $errors[] = "{$lineStr}: " . $e->getMessage();
-            echo json_encode($rejectLine($djbh, $company, $e->getMessage()), JSON_UNESCAPED_UNICODE) . "\n";
+            // 拒绝行与真实上传结果**同一个形状**（实现见 RetailRetransmit::rejectedProgress）：
+            // 前端只要认一套字段，不必为拒绝路径单写一个渲染分支
+            echo json_encode(RetailRetransmit::rejectedProgress($djbh, $company, $e->getMessage()), JSON_UNESCAPED_UNICODE) . "\n";
             flush();
         }
     }
 
-    // 第二遍：逐条落库并上传
+    // 第二遍：逐条落库并上传。汇总按**单据**计，且"成功"取**上传结果**（与在线新增那侧同一个口径）：
+    // 落库成功但平台业务拒传（存在已出售的码…）时，页面汇总报"成功"会骗人——那一单并没有传上去
     $successCount = 0;
     foreach ($prepared as $djbh => $bill) {
         try {
-            RetailManualEntry::create($bill, $db, function (array $progress) {
+            $result = RetailManualEntry::create($bill, $db, function (array $progress) {
                 echo json_encode($progress, JSON_UNESCAPED_UNICODE) . "\n";
                 flush();
             });
-            $successCount++;
+            if ($result['failed'] === 0) {
+                $successCount++;
+            } else {
+                // 拆过单的会在这里报出子单数；未拆单的就是 0/1
+                $errors[] = "单号 {$djbh}: 上传未成功（子单成功 {$result['success']} / 失败 {$result['failed']}）";
+            }
         } catch (\Exception $e) {
-            echo json_encode($rejectLine($djbh, $company, $e->getMessage()), JSON_UNESCAPED_UNICODE) . "\n";
+            echo json_encode(RetailRetransmit::rejectedProgress($djbh, $company, $e->getMessage()), JSON_UNESCAPED_UNICODE) . "\n";
             flush();
             $errors[] = "单号 {$djbh}: " . $e->getMessage();
         }

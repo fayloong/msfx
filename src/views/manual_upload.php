@@ -319,7 +319,10 @@ layout('手动上传', 'manual-upload');
     // 321/116 走 lsyd.uploadretail，接口里根本没有对手方入参（对手是消费者）。
     // 隐藏时**同时清空值并摘掉 required**——只藏起来的话，浏览器仍会拦"必填项为空"，
     // 用户会看到一个看不见的输入框在报错。
-    const RETAIL_TYPES_WITH_PARTNER = ['104', '203'];
+    // 需要"往来单位名称"的类型——**从后端注入**，不在这里手抄一份：判据在
+    // App\RetailManualEntry::TYPES_WITH_COUNTERPARTY（`needsCounterparty()` 读它），
+    // 前端另写一份的话，改后端而漏改这里就是"框藏了、服务端却要"（或反过来）
+    const RETAIL_TYPES_WITH_PARTNER = <?= json_encode(App\RetailManualEntry::TYPES_WITH_COUNTERPARTY, JSON_UNESCAPED_UNICODE) ?>;
     const retailBillTypeSelect = document.getElementById('rm-bill-type');
     const retailEntNameGroup = document.getElementById('rm-ent-name-group');
     const retailEntNameInput = document.getElementById('rm-ent-name');
@@ -420,14 +423,18 @@ layout('手动上传', 'manual-upload');
             if (opts.company) { payload.company = opts.company(); }
 
             try {
-                await streamFetch('index.php?page=api&action=' + opts.action, {
+                // 只有**确实提交成功**才清表单：被 400 拒（校验不过/门店没凭据/往来单位查不到/超期）时，
+                // 清了就把用户粘好的整段追溯码连单号一起丢掉，而他正需要改一处重试
+                const ok = await streamFetch('index.php?page=api&action=' + opts.action, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(payload),
                 }, logEl, summaryEl, titleEl);
-                form.reset();
-                document.getElementById(opts.rqId).value = opts.defaultRq;
-                if (opts.afterReset) { opts.afterReset(); }
+                if (ok) {
+                    form.reset();
+                    document.getElementById(opts.rqId).value = opts.defaultRq;
+                    if (opts.afterReset) { opts.afterReset(); }
+                }
             } catch (err) {
                 appendLog(logEl, 'error', '请求失败: ' + err.message);
             } finally {
@@ -471,8 +478,9 @@ layout('手动上传', 'manual-upload');
             formData.append('file', file);
             if (opts.company) { formData.append('company', opts.company()); }
 
+            let ok = false;
             try {
-                await streamFetch('index.php?page=api&action=' + opts.action, {
+                ok = await streamFetch('index.php?page=api&action=' + opts.action, {
                     method: 'POST',
                     body: formData,
                 }, logEl, summaryEl, titleEl);
@@ -481,7 +489,9 @@ layout('手动上传', 'manual-upload');
             } finally {
                 btn.disabled = false;
                 spinner.classList.add('d-none');
-                fileInput.value = '';
+                // 失败（含被 400 拒）时留着已选的文件：多半是"这家店不能建单"这类要改前置条件的事，
+                // 清掉选择只会逼用户重新选一遍同一个文件
+                if (ok) { fileInput.value = ''; }
             }
         });
     }
@@ -528,6 +538,12 @@ layout('手动上传', 'manual-upload');
 
     // ---- 流式上传日志 ----
 
+    /**
+     * 流式读 NDJSON 进度，就地渲染。
+     *
+     * @return {Promise<boolean>} 这次请求**是不是成功走完**（HTTP ok 且 `_final` 没报错）——
+     *         调用方据此决定要不要清表单/清文件选择：被 400 拒时不清，用户还能改一处重试
+     */
     async function streamFetch(url, options, logEl, summaryEl, titleEl, opts) {
         opts = opts || {};
         const resp = await fetch(url, options);
@@ -541,7 +557,7 @@ layout('手动上传', 'manual-upload');
                 if (parsed && parsed.error) { msg = parsed.error; }
             } catch (e) { /* 不是 JSON 就原样显示 */ }
             appendLog(logEl, 'error', 'HTTP ' + resp.status + ': ' + msg);
-            return;
+            return false;
         }
 
         const reader = resp.body.getReader();
@@ -549,6 +565,8 @@ layout('手动上传', 'manual-upload');
         let buffer = '';
         let successCount = 0;
         let failedCount = 0;
+        // 只有**收到了成功的 `_final`** 才算这次请求走完（流被截断时保持 false，调用方不清表单）
+        let finalOk = false;
 
         while (true) {
             const {done, value} = await reader.read();
@@ -564,6 +582,7 @@ layout('手动上传', 'manual-upload');
                     const data = JSON.parse(line);
                     if (data._final) {
                         if (data.success) {
+                            finalOk = true;
                             successCount = data.result ? data.result.success : data.success_count;
                             failedCount = data.result ? data.result.failed : data.error_count;
                             titleEl.textContent = opts.doneTitle || '上传完成';
@@ -594,6 +613,8 @@ layout('手动上传', 'manual-upload');
                 }
             }
         }
+
+        return finalOk;
     }
 
     function appendLog(logEl, type, msg) {

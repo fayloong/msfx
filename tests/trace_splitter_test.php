@@ -208,6 +208,16 @@ check('按字符数拆后各行码数之和 == 原串码数',
     array_sum(array_map([TraceSplitter::class, 'countCodes'], $byChar)) === 4000,
     '实际 ' . array_sum(array_map([TraceSplitter::class, 'countCodes'], $byChar)));
 
+// ---------- 粘进来的一串码 → 逗号分隔（normalizeInput） ----------
+// 页面粘贴与 xlsx 单元格读的是同一份约定：换行（含 CRLF）转逗号、连续分隔合并、去首尾逗号。
+// 两条建单路径 + xlsx 解析共用它——各写一份的话，同一个人同一个文件会拼出不同的码串。
+check('一行一个码（LF）→ 逗号分隔', TraceSplitter::normalizeInput("A\nB\nC") === 'A,B,C', TraceSplitter::normalizeInput("A\nB\nC"));
+check('CRLF 与孤立 CR 都认', TraceSplitter::normalizeInput("A\r\nB\rC") === 'A,B,C', TraceSplitter::normalizeInput("A\r\nB\rC"));
+check('连续换行合并成一个逗号（不留空码）', TraceSplitter::normalizeInput("A\n\n\nB") === 'A,B', TraceSplitter::normalizeInput("A\n\n\nB"));
+check('首尾换行不留首尾逗号', TraceSplitter::normalizeInput("\nA,B\n") === 'A,B', TraceSplitter::normalizeInput("\nA,B\n"));
+check('已经是逗号分隔的原样通过', TraceSplitter::normalizeInput('A,B,C') === 'A,B,C');
+check('空串仍是空串（空串不是"一个空码"）', TraceSplitter::normalizeInput('') === '');
+
 echo "\n";
 if ($failures === 0) {
     echo "全部通过 ✓\n";

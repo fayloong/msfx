@@ -21,13 +21,17 @@ class EntDirectory
     /**
      * 按 (企业, 名称) 查往来单位，缓存优先。
      *
-     * @param string    $company    申报主体名（company 列的值）
-     * @param string    $entName    人填的往来单位名称（精确匹配，不做模糊）
-     * @param ApiClient $client     用**该企业那套凭据**构造的客户端（AppKey 决定签名与限流池）
-     * @param string    $refEntId   该企业的 ref_ent_id——查出来的往来单位是相对它而言的
+     * 客户端与查询用的 `ref_ent_id` 都从**同一份凭据**取（`ApiClient::forCredential` + 凭据的
+     * `ref_ent_id`）：它们是"用谁的名录查"的两个面，由调用方分别给的话，给成两家的就是拿甲的名录
+     * 去查乙的往来单位——查到的是别人名下的单位，单据随后报到错误主体。**收一个凭据参数即从构造上
+     * 免掉这种配错**（与本项目"少一个可传错的参数"的既有做法同向）。
+     *
+     * @param string $company    申报主体名（company 列的值）
+     * @param string $entName    人填的往来单位名称（精确匹配，不做模糊）
+     * @param array  $credential 该企业那套凭据（四字段 + key）
      * @return array{ent_name: string, ent_id: string, ref_ent_id: string}|null null = 缓存与平台都没有
      */
-    public static function resolve(string $company, string $entName, ApiClient $client, string $refEntId): ?array
+    public static function resolve(string $company, string $entName, array $credential): ?array
     {
         $entName = trim($entName);
         if ($entName === '') {
@@ -47,7 +51,7 @@ class EntDirectory
             ];
         }
 
-        $entInfo = $client->queryEntInfo($entName, $refEntId);
+        $entInfo = ApiClient::forCredential($credential)->queryEntInfo($entName, (string)($credential['ref_ent_id'] ?? ''));
         if ($entInfo === null || empty($entInfo['ent_id'])) {
             return null;
         }

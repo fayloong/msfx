@@ -18,6 +18,7 @@
 use App\Auth;
 use App\Database;
 use App\RetailManualEntry;
+use App\TraceSplitter;
 
 Auth::init();
 if (!Auth::check()) {
@@ -34,11 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $input = json_decode(file_get_contents('php://input'), true);
 
-$traceCodes = trim($input['trace_codes'] ?? '');
-// 支持一行一个追溯码，自动转换为逗号分隔
-$traceCodes = preg_replace('/\r\n|\r/', "\n", $traceCodes);
-$traceCodes = preg_replace('/\n+/', ',', $traceCodes);
-$traceCodes = trim($traceCodes, ',');
+// 支持一行一个追溯码，自动转换为逗号分隔（归一实现见 App\TraceSplitter::normalizeInput）
+$traceCodes = TraceSplitter::normalizeInput(trim($input['trace_codes'] ?? ''));
 
 $bill = [
     'company' => trim($input['company'] ?? ''),

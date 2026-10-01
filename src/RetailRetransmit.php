@@ -101,7 +101,7 @@ class RetailRetransmit
         // 码上限取自路由（104/203 → 10000、321/116 → 3500），拆单命名沿用批发约定 单号_1、单号_2…
         $chunks = TraceSplitter::splitByCount($djbh, $bill['trace_codes'], (int)$route['limit']);
 
-        $client = new ApiClient((string)$credential['appkey'], (string)$credential['secretkey']);
+        $client = ApiClient::forCredential($credential);
         $logWriter = new LogWriter();
         $taskId = (int)$task['id'];
 
@@ -129,6 +129,26 @@ class RetailRetransmit
         }
 
         return ['total' => count($chunks), 'success' => $success, 'failed' => $failed];
+    }
+
+    /**
+     * 一条"没能进平台"的进度行：校验被拒（非零售 / 凭据未配齐 / 无路由 / 装配缺项 / 对手方查不到）
+     * 或任务已不存在时，用它与真实结果**同一个形状**把原因报出去。
+     *
+     * 调用方：`api/manual_import_retail.php` 逐条报出被拒的单据（单条入口不经过这里——
+     * 它在落库之前就 400 了，见 `App\RetailManualEntry::prepare()`）。
+     */
+    public static function rejectedProgress(string $djbh, string $company, string $message): array
+    {
+        return [
+            'djbh' => $djbh,
+            'ent_name' => '',
+            'company' => $company,
+            'success' => false,
+            'request_status' => '请求失败',
+            'response_status' => null,
+            'response' => json_encode(['error' => $message], JSON_UNESCAPED_UNICODE),
+        ];
     }
 
     /**
