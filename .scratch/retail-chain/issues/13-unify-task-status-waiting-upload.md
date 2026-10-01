@@ -1,7 +1,7 @@
 # 13: 门店采集单状态统一为「等待上传」（撤销「待补传」）
 
 - Type: task
-- Status: in-progress（2026-10-01）
+- Status: done（2026-10-01；提交 `e98c8bc`、收口 `3ffdae7`，gitee 与 origin 均已跟上）
 - Blocked by: 无
 - 关联：`docs/adr/0007-retail-no-platform-reconciliation.md`（**本票撤销其中"零售任务状态用新值 `待补传`"一条**）、`docs/adr/0011-retail-retransmit-metadata-and-manual-trigger.md`、`docs/adr/0014-unify-task-status-waiting-upload.md`（本票新增）、`scripts/fetch_bills_retail.php`、`src/views/upload_tasks.php`、`src/views/manual_upload.php`、`src/RecordQuery.php`
 
@@ -97,7 +97,7 @@ ADR 0007 当年写下的风险路径（"该 cron 会用河药 AppKey 走 kyt 接
 - [x] 文档与代码一致：CLAUDE.md / CONTEXT.md / ADR 0007·0011·0013·0014 / 本票
 - [x] 口径复验（页面会发的参数 → `RecordQuery` → 生产库只读）：上传任务页"选门店 + 默认状态 + 默认近 7 天"由 **0 → 100 条**；手动上传页门店分支默认 598 条、切"已处理" 1 条
 - [ ] **页面人工点验**（待用户）：内联 JS 改不了就跑（本机无 JS 引擎），下列三项只能靠浏览器确认——① 上传任务页选门店直接出数据；② 手动上传页门店分支默认出数据、行内按钮对未处理行显示"补传"、对已处理行显示"重传"；③ 两页状态徽标不再出现"待补传"字样
-- [ ] 提交后双推，勾上"已推送"
+- [x] 提交后双推，勾上"已推送"（`e98c8bc` → `3ffdae7`，gitee 与 origin 均已跟上）
 
 ## Comments
 
