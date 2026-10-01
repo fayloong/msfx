@@ -14,6 +14,8 @@
  *
  * 调用方：
  *   - src/api/tasks_retry_retail.php 单条补传（上传任务页零售行的"补传"）
+ *   - src/api/tasks_batch_retry.php 批量重传里的零售那批（上传任务页勾选多行，工单 15 起按行分流到
+ *     这里）——逐条调用本方法，**逐条 try/catch**：一条被拒只影响它自己
  *   - App\RetailManualEntry::create() 门店手工建单（手动上传页的在线新增 / xlsx 导入）——
  *     同样是"上传一条门店单据"，差别只在日志的 source（补传记 retail_retry、手工建单记 manual）
  *
@@ -135,8 +137,10 @@ class RetailRetransmit
      * 一条"没能进平台"的进度行：校验被拒（非零售 / 凭据未配齐 / 无路由 / 装配缺项 / 对手方查不到）
      * 或任务已不存在时，用它与真实结果**同一个形状**把原因报出去。
      *
-     * 调用方：`api/manual_import_retail.php` 逐条报出被拒的单据（单条入口不经过这里——
-     * 它在落库之前就 400 了，见 `App\RetailManualEntry::prepare()`）。
+     * 调用方：`api/manual_import_retail.php`（导入时逐条报出被拒的单据）与
+     * `api/tasks_batch_retry.php`（批量重传里被三关拒掉的零售行）——两处都是 catch 到异常后
+     * 用它与真实结果**同一个形状**把原因报出去。单条入口不经过这里：它在落库之前就 400 了
+     * （见 `App\RetailManualEntry::prepare()`），单条补传则在 `_final` 里报（见 tasks_retry_retail.php）。
      */
     public static function rejectedProgress(string $djbh, string $company, string $message): array
     {

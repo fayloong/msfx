@@ -18,10 +18,13 @@
  * - **零售行不复位**：批发那批在异常时逐条恢复为各自调用前的状态（与分流前一致），零售行按
  *   ADR 0011 的口径不复位——任务行只在平台调用**之后**被写，复位会把已记录的结果抹成 NULL。
  *
- * `_final.result` 的形状（工单 15 用户拍板）：**合并数 + 两段明细**。`total` 是本批任务行数；
+ * `_final.result` 的形状（工单 15 用户拍板）：**合并数 + 两段明细**。`total` 是本批**任务行数**；
  * `success`/`failed` 是"批发子单 + 零售单据"之和——与进度流里前端边跑边数的口径一致（跑完数字
- * 不跳变），前端因而不必分叉。零售按**单据**计：一张单的子单全部成功才算成功；实测零售单张码数
- * 上限 1,718（< 3500/10000）不触发拆单，故"按单据"与"按进度行"在实跑中恒等。
+ * 不跳变），前端因而不必分叉。注意两个刻意的口径，别拿 `total` 去减（改动前就是如此）：
+ *   - 批发那侧拆单时 `success`/`failed` 按**子单**计，`success + failed` 会 **> total**（本票保持原样）
+ *   - 零售那侧按**单据**计（一张单的子单全成功才算成功）。零售单实测不触发拆单（单张码数上限
+ *     1,718 < 3500/10000），故与"按进度行"在实跑中恒等；真出现"拆到一半成一半败"时，这一单按
+ *     失败计，而进度流里已为成功的那张子单打过一条绿行——届时 `_final` 会与前端累计数差一条
  *
  * 被拒的零售行（未识别 / 待配凭据 / 无路由 / 任务已不存在）算**失败**：发一条与真实结果同形状的
  * 进度行说明原因（RetailRetransmit::rejectedProgress），`failed` +1——与已撤的零售批量补传同一口径。
@@ -60,6 +63,8 @@ $placeholders = implode(',', array_fill(0, count($ids), '?'));
 $tasks = $db->query("SELECT * FROM upload_tasks WHERE id IN ({$placeholders})", $ids);
 
 // ── 分流：门店单一份、其余一份（两组的相对顺序都保持查询给出的顺序） ──
+// 判据只有 `source` 一项。名字里的"批发"是按**链路**说的（这一份交给 UploadService），不是按企业类型说的：
+// `未识别` 行、被改错所属企业的脏数据行都落进这一份，由守卫去拒——那正是它们该去的地方
 $wholesaleTasks = [];
 $retailTasks = [];
 foreach ($tasks as $t) {
@@ -93,16 +98,16 @@ $summarize = function (array $wholesale, array $retail): array {
         'retail' => $retail,
     ];
 };
-$empty = ['total' => 0, 'success' => 0, 'failed' => 0];
+$zero = ['total' => 0, 'success' => 0, 'failed' => 0];   // 一段（批/零售）的零汇总
 
 if (empty($tasks)) {
-    $emit(['_final' => true, 'success' => true, 'result' => $summarize($empty, $empty)]);
+    $emit(['_final' => true, 'success' => true, 'result' => $summarize($zero, $zero)]);
     exit;
 }
 
 // ── 批发那批：原样交给 UploadService（映射、守卫、限速、异常复位逻辑都不动） ──
 
-$wholesaleResult = $empty;
+$wholesaleResult = $zero;
 
 try {
     // 空数组不调用：那是给批发链路取 flock 用的，纯门店批次不该被一个正在跑的 cron 上传挡住

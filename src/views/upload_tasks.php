@@ -328,7 +328,8 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
     let lastRows = [];          // 当前页数据（零售补传弹窗按 id 回查单据元数据）
     // id => 行，**跨页累积**：批量重传的确认框要按 id 回查被选中行的单据类型与响应状态，
     // 而勾选集（selectedIds）是跨页保持的，被选中的行不一定在当页的 lastRows 里。
-    // 与 selectedIds 同生命周期（都不清），刷新时同名 id 被新数据覆盖
+    // 与 selectedIds 同生命周期（都不清），刷新时同名 id 被新数据覆盖。
+    // （零售补传弹窗仍查当页 lastRows：它由行内按钮触发，要的是这份列表**当前**的值）
     const rowIndex = new Map();
     let retailRetryTaskId = null;
 
