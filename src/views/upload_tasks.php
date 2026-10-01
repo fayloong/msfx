@@ -231,7 +231,9 @@ layout('上传任务', 'upload-tasks');
                 <h5 class="modal-title">确认操作</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body" id="confirm-message">确定要删除吗？</div>
+            <!-- white-space: pre-line：消息里用 \n 分段（批量重传的三处点名就是多段），
+                 默认的 HTML 空白折叠会把它们挤成一整行 -->
+            <div class="modal-body" id="confirm-message" style="white-space: pre-line">确定要删除吗？</div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
                 <button type="button" class="btn btn-danger" id="btn-confirm">确认</button>
@@ -324,6 +326,10 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
     let selectedIds = new Set();
     let total = 0;
     let lastRows = [];          // 当前页数据（零售补传弹窗按 id 回查单据元数据）
+    // id => 行，**跨页累积**：批量重传的确认框要按 id 回查被选中行的单据类型与响应状态，
+    // 而勾选集（selectedIds）是跨页保持的，被选中的行不一定在当页的 lastRows 里。
+    // 与 selectedIds 同生命周期（都不清），刷新时同名 id 被新数据覆盖
+    const rowIndex = new Map();
     let retailRetryTaskId = null;
 
     const today = new Date();
@@ -507,6 +513,7 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
     function renderTable(rows) {
         const tbody = document.getElementById('tasks-tbody');
         lastRows = rows;
+        rows.forEach(r => rowIndex.set(r.id, r));
         if (!rows.length) {
             tbody.innerHTML = '<tr><td colspan="12" class="text-center py-5 text-muted">暂无数据</td></tr>';
             return;
@@ -848,8 +855,39 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         });
     });
 
+    // 批量重传的二次确认：三处点名（补传不可逆 / 含 104·203 门店单 / 含已申报成功的行）。
+    // 选中集跨页保持，故一律按 id 回查跨页累积的 rowIndex，而不是当页的 lastRows——
+    // 查不到的行（页面加载后被删）只按数量计，不点名，端点那边它们也只会影响自己
+    function batchRetryConfirmMessage() {
+        const ids = Array.from(selectedIds);
+        let msg = '确认重传选中的 ' + ids.length + ' 条任务？\n\n'
+            + '重传是向码上放心平台的真实申报，不可逆。批里可能既有批发单据，也有门店单据。';
+        // 已经申报成功的行（切到"已处理"才选得到）：重传不会改变平台上的结果，但确实是一次真实调用，
+        // 混在批量里容易被顺手带过——点名，不拦（与单条入口的口径一致）
+        const done = ids.filter(id => ['上传成功', '单据重复']
+            .includes((rowIndex.get(id) || {}).response_status));
+        if (done.length) {
+            msg += '\n\n⚠️ 本批含 ' + done.length + ' 条已申报成功的单据：'
+                + '重传会在平台上再次申报（平台多半回"单据重复"）。若非刻意为之，请先把它们从勾选里去掉。';
+        }
+        // 104/203（调拨）的 fromUserId/toUserId 语义仍待外部系统工程师确认（ADR 0010）；
+        // 单条入口同样暴露该风险，但批量会一次放大成一批，故在确认框里点名。
+        // **只算门店行**：批发链路的 104/203 走 kyt 接口 + 往来单位名录，与那条待确认项无关，
+        // 把它们也算进来只会让人按错误的理由慌一下（两条链路的判据见 docs/adr/0010）
+        const ambiguous = ids.filter(id => {
+            const r = rowIndex.get(id) || {};
+            return r.source === 'retail' && ['104', '203'].includes(r.bill_type);
+        });
+        if (ambiguous.length) {
+            msg += '\n\n⚠️ 本批含 ' + ambiguous.length + ' 张 104/203（调拨）门店单据：'
+                + '其 fromUserId/toUserId 照搬源表同名列，但发货/收货语义仍待外部系统工程师确认（ADR 0010）——'
+                + '方向若反，平台上会留下错误申报。请确认后再传。';
+        }
+        return msg;
+    }
+
     document.getElementById('btn-batch-retry').addEventListener('click', () => {
-        showConfirm('确定要重传选中的 ' + selectedIds.size + ' 条任务吗？', async () => {
+        showConfirm(batchRetryConfirmMessage(), async () => {
             const modal = new bootstrap.Modal(document.getElementById('progressModal'));
             const logEl = document.getElementById('progress-log');
             const titleEl = document.getElementById('progress-title');
