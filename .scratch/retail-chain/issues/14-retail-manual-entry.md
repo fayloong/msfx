@@ -1,7 +1,7 @@
 # 14: 门店手工新增单据（在线新增 + xlsx 导入），撤掉门店补传清单
 
 - Type: task
-- Status: done（2026-10-01）
+- Status: done（2026-10-01；提交 `df1e036`、收口 `b7e4566`，gitee 与 origin 均已跟上）
 - Blocked by: 无（13 已完成）
 - 关联：`docs/adr/0010`（`fromUserId`/`toUserId` 语义待确认项）、`docs/adr/0011`（补传元数据取自落库行——本票是它的**例外**，见下）、`docs/adr/0012`（凭据 1:1，由服务端按门店取）、`docs/adr/0013`（2 年下限）、被本票撤掉的 `issues/07`/`issues/10`/`issues/12`（门店补传清单）
 
