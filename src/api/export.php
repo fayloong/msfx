@@ -2,8 +2,7 @@
 /**
  * API: GET /api/export — 按当前筛选条件导出 xlsx（全量导出，流式生成，内存占用恒定）
  *
- * 参数: type=tasks|uploaded|failed|retail_tasks，其余筛选参数与对应列表 API 完全一致
- *       （retail_tasks＝手动上传页门店分支的补传清单，另需 company，见下）。
+ * 参数: type=tasks|uploaded|failed，其余筛选参数与对应列表 API 完全一致。
  * 实现说明: 不用 PhpSpreadsheet（其 Xlsx Writer 全量驻留内存），改为手工构造 xlsx——
  *          sheet XML 逐行写入临时文件（内存 O(1)），再经 ZipArchive 打包输出。
  */
@@ -11,7 +10,6 @@
 use App\Auth;
 use App\BillType;
 use App\Database;
-use App\Enterprise;
 use App\RecordQuery;
 use App\TraceSplitter;
 
@@ -29,22 +27,6 @@ if (!in_array($type, RecordQuery::TYPES, true)) {
     exit;
 }
 
-// 门店补传清单（type=retail_tasks）必须先点名一家**零售企业**。这是纵深而不是重复：
-// RecordQuery 那层只保证"给了 company"（空则抛），挡不住"给了个别的企业名"——
-// company=未识别 或填成批发主体，同一条 WHERE 照样筛得出（或筛出空），导出会给出
-// 一份看不出毛病的 xlsx。与本项目"请求级校验 + 链路内再拦一次"的既有做法一致。
-if ($type === RecordQuery::TYPE_RETAIL_TASKS) {
-    $company = trim((string)($_GET['company'] ?? ''));
-    if (!Enterprise::isRetail($company)) {
-        http_response_code(400);
-        echo json_encode(
-            ['error' => '门店补传清单导出必须指定 company 且必须是零售企业（当前：' . ($company === '' ? '空' : $company) . '）'],
-            JSON_UNESCAPED_UNICODE
-        );
-        exit;
-    }
-}
-
 // 大导出可能耗时较长，放宽执行时间
 set_time_limit(0);
 
@@ -60,22 +42,7 @@ $sql = $query['select'] . ' ' . $query['where'] . ' ' . $query['order'];
 $params = $query['params'];
 
 // ---------- 导出列定义（与页面表格列对齐，来源列导出机器值 cron/manual/...） ----------
-if ($type === RecordQuery::TYPE_RETAIL_TASKS) {
-    // 手动上传页门店分支的补传清单：列与那张表**逐列对齐**（单号/单据日期/单据类型/追溯码/码数/
-    // 补传任务创建时间/状态）。页面的"状态"格是"任务状态徽标 + 响应状态徽标"，落进 xlsx 拆成两列
-    $columns = [
-        '单号' => fn($r) => $r['_piece_bill_code'] ?? ($r['djbh'] ?? ''),
-        '单据日期' => fn($r) => $r['rq'] ?? '',
-        '单据类型' => fn($r) => BillType::normalize($r['bill_type'] ?? '', $r['djbh'] ?? ''),
-        '追溯码' => fn($r) => truncateTraceCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
-        // 取值用拆行后的 `_piece_trace_codes`：追溯码超 32000 字符被拆成多行时，
-        // 每行写的是**本行**的码数，与它自己那格追溯码对得上（而不是两行都写总数）
-        '码数' => fn($r) => TraceSplitter::countCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
-        '补传任务创建时间' => fn($r) => $r['created_at'] ?? '',
-        '任务状态' => fn($r) => $r['task_status'] ?? '',
-        '响应状态' => fn($r) => $r['response_status'] ?? '',
-    ];
-} elseif ($type === 'tasks') {
+if ($type === 'tasks') {
     $columns = [
         '单据日期' => fn($r) => $r['rq'] ?? '',
         '单号' => fn($r) => $r['_piece_bill_code'] ?? ($r['djbh'] ?? ''),
@@ -243,7 +210,6 @@ $fileNames = [
     'tasks' => ['上传任务', 'upload_tasks'],
     'uploaded' => ['已上传', 'uploaded'],
     'failed' => ['失败记录', 'failed'],
-    RecordQuery::TYPE_RETAIL_TASKS => ['门店补传', 'retail_tasks'],
 ];
 [$cnName, $enName] = $fileNames[$type];
 $cnFile = $cnName . '_' . date('Y-m-d') . '.xlsx';

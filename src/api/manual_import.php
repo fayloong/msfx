@@ -9,10 +9,10 @@
  */
 
 use App\Auth;
+use App\BillSheetParser;
 use App\Database;
 use App\Enterprise;
 use App\UploadService;
-use PhpOffice\PhpSpreadsheet\IOFactory;
 
 Auth::init();
 if (!Auth::check()) {
@@ -49,74 +49,15 @@ while (ob_get_level()) { ob_end_clean(); }
 ob_implicit_flush(true);
 
 try {
-    $spreadsheet = IOFactory::load($tmpFile);
-    $worksheet = $spreadsheet->getActiveSheet();
-    $rows = $worksheet->toArray();
-
-    if (count($rows) < 2) {
-        throw new \Exception('文件中没有数据行');
-    }
-
-    // 跳过表头
-    $dataRows = array_slice($rows, 1);
-
-    // 第一遍：按单号分组合并
-    $groups = []; // djbh => ['rq' => ..., 'bill_type' => ..., 'ent_name' => ..., 'codes' => [], 'lines' => []]
-    $lineErrors = [];
-
-    foreach ($dataRows as $index => $row) {
-        $lineNum = $index + 2;
-        $rq = trim($row[0] ?? '');
-        $djbh = trim($row[1] ?? '');
-        $billType = trim($row[2] ?? '');
-        $entName = trim($row[3] ?? '');
-        $traceCodes = trim($row[4] ?? '');
-        // 支持一行一个追溯码，自动转换为逗号分隔
-        $traceCodes = preg_replace('/\r\n|\r/', "\n", $traceCodes);
-        $traceCodes = preg_replace('/\n+/', ',', $traceCodes);
-        $traceCodes = trim($traceCodes, ',');
-
-        // 跳过全空行
-        if (empty($rq) && empty($djbh) && empty($billType) && empty($entName) && empty($traceCodes)) {
-            continue;
-        }
-
-        if (empty($djbh)) {
-            $lineErrors[] = "第 {$lineNum} 行: 单号为空，无法分组";
-            continue;
-        }
-
-        if (!isset($groups[$djbh])) {
-            $groups[$djbh] = [
-                'rq' => '',
-                'bill_type' => '',
-                'ent_name' => '',
-                'codes' => [],
-                'lines' => [],
-            ];
-        }
-
-        // 取第一个非空的日期、单据类型和往来单位
-        if (empty($groups[$djbh]['rq']) && !empty($rq)) {
-            $groups[$djbh]['rq'] = $rq;
-        }
-        if (empty($groups[$djbh]['bill_type']) && !empty($billType)) {
-            $groups[$djbh]['bill_type'] = $billType;
-        }
-        if (empty($groups[$djbh]['ent_name']) && !empty($entName)) {
-            $groups[$djbh]['ent_name'] = $entName;
-        }
-
-        if (!empty($traceCodes)) {
-            $groups[$djbh]['codes'][] = $traceCodes;
-        }
-        $groups[$djbh]['lines'][] = $lineNum;
-    }
+    // 读表与分组收在 App\BillSheetParser（门店导入共用同一份规则），这里只做**批发独有的**校验
+    $parsed = BillSheetParser::parse($tmpFile);
+    $groups = $parsed['groups'];
+    $lineErrors = $parsed['errors'];
 
     // 验证分组
     $groupErrors = [];
     foreach ($groups as $djbh => $group) {
-        $lineStr = '第 ' . implode('、', $group['lines']) . ' 行';
+        $lineStr = BillSheetParser::lineLabel($group);
         if (empty($group['rq'])) {
             $groupErrors[] = "单号 {$djbh}（{$lineStr}）: 日期为空";
         }
@@ -146,7 +87,8 @@ try {
     // 第二遍：逐个单据上传
     $db = Database::getInstance();
     $uploadService = new UploadService();
-    // xlsx 导入目前只服务批发主体（零售不提供从零录入，见 .scratch/retail-chain/spec.md §11）
+    // 本入口只服务批发主体：门店分支有自己的导入端点（manual_import_retail，落库主体是所选门店）。
+    // 两边字段、接口、凭据都不同，塞进一个文件会让两条链路互相牵连（见 .scratch/retail-chain/spec.md §11）
     $wholesale = Enterprise::wholesaleSubject();
     $company = $wholesale['name'];
     $credentialKey = $wholesale['credential_key'] ?? '';

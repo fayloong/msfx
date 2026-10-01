@@ -3,7 +3,7 @@
  * API: POST /api/tasks_retry_retail — 零售门店单据的补传（人工逐条触发）
  *
  * 本文件只做「解析请求 + 流式输出」：补传的流程（三关 fail-closed、拆单、调用、写日志、翻任务状态）
- * 全在 App\RetailRetransmit —— 批量入口（tasks_batch_retry_retail）用的是同一份实现（工单 07）。
+ * 全在 App\RetailRetransmit —— 门店手工建单（manual_create_retail / manual_import_retail）用的是同一份实现。
  *
  * 与批发重传（tasks_retry / tasks_batch_retry）刻意分成两个入口：那条走 kyt 接口 + ent_list
  * 往来单位缓存，这条走 lsyd 接口 + 源表平台 ID，装配与凭据来源完全不同（见 docs/adr/0010）。
@@ -13,8 +13,9 @@
  * 故所有校验都发生在第一次平台调用之前（见 docs/adr/0006 / docs/adr/0007）。
  *
  * 入参：{id: 任务 ID}
- * - 单据元数据一律取自**采集时落库的记录**，不接受调用方传任何单据字段（票面：不提供从零手工录入。
- *   手工录 4 个平台 ID 几乎必然出错，且本轮不查平台，录错了察觉不了）
+ * - 单据元数据一律取自**落库的记录**，不接受调用方传任何单据字段——手工录 4 个平台 ID 几乎必然出错。
+ *   门店的手工建单走另一个端点（manual_create_retail），那条同样不由人录 ID：人填的是往来单位
+ *   名称，由服务端查出 ent_id 并当场落库（见 docs/adr/0015）
  * - 用哪套凭据**不由调用方给**：门店与凭据是 1:1（docs/adr/0012），服务端据任务行的 company
  *   取该门店那套。入参里没有这个键，也就没有"传错一套"的路径
  */

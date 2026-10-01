@@ -35,14 +35,17 @@ root/
 │   ├── Auth.php                  # 单用户 session 认证
 │   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检、批发主体入口（wholesaleSubject）、三数据页"所属企业"下拉选项（selectableNames）、某企业的凭据键（defaultCredentialKey，编辑任务改企业时用）、某企业那套凭据（credentialFor，门店与凭据 1:1）、页面补传可用性摘要（retailCredentialReady）
 │   ├── BillType.php              # 单据类型码归一化（字母前缀 ↔ 3 位数字码）
-│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算、上传响应状态解析 resolveUploadResponseStatus——批发与零售补传共用，平台响应怎么读只在这一个文件里回答）
+│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算、上传响应状态解析 resolveUploadResponseStatus——批发与零售补传共用，平台响应怎么读只在这一个文件里回答）；queryEntInfo(名称, ref_ent_id) —— 查往来单位，**ref_ent_id 必须传申报主体自己那套**（不传才回落到 .env 的河药值）
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合、fetchWmsCodesByDjbhList 第 2 级码基线现查）
-│   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传
+│   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传；往来单位解析委托 EntDirectory
+│   ├── EntDirectory.php          # 往来单位名录：人填的名称 → 平台认的 ent_id（ent_list 缓存按 (company, ent_name) 隔离 → 未命中才调平台、查到才回写）；批发链路与门店手工建单共用一份
 │   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 App\RetailRetransmit
-│   ├── RetailRetransmit.php      # 零售补传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态）：单条（tasks_retry_retail）与批量（tasks_batch_retry_retail）两个端点共用的唯一实现；装配仍走 RetailRequestAssembler，来源写 retail_retry
+│   ├── RetailRetransmit.php      # 零售单据上传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态）：补传（tasks_retry_retail，日志来源 retail_retry）与门店手工建单（App\RetailManualEntry，日志来源 manual）共用；装配仍走 RetailRequestAssembler
+│   ├── RetailManualEntry.php     # 门店手工建单（在线新增 + xlsx 导入共用的唯一实现）：prepare() 校验/取凭据/查对手方（唯一一次平台往返，失败即拒建单）→ create() 落库 + 交 RetailRetransmit 上传；needsCounterparty/endpoints 是「哪两类要往来单位」「对手方落 from 还是 to」的纯规则，见 docs/adr/0015
+│   ├── BillSheetParser.php       # xlsx 导入表的解析：读表 → 按单号分组成「一单一条」（同单号多行合并、一行一个码也认）；批发与门店两个导入端点共用，只管「读成什么」、不管「合不合法」
 │   ├── RetailRetention.php       # 门店数据保留期（平台硬性规定 2 年，不接受 2 年前的单据）：YEARS + cutoffDate() 是采集下限与清理下限的**唯一来源**；两个调用点必须共用，各写各的会让超期数据滞留
 │   ├── TraceSplitter.php         # 追溯码两种拆法：splitByCount 按码数拆单（上传用，上限取自 Enterprise::route()，批发 3500 / 零售 10000·3500）、splitByCharLimit 按字符数拆行（导出用，每行 ≤32000 字符）；countCodes 数码——页面"码数"列、追溯码弹窗、导出共用这一个口径（空串算 0）
-│   ├── RecordQuery.php           # 数据页筛选条件单一事实源（build(类型, 参数) → WHERE/SELECT/ORDER/params，四类：tasks/uploaded/failed/retail_tasks）：列表 API 与导出**共用同一段代码**，"导出的行数与页面一致"是构造上的性质。曾经四处各写一份，export 的失败分支因此漏过 quantity_check 豁免。门店补传清单（retail_tasks）的两条固定口径写在这里：source='retail' 写死、**company 必填**（缺了直接抛，不静默退化成"全部门店混成一条清单"）
+│   ├── RecordQuery.php           # 数据页筛选条件单一事实源（build(类型, 参数) → WHERE/SELECT/ORDER/params，三类：tasks/uploaded/failed）：列表 API 与导出**共用同一段代码**，「导出的行数与页面一致」是构造上的性质。曾经四处各写一份，export 的失败分支因此漏过 quantity_check 豁免（第 4 类 retail_tasks 随门店补传清单撤销，见 docs/adr/0015）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
 │   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载；queryEach 为逐行消费大结果集的
 │   │                             #  回调式接口，供"结果集可能有数十万行、不能攒进内存"的场景用）
@@ -52,25 +55,20 @@ root/
 │   │   ├── tasks.php             # 上传任务 CRUD（GET 列表/单条, PUT 编辑, DELETE 删除）；PUT 改 company 时连带把 credential 重设为该企业的凭据键（只改企业不改凭据，守卫会以"取不到可用凭据"拒传——未识别行本就是 NULL）
 │   │   ├── tasks_retry.php       # 单条重传（批发 kyt）
 │   │   ├── tasks_retry_retail.php # 零售门店单据补传（人工逐条；凭据不由入参给，服务端按门店取）：只做请求解析与流式输出，流程在 App\RetailRetransmit
-│   │   ├── tasks_batch_retry_retail.php # 零售批量补传（手动上传页选定门店后触发）：整批限同一门店（混入别家整批拒），逐条 try/catch 隔离，共用 App\RetailRetransmit
 │   │   ├── tasks_batch_delete.php # 批量删除上传任务
 │   │   ├── tasks_batch_retry.php  # 批量重传
 │   │   ├── uploaded.php          # 已上传记录列表（upload_logs success=1）
 │   │   ├── failed.php            # 失败记录列表（排除**同一企业内**该单号已有上传成功/单据重复记录的日志行——去重键是 (company, djbh)，裸 djbh 会让零售失败记录被同号批发成功单顶掉；quantity_check 来源记录豁免——数量对账仅查已上传成功单，若不豁免会被 NOT EXISTS 全隐藏，告警出口失效；**已知缺口**：该页"来源"列的标签表与来源下拉都没有 `quantity_check`，数量对账告警因此在页面上直出机器值、也按来源筛不出来——本轮未动）
 │   │   ├── logs_delete.php       # 删除单条日志记录
 │   │   ├── logs_batch_delete.php # 批量删除日志记录
-│   │   ├── manual_create.php     # 手动创建任务并立即上传
+│   │   ├── manual_create.php     # 手动创建任务并立即上传（批发主体，服务端取 wholesaleSubject）
 │   │   ├── manual_import.php     # xlsx 导入批量创建并上传（只服务批发）
-│   │   ├── manual_retail_tasks.php # 手动上传页门店分支的补传清单（筛选构造走 App\RecordQuery 的 retail_tasks，
-│   │   │                           #   与导出同一段代码）：该门店 + source=retail，task_status **可为空**——
-│   │   │                           #   默认由页面给"等待上传"（门店单与批发共用一个状态值，见 docs/adr/0014），
-│   │   │                           #   也可切"已处理/全部"（补传失败会翻已处理，能切过去才在本页重传）；
-│   │   │                           #   分页每页 20 条，回全列 + code_count（追溯码弹窗与编辑弹窗都用它）；
-│   │   │                           #   排序 rq DESC, id DESC——单据日期倒序，新的在前）
-│   │   ├── template_download.php # 下载 xlsx 导入模板
-│   │   └── export.php            # 按当前筛选条件导出 xlsx（流式生成，内存 O(1)）；四类 type，retail_tasks（门店补传）
-│   │                             #   的列与门店表格对齐、文件名「门店补传_日期.xlsx」；
-│   │                             #   缺 company 或 company 不是零售企业（未识别/批发主体）都 400 并指名当前值
+│   │   ├── manual_create_retail.php # 门店手工新增单条并立即上传：prepare() 失败直接 400（库里不留半条），
+│   │   │                           #   成功才开流；落库主体是入参 company（必须零售企业），凭据由服务端按门店取
+│   │   ├── manual_import_retail.php # 门店 xlsx 导入：与批发同一套列（解析共用 App\BillSheetParser），
+│   │   │                           #   差别只在口径——类型限四种、往来单位仅 104/203 必填、逐条隔离
+│   │   ├── template_download.php # 下载 xlsx 导入模板（?type=retail 给门店版：示例行换门店类型、表头注明 321/116 留空）
+│   │   └── export.php            # 按当前筛选条件导出 xlsx（流式生成，内存 O(1)）；三类 type：tasks/uploaded/failed
 │   └── views/                    # 页面视图（PHP 模板）
 │       ├── layout.php            # 全局布局（左侧菜单 + 顶栏）
 │       ├── login.php             # 登录页
@@ -78,8 +76,9 @@ root/
 │       ├── upload_tasks.php      # 上传任务管理页（表格 + CRUD + 批量操作）
 │       ├── uploaded.php          # 已上传记录页
 │       ├── failed.php            # 失败记录页
-│       └── manual_upload.php     # 手动上传（顶部先选"所属企业"：批发分支＝在线表单 + xlsx 导入；门店分支＝补传清单，
-│                                 #   含筛选/导出/刷新/批量删除/批量补传 + 行内编辑/删除/补传|重传）
+│       └── manual_upload.php     # 手动上传（顶部先选"所属企业"：两个分支**同构**，都是在线新增 + xlsx 导入；
+│                                 #   门店分支的差别只有——类型限门店那四种、321/116 不显示"往来单位名称"、
+│                                 #   落库主体是所选门店。补传清单已撤（与上传任务页重复，见 docs/adr/0015））
 ├── config/
 │   ├── .env                      # 数据库连接 + API 凭证（迁移期）+ 管理员密码
 │   ├── enterprises.php           # 企业结构：企业名/类型(wholesale·retail)/凭据位(label) —— 入 git，无凭据
@@ -124,8 +123,10 @@ root/
 │   ├── enterprise_config_test.php # App\Enterprise 自包含断言测试：配置解析/门店认领/接口路由/配置自检
 │   ├── retail_upload_test.php    # App\RetailRequestAssembler 自包含断言测试：lsyd 入参映射（refUserId 取凭据 ref_ent_id、from/to 照搬源表列、clientType=2、码上限取自路由），判据用请求类自己的 check()
 │   ├── retail_retention_test.php # App\RetailRetention 自包含断言测试：2 年截止日的计算与边界（常规/跨年/月末/闰日溢出方向、截止日当天保留、不传参时相对今天滚动）
-│   ├── record_query_test.php     # App\RecordQuery 自包含断言测试：四页固定口径（失败页的 quantity_check 豁免与同企业判重、
-│   │                             #   门店清单的 source 写死与 company 必填）、日期参数名→列的映射、`?` 与 params 数量恒等
+│   ├── retail_manual_test.php    # App\RetailManualEntry 自包含断言测试：哪两类要往来单位名称、对手方 entId 落在 from 还是 to
+│   │                             #   （按发货/收货语义）、prepare() 触网前的全部拒绝分支（含 2 年下限）、手工 104 的端到端装配形状
+│   ├── record_query_test.php     # App\RecordQuery 自包含断言测试：三页固定口径（失败页的 quantity_check 豁免与同企业判重）、
+│   │                             #   日期参数名→列的映射、`?` 与 params 数量恒等
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
@@ -154,13 +155,13 @@ root/
 
 所有页面（除 login、api 与 asset）需要登录。API 端点内部自行处理认证。
 
-**上传任务页（工单 03，2026-09-30）**：表格含**"所属企业"列**（零售门店单即为门店名；`未识别` 整行标红 + 红色徽标，表示源库单据认领不到门店——真异常信号，需人工核查）；零售行（`source='retail'`，即采集来的门店单据）走**补传按钮**（工单 06 落地，批发行仍是原来的"重传"）——见"核心数据流 → 零售补传"。来源下拉含 `零售采集`——**任务状态与批发共用 `等待上传`/`已处理` 两个值**（2026-10-01 统一，见 `docs/adr/0014`）：选门店 + 默认状态即可看到门店单据，不必再切状态。编辑弹窗可改"所属企业"（工单 08），**改后需二次确认**——那是"单据申报到哪个主体"的开关（失败记录页那份弹窗同样生效）。
+**上传任务页（工单 03，2026-09-30）**：表格含**"所属企业"列**（零售门店单即为门店名；`未识别` 整行标红 + 红色徽标，表示源库单据认领不到门店——真异常信号，需人工核查）；零售行（`source='retail'`，即采集来的门店单据）走**补传按钮**（工单 06 落地，批发行仍是原来的"重传"）——见"核心数据流 → 零售补传"。来源下拉含 `零售采集`——**任务状态与批发共用 `等待上传`/`已处理` 两个值**（2026-10-01 统一，见 `docs/adr/0014`）：选门店 + 默认状态即可看到门店单据，不必再切状态。编辑弹窗可改"所属企业"（工单 08），**改后需二次确认**——那是"单据申报到哪个主体"的开关（失败记录页那份弹窗同样生效）；**零售行不显示"往来单位名称"**——零售单的对手方是平台 ID（采集的取自源表、手工建的由名称查出并当场落库），补传直接读那两列，留着这个框等于留一处"改了不生效"的静默陷阱。
 
-**手动上传页（工单 07，2026-09-30；门店分支工单 12 补齐筛选/导出/刷新/批量删除与行操作）**：顶部先选"所属企业"，批发分支＝原来的两张卡片（行为不变），门店分支＝该门店的补传清单（筛选 + 分页 + 导出 + 批量补传/删除 + 行内编辑/删除/补传|重传）——见"核心数据流 → 手动上传（Web 端）"。批发与零售都有的两类单据类型（`321` 使用出库 / `116` 消费者退货入库，工单 03 起会采集入库）本次补进四个页面的类型标签表：缺了它们这三类零售单在页面上显示成 `-`。
+**手动上传页（工单 07 建页；门店分支 2026-10-01 与批发同构，见 `docs/adr/0015`）**：顶部先选"所属企业"，**两个分支都是"在线新增 + xlsx 批量导入"两张卡片**（批发分支的行为一字未变）。门店分支的差别只有三处：单据类型只列门店那四种（`104`/`203`/`321`/`116`）、**`321`/`116` 不显示"往来单位名称"**（对手是消费者，接口里没有对手方入参）、落库主体是所选门店且凭据由服务端按门店取。原先那份"门店补传清单"已撤——它是上传任务页的第二个实现，而门店行的补传/筛选/导出在那边本就有。批发与零售都有的两类单据类型（`321` 使用出库 / `116` 消费者退货入库，工单 03 起会采集入库）本次补进四个页面的类型标签表：缺了它们这三类零售单在页面上显示成 `-`。
 
 三个数据页面（upload-tasks / uploaded / failed）均支持筛选：单号、往来单位、状态、**单据日期**（`rq`）、**任务创建时间**（`created_at`）。日期筛选使用 flatpickr 范围选择器，一个输入框同时选起止日期，默认最近 7 天（含当天）。**关键词检索（单号/往来单位）不受默认日期范围限制**：输入关键词时若日期选择器仍是默认 7 天（用户未手动改过），前端自动不传日期参数实现全库检索；用户手动改过日期则关键词+日期正常组合过滤。分页最多显示 10 个页码，超出用省略号。
 
-三个数据页工具栏均有"导出 xlsx"按钮：按当前生效筛选条件全量导出（前端已计算关键词忽略默认日期后的参数）。导出走 `page=api&action=export`（`api/export.php`），**流式生成**（sheet XML 逐行写临时文件 + ZipArchive 打包，不用 PhpSpreadsheet 避免全量驻留内存）；追溯码按字符数拆行（`App\TraceSplitter::splitByCharLimit`，每行 ≤32000 字符 ≈ 1523 码，超限时一单多行、单号加 `_N` 后缀，命名对齐上传拆分、已带后缀的单号追加后缀），拆行兜底（单条码自身超 32000 字符的极端情况）仍截断并追加 `…(共N个码)`，其余列超限追加 `…(已截断)`；无匹配数据时前端拦截提示、后端仍输出带表头的空文件。导出列与页面表格对齐（来源列导出机器值 cron/manual/...，单据类型导出归一化 3 位码），文件名 `上传任务/已上传/失败记录_YYYY-MM-DD.xlsx`。**门店分支的导出是第 4 类**（`type=retail_tasks`，工单 12）：列与门店表格逐列对齐（单号/单据日期/单据类型/追溯码/码数/补传任务创建时间/任务状态/响应状态），文件名 `门店补传_YYYY-MM-DD.xlsx`；缺 `company` 由接口直接 400（`RecordQuery` 对门店清单缺 company 是抛异常，导出把它收成一句能看懂的话，不是 500 空响应）。
+三个数据页工具栏均有"导出 xlsx"按钮：按当前生效筛选条件全量导出（前端已计算关键词忽略默认日期后的参数）。导出走 `page=api&action=export`（`api/export.php`），**流式生成**（sheet XML 逐行写临时文件 + ZipArchive 打包，不用 PhpSpreadsheet 避免全量驻留内存）；追溯码按字符数拆行（`App\TraceSplitter::splitByCharLimit`，每行 ≤32000 字符 ≈ 1523 码，超限时一单多行、单号加 `_N` 后缀，命名对齐上传拆分、已带后缀的单号追加后缀），拆行兜底（单条码自身超 32000 字符的极端情况）仍截断并追加 `…(共N个码)`，其余列超限追加 `…(已截断)`；无匹配数据时前端拦截提示、后端仍输出带表头的空文件。导出列与页面表格对齐（来源列导出机器值 cron/manual/...，单据类型导出归一化 3 位码），文件名 `上传任务/已上传/失败记录_YYYY-MM-DD.xlsx`。（第 4 类 `type=retail_tasks`（门店补传清单导出）随门店分支撤销，见 `docs/adr/0015`。）
 
 **三数据页的"所属企业"筛选与导出列（工单 08）**：三页表格都有"所属企业"列（上传任务页工单 03 加、已上传页工单 06 加、失败记录页工单 08 补齐）。筛选栏都有"所属企业"下拉，选项由 `Enterprise::selectableNames()` 给出（企业枚举 + `未识别`，已配 16 家企业共 17 项；`未识别` 不是一个企业，但确实是 `company` 列的一个取值——门店认领失败的那批，必须能单独筛出来）。**按 `company` 去重**——每家恰一套凭据（1:1，见 `docs/adr/0012`），故"一门店多套凭据时显示 `门店名（label）`"这类问题已不存在。xlsx 三类导出都含"所属企业"列（位置与页面表格一致，在"单据类型"之后）。
 
@@ -181,12 +182,12 @@ root/
 
 **上传守卫（UploadService::resolveContext，2026-09-29 多企业排雷）**：`upload()` 在取锁与任何平台调用**之前**逐条校验所属企业、接口族与凭据，任一不合规**整批拒绝**（抛 `\RuntimeException`，不发一次调用、不写一条日志；混合批次"传一半才报错"比一开始就拒绝更难收拾）：
 - `company` 必须在企业配置中（`App\Enterprise::find`）——`未识别`/空/未知企业名一律拒传
-- 该企业在该单据类型上的路由必须落在**本服务支持的批发 kyt 接口**（`Enterprise::route()` 的 class 比对）——零售走 lsyd，一律拒传（零售装配见工单 05/06）
+- 该企业在该单据类型上的路由必须落在**本服务支持的批发 kyt 接口**（`Enterprise::route()` 的 class 比对）——零售走 lsyd，一律拒传（零售装配见工单 05/06 与 `docs/adr/0015`）
 - 该企业必须取到**填齐的**凭据（任务行的 `credential` 列指定凭据位，取不到或残缺即拒传）；**绝不回落到默认（河药）凭据**
 
 守卫在 UploadService 而非调用方，是刻意的：`upload_pending` / `tasks_retry` / `tasks_batch_retry` 三处以及将来新增的调用方都会 `new UploadService()`，只把 SQL 写对护不住直接调用的脚本。
 
-手动上传（manual_create / manual_import）保持立即上传不变，两套上传路径并存；其落库主体同为批发主体（`Enterprise::wholesaleSubject()`，按企业切换表单见工单 07）。
+手动上传保持立即上传不变，两套上传路径并存：批发两个端点（`manual_create` / `manual_import`）落库主体取 `Enterprise::wholesaleSubject()`；门店两个（`manual_create_retail` / `manual_import_retail`）落库主体是入参里那家门店、凭据由服务端按门店取，上传走 lsyd（`App\RetailManualEntry` → `App\RetailRetransmit`）。
 
 ### 零售单据采集（fetch_bills_retail.php，工单 03，2026-09-30）
 
@@ -211,21 +212,21 @@ root/
 - **失败不写库**：源库不可用时 `SqlSrvHelper::queryEach` 返回 `false` 且错误另存在 `lastError`，脚本据此区分"真没单据"与"查询失败"，后者非零退出；源库查询**全部读完才开始写库**，不会产生"读一半写一半"
 - **页面**（`views/upload_tasks.php`）：表格加"所属企业"列，`未识别` 行标红 + 红色徽标；零售行（`source='retail'`）走**补传按钮**（工单 06 落地，取代工单 03 里那个被关掉的重传按钮）；来源下拉补 `零售采集`（任务状态与批发共用 `等待上传`/`已处理` 两个值，故**选门店 + 默认状态即能看到门店单据**）
 
-### 零售补传（Web 端，App\RetailRetransmit，工单 06 / 07）
+### 零售单据上传（补传 + 手工新增，App\RetailRetransmit / App\RetailManualEntry）
 
 零售单据由外部系统上传，本项目只做"可见 + 人工补传"（ADR 0007）。补传**只能人工触发**——没有 cron、没有自动重试：
 向平台的每一次申报都不可逆，由人在页面上看清是哪张单再点，比自动重试可靠。落库口径、三列入库与失败算不算处理完的决策见 `docs/adr/0011`；**用哪套凭据不由人给**（门店与凭据 1:1，服务端按门店取）见 `docs/adr/0012`。
 
-**两个入口共用 `App\RetailRetransmit` 一份实现**（工单 07 收口）：单条（`api/tasks_retry_retail.php`，上传任务页零售行的"补传"按钮）与批量（`api/tasks_batch_retry_retail.php`，手动上传页选定门店后勾选清单）。两个端点各自只做「解析请求 + 流式输出」——流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态）在类里；之所以不能各写一份、也不能靠 include 复用，是因为端点文件被另一个端点 include 会执行它的认证与 `exit`。
+`App\RetailRetransmit` 是**"上传一条门店单据"的唯一实现**（补传与手工建单共用）：三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态。端点各自只做「解析请求 + 流式输出」，流程在类里。手工建单的落库与上传走 `App\RetailManualEntry`，它再把上传交给它。
 
-- **入口**：三个——上传任务页零售行（`source='retail'`）的"补传"按钮（工单 06）、手动上传页门店分支的行内"补传|重传"与"批量补传"（工单 07/12）。三者都先弹窗列出单据元数据（单号/日期/类型/门店/码数）→ 确认即传，**页面上没有任何要填的字段**。**元数据全部取自采集时落库的记录**，不接受调用方传任何单据字段（手工录 4 个平台 ID 几乎必然出错，且本轮不查平台，录错了察觉不了）
-- **批量入口**（工单 07）：入参 `{ids, company}`，整批必须同属页面选定的那家门店——混入别家门店的 id **整批拒绝**（一次请求里出现两家门店没有正当来由），凭据随门店定。请求级校验（非零售企业 / 门店无凭据位 / 待配凭据）在打开流之前用 400 一次说清，逐条把关仍在 `RetailRetransmit` 里（纵深，不是重复）。**逐条隔离**：某条被拒或已不存在只影响它自己，其余照常补传——批量入口里一条坏单不该让整批停摆；没能进平台的行发一条与真实结果同形状的进度行（原因写在 `response` 里），汇总按**单据**计（单条入口那份按子单计）
-- **日志来源值单条与批量共用 `retail_retry`**（与批发链路一致：`tasks_retry` 与 `tasks_batch_retry` 都写 `batch_retry`）：单条/批量是入口差异、不是数据差异；复用则三个页面的来源标签/徽标/下拉不必各加一处，失败记录页那个"补传没成功"的出口也照旧覆盖两种入口
+- **入口**：两个——上传任务页零售行（`source='retail'`）的"补传"按钮（`api/tasks_retry_retail.php`，工单 06；**门店手工建出来的行也在这个入口里**，因为它同表同来源）、手动上传页门店分支的在线新增 / xlsx 导入（`api/manual_create_retail.php` / `api/manual_import_retail.php`，2026-10-01）。补传那条先弹窗列出单据元数据（单号/日期/类型/门店/码数）→ 确认即传，**页面上没有任何要填的字段**；元数据全部取自采集时落库的记录，不接受调用方传任何单据字段（手工录 4 个平台 ID 几乎必然出错）。**手工新增是它的例外**：没有源表行可取，`from/to/physicType` 只能现场确定——但同样不由人录 ID，人填的是往来单位名称、由服务端查出 ent_id（`App\EntDirectory`），见 `docs/adr/0015`
+- **批量补传入口已撤**（连同 `tasks_batch_retry_retail.php` 与手动上传页的门店清单）：那套需求由"采集 + 上传任务页按门店筛"覆盖，不值得再养一份与上传任务页同形的清单。**xlsx 导入是另一回事**——它是从零建单，不是对已有任务批量重传
+- **日志来源：补传写 `retail_retry`、手工建单写 `manual`**（`RetailRetransmit::retransmit()` 的来源参数）——补传与新建是两件事，来源列上要分得清；两者都用已存在的取值，三个页面的标签/徽标/下拉不必各加一处
 - **链路**：`Enterprise::route()` 给的接口与码上限 → 超限才拆单（沿用 `单号_1` 约定；实测零售单张码数上限 1,718，不触发）→ `RetailRequestAssembler::assemble()` → `ApiClient::execute()`（0.33s 间隔、仅网络错误重试 3 次/30s、业务错误不重试）→ `LogWriter` 写 JSONL + `upload_logs`（`source='retail_retry'`，带 company/credential/task_id）→ 翻 `upload_tasks`：`task_status='已处理'` + `request_status`/`response_status`/`resp`，并把该行 `credential` 覆盖为**这次实际用的那套**（采集预填该门店那套，这里写回的是同一套——单套时代这一写不改变取值，只是把事实记下来）
 - **三关 fail-closed 都在第一次平台调用之前**（非零售企业 / 门店无凭据位或未配齐 / 无路由或装配必填项缺失），任一不过即整条拒绝：不发一次调用、不写一条日志、**任务行一个字段都不动**（实测：拒绝后 `updated_at` 不变）。页面上的禁用态（未识别 / 待配凭据）只是显示层提示，真正的关口在链路里——任何直接调端点的路径都拦得住
 - **异常时不复位任务状态**（批发链路那两个入口会复位，本入口刻意不照搬）：任务行只在平台调用**之后**被写，故异常要么发生在第一次调用之前（没动过，复位是空操作）、要么发生在某个子单已完成之后（那一写就是本次尝试的真实结果，复位反而把结果抹成 NULL）
 - **进度里的"成功"按业务结果算，不照搬 `ApiClient::execute` 的 `success`**：后者是网关级（无 `code` 错误即 true），实测平台对"存在已出售的码"这类业务拒绝也返回 `success=true` + `msg_code=FAIL`，照搬会把真实失败显示成绿色 [成功]、汇总写成"成功 1"。口径与已上传页/失败页一致：`上传成功` 与 `单据重复` 都算成功（单据已在平台上），其余算失败
-- **实测（2026-09-30 首次真传，单条两单 + 批量一批四张）**：批量那次是新江分店 4 张 `321`，全部 `上传成功`（4 行 `upload_logs` 带 `source='retail_retry'`/门店/凭据/task_id，4 行任务翻 `已处理` + `上传成功`，该门店未处理单 24 → 20，已上传页按门店名可辨认）。**104/203 刻意未真传**：ADR 0010 的 `fromUserId`/`toUserId` 发货收货语义仍待外部系统工程师确认，传错方向会在平台上留下错误申报（装配正确性目前由工单 05 的纯函数断言兜着）。两个 lsyd 接口的响应都是同一套 TOP 信封（`result.msg_code` / `msg_info` / `response_success`），故 `ApiClient::resolveUploadResponseStatus` 两个接口族通用——`SUCCESS`+`response_success=true` → 上传成功；`msg_info` 含"该单据号已存在" → 单据重复；`msg_code=FAIL` → 上传失败。平台对**已被申报过的销售单**返回业务错误「存在已出售的码」（→ 上传失败），即补传不是"重放"而是真实申报
+- **实测（2026-09-30 首次真传）**：单条两单 + 批量一批四张（批量入口当时还在）。批量那次是新江分店 4 张 `321`，全部 `上传成功`（4 行 `upload_logs` 带 `source='retail_retry'`/门店/凭据/task_id，4 行任务翻 `已处理` + `上传成功`，该门店未处理单 24 → 20，已上传页按门店名可辨认）。**104/203 刻意未真传**：ADR 0010 的 `fromUserId`/`toUserId` 发货收货语义仍待外部系统工程师确认，传错方向会在平台上留下错误申报（装配正确性目前由工单 05 的纯函数断言兜着）。两个 lsyd 接口的响应都是同一套 TOP 信封（`result.msg_code` / `msg_info` / `response_success`），故 `ApiClient::resolveUploadResponseStatus` 两个接口族通用——`SUCCESS`+`response_success=true` → 上传成功；`msg_info` 含"该单据号已存在" → 单据重复；`msg_code=FAIL` → 上传失败。平台对**已被申报过的销售单**返回业务错误「存在已出售的码」（→ 上传失败），即补传不是"重放"而是真实申报
 - **失败也算"已处理"**（与批发链路一致）：任务表是待处理队列，`上传失败`/`未确定`/网络请求失败都翻 `已处理`，`等待上传` 队列不会无限堆积；"补传没成功"的出口是失败记录页（该页第一条条件 `response_status NOT IN ('上传成功','单据重复')` 挡住 `单据重复` 自身，实测零售的 `上传失败` 记录确实可见）。因此补传失败后要再试，是在任务页按"已处理"筛出该行重传，不是等它回到 `等待上传`
 
 ### 批量查询上传状态（check_bill_status.php + check_failed_logs.php）
@@ -268,21 +269,20 @@ root/
 
 **幂等**：每轮先清理目标日期全部 quantity_check 记录再按新判定写入（限流熔断后下次运行重查不产生重复/残留记录，历史"数量不符"误报随重跑自动清除）。第 1 级 API 间隔 1s；两级任一处平台限流（App Call Limited）时**本轮熔断**，剩余单据下次运行自动重查。**运行时机**：必须避开 check_bill_status（8-20 点每 30 分钟一轮）的调用窗口，否则并发触发平台限流，cron 建议配 21:10 每天一次（详见上方 cron 时间表，**当前未调度**），默认检查昨天（参数可指定日期）。该检查顺带修正 check_bill_status 的盲区：外部系统拆分上传后原始单号查不到被误判"未上传"的场景，数量对账的运行时子单查询能识别子单已传齐。
 
-### 手动上传（Web 端，工单 07 起顶部先选"所属企业"）
+### 手动上传（Web 端，顶部先选"所属企业"）
 
-页面最上方是**"所属企业"下拉**（选项来自 `App\Enterprise`），选定后显示该企业对应的内容——批发与零售的字段、接口、凭据完全不同，混在一个表单里只会让两边都难读：
+页面最上方是**"所属企业"下拉**（选项来自 `App\Enterprise`），选定后显示该企业对应的内容——批发与门店的字段、接口、凭据完全不同，混在一个表单里只会让两边都难读。**两个分支同构**：左边"在线新增"、右边"xlsx 批量导入"（2026-10-01 起，见 `docs/adr/0015`）。两边的提交与导入走**同一段前端处理逻辑**（`bindCreateForm` / `bindImportCard`，差别只有端点、是否带 `company`、"往来单位名称"是否必填），各自只把端点与白名单传进去。
 
-- **批发分支**（默认选中批发主体）：即原来的两个卡片，**行为一字未变**——在线新增（单据类型下拉 → 日期/单号/往来单位 → 粘贴追溯码，一行一个自动转逗号）写入 SQLite 后立即上传并实时反馈；xlsx 导入（列: 日期 | 单号 | 单据类型 | 往来单位名称 | 追溯码，同单号多行自动合并为一个任务，取第一个非空的日期/单据类型/往来单位并拼接追溯码）。落库主体取 `Enterprise::wholesaleSubject()`。xlsx 导入与模板下载**只服务批发**，不分叉
-- **门店分支**（工单 12 起具备上传任务页那套能力）：**不提供从零手工录入**，只列该门店已采集的单据（单号 / 单据日期 / 单据类型 / 追溯码 / 码数 / **补传任务创建时间** / 状态 / **操作**，**按单据日期倒序**——新的在前，2026-09-30 用户指定）
-  - **筛选**：单号、任务状态（**默认"等待上传"**，可切"已处理/全部"）、响应状态、单据日期、补传任务创建时间。两个日期选择器**都没有默认值**——未处理的单据是积压队列，默认藏起 7 天前的单会被读成"这家店没单了"（上传任务页那套"关键词时忽略默认 7 天"的补偿逻辑因此不需要）。**清单与导出共用前端同一个 `retailFilterParams()`、后端同一段 `RecordQuery`**，两边对不上是构造上不可能
-  - **工具栏**：导出 xlsx（列与表格对齐、文件名「门店补传_日期.xlsx」）、刷新、批量删除、批量补传（勾选集**跨页保持**，翻页丢勾选的话批量操作没法用）
-  - **行内操作**：编辑（**只能改日期 / 单据类型 / 单号 / 追溯码**——`from_user_id`/`to_user_id`/`physic_type` 按 `docs/adr/0011` 不接受人工录入，"往来单位"门店单本就没有，"所属企业"在本分支改会把该行挪出当前清单）、删除、补传|重传（`等待上传` 的行叫"补传"、`已处理` 的叫"重传"，同一件事）
-  - **任务状态可切到"已处理"是本分支的关键出口**：补传失败会把任务翻 `已处理` 并从 `等待上传` 里消失（ADR 0011），能切过去才在这页直接重传，不必再去上传任务页按企业筛
-  - 清单来自 `api/manual_retail_tasks.php`（`company` 必填 + `source='retail'` 写死，`task_status` 由下拉给），**分页与上传任务页同款**（`page_num` + 每页 20 条，页面渲染同一套 Bootstrap 分页条）——原先的 200 条截断已删：截断把"看不全"推给操作者，分页把它解决掉。清单里**不会有 2 年前的单**（平台不接受，采集与清理两侧都按 `App\RetailRetention` 挡住），所以"最早在前"并不指向一批欠了很久的账——这是倒序后仍要记得的前提
-  - **每行有"查看追溯码"按钮**（与上传任务页同一套弹窗：全量列出 + 复制），故清单接口随列表回 `trace_codes`——一页 20 条最坏约 680KB；比起省这点带宽，改成点击时按 id 另拉一次要在页面上多维护一套加载态与失败态，不划算。编辑弹窗也直接用列表里的行数据回填（**跨页累积的 id→行索引**），不再单拉一条
-  - 二次确认有三处点名：**补传不可逆**（基础提示）、批里含 `104`/`203`（ADR 0010 的方向待确认，一次放大成一批）、批里含**已申报成功**的行（切到"已处理"才选得到；重传是真实调用，平台多半回"单据重复"——**是警告不是拦阻**）。批量删除的确认额外说明"删除只作用于本地任务行：该单据若仍未被外部系统上传、且覆盖它那个日期的采集再次运行，它会被重新采集入库"
-  - 补传刷新后当前页可能已空，此时自动退到最后一页重拉。禁用情形都写明原因：**待配凭据**（清单可见、补传禁用，属预期内的正常状态）、门店不在配置中、未声明凭据位、企业配置载入失败（降级为不可用，但批发表单照常渲染）
-- **勾选里含 `104`/`203`（调拨）时，二次确认会额外点名警告**：那两类的 `fromUserId`/`toUserId` 发货/收货语义仍待外部系统工程师确认（ADR 0010），单条入口同样暴露该风险、批量会一次放大成一批。**是警告不是拦阻**——不改变单条入口既有的放行口径
+- **批发分支**（默认选中批发主体）：**行为一字未变**——在线新增（日期 / 单据类型下拉 / 单号 / 往来单位 / 追溯码，一行一个自动转逗号）写入 SQLite 后立即上传并实时反馈（`manual_create`）；xlsx 导入（同单号多行自动合并为一个任务，取第一个非空的日期/单据类型/往来单位并拼接追溯码）走 `manual_import`。落库主体取 `Enterprise::wholesaleSubject()`，模板下载给批发版
+- **门店分支**：落库主体是**所选门店**，凭据由服务端按门店取（页面不让人选，见 ADR 0012）
+  - **单据类型只列门店那四种**（`104` 调拨入库 / `203` 调拨出库 / `321` 使用出库 / `116` 消费者退货入库）
+  - **`321`/`116` 不显示"往来单位名称"**：这两种走 `lsyd.uploadretail`，接口里根本没有对手方入参（对手是消费者，不是平台注册的往来单位）。选中时该框隐藏、值清空、`required` 摘掉——只藏起来的话浏览器仍会拦"必填项为空"，用户会看到一个看不见的输入框在报错
+  - **`104`/`203` 要填"往来单位名称"**：这两种走 `lsyd.uploadinoutbill`，`fromUserId`/`toUserId` 是平台必填。服务端用**该门店的凭据**去平台查 `ent_id`（`App\EntDirectory`，与批发同一套），按 SDK docblock 的发货/收货语义落位——**入库 from=对方/to=本店、出库 from=本店/to=对方**；`physic_type` 取常量 `3`。**查不到即拒绝建单**：库里不留半条、平台也不发一次调用
+  - **落库**：`source='retail'`（**与采集单同列**——上传任务页的"补传"按钮、门店徽标、`cleanup_logs` 的 2 年超期清理因此自动覆盖它）、`company`=所选门店、`credential`=该门店凭据键、`task_status` 随上传结果翻（失败也翻"已处理"，同补传链路）。日志来源写 `manual`（补传记 `retail_retry`）
+  - **日期早于 2 年截止日的直接拒**（`App\RetailRetention`，与采集同一个口径）——手工建一张平台必拒的单，不如在建单那一刻就说清楚
+  - **xlsx 导入**：列与批发同一套（日期 | 单号 | 单据类型 | 往来单位名称 | 追溯码；解析共用 `App\BillSheetParser`），`321`/`116` 的往来单位列**留空即可**；逐条校验、**逐条隔离**（一条坏单只报它自己并跳过，其余照常导入）；模板下载给门店版（示例行是门店类型、`321` 行往来单位留空）
+  - **能不能建单看三态**：待配凭据（等密钥，预期内的正常状态）/ 未声明凭据位（配置缺口）/ 不在配置中——页面上写明是**哪一种**并禁用两个提交按钮。页面只是显示层，真正的关口是 `RetailManualEntry::prepare()` 的 fail-closed（绕开按钮直接调端点的路径照样被拦）
+- **建出来的门店单在上传任务页可见**（同一张表、同一个 `source`），行内补传/重传、编辑、删除、导出都在那一页——这就是撤掉手动上传页那份清单的前提
 - **`未识别` 不出现在门店分支里**（它不是一个企业）——那些单据在上传任务页标红，由人去查配置/源库
 
 ### 日志链
@@ -310,7 +310,7 @@ root/
 | id | INTEGER PK | |
 | rq | TEXT | 单据日期（来自 SQL Server） |
 | djbh | TEXT | 单号（去重键是 `(company, djbh)`，不是裸 `djbh`） |
-| ent_name | TEXT | 往来单位名称（**零售不用此列**——对手方 ID 来自源表 `from_user_id`/`to_user_id`，采集时写空串且不查 `ent_list`） |
+| ent_name | TEXT | 往来单位名称。**采集来的零售行恒为空**（对手方 ID 直接来自源表 `from_user_id`/`to_user_id`）；**门店手工建的 `104`/`203` 会写**（人填的名称，用它查出 `from`/`to` 两个 ID；上传任务页对零售行隐藏这一格，改名称不会重解析 ID），`321`/`116` 仍为空 |
 | trace_codes | TEXT | 追溯码（逗号分隔） |
 | task_status | TEXT | 等待上传（批发：cron 会取；**零售采集落库也用这个值**——2026-10-01 统一，见 `docs/adr/0014`）/ 已处理。**门店单的"等待上传"不承诺 cron 会取走它**：`upload_pending.php` 按 company 白名单取数，门店单根本进不去，补传始终由人点 |
 | source | TEXT | **retail**（`fetch_bills_retail` 零售采集）/ cron（批发采集）/ manual / batch_check / batch_retry |
@@ -468,6 +468,7 @@ php /usr/share/nginx/mashangfangxin/tests/quantity_check_test.php
 php /usr/share/nginx/mashangfangxin/tests/enterprise_config_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_upload_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_retention_test.php
+php /usr/share/nginx/mashangfangxin/tests/retail_manual_test.php
 php /usr/share/nginx/mashangfangxin/tests/record_query_test.php
 
 # 查询单号在码上放心平台的上传状态（searchbill.detail；输出 JSON + 另存 tests/searchbill_<单号>.json）

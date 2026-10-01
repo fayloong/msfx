@@ -7,7 +7,7 @@
  * cleanup_logs 按 3 个月规则清掉，JSONL 才是永久副本。
  *   sub_msg_code: FAIL_BIZ_PARAM_BILL_TIME_BEFORE_ERROR
  *   msg_info:     单据上传失败！:系统不支持上传2年前单据(您上传的是2023-07-19 00:00:00)
- * 故门店采集入库的数据本地只保留最近 2 年：超期的留在补传清单里没有任何出口，
+ * 故门店采集入库的数据本地只保留最近 2 年：超期的留在门店单据队列里没有任何出口，
  * 点开只会被平台拒绝、在失败记录页留一条噪音。
  *
  * 决策与代价见 docs/adr/0013-retail-two-year-retention.md；需求与验收见

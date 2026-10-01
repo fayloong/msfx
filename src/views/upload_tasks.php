@@ -204,7 +204,9 @@ layout('上传任务', 'upload-tasks');
                     <label class="form-label">单号</label>
                     <input type="text" class="form-control" id="edit-djbh">
                 </div>
-                <div class="mb-3">
+                <!-- 门店行不显示这一格：零售单的对手方是平台 ID（采集的取自源表、手工建的由名称查出并当场落库），
+                     补传直接读那两列。留着这个框等于留一处"改了不生效"的静默陷阱——名称改了，ID 不会重解析 -->
+                <div class="mb-3" id="edit-ent-name-group">
                     <label class="form-label">往来单位</label>
                     <input type="text" class="form-control" id="edit-ent-name">
                 </div>
@@ -635,6 +637,10 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
             document.getElementById('edit-rq').value = task.rq;
             document.getElementById('edit-djbh').value = task.djbh;
             document.getElementById('edit-ent-name').value = task.ent_name;
+            // 门店行（采集的与手工建的都算）隐藏"往来单位"：见弹窗标记处的说明。
+            // 值是原样回填、保存时原样送回，不改动它——对零售行而言这一列只是显示用的留痕
+            document.getElementById('edit-ent-name-group')
+                .classList.toggle('d-none', task.source === 'retail');
             document.getElementById('edit-trace-codes').value = task.trace_codes || '';
             document.getElementById('edit-bill-type').value = task.bill_type || '';
             const companySelect = document.getElementById('edit-company');

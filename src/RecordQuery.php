@@ -1,6 +1,6 @@
 <?php
 /**
- * 数据页（上传任务 / 已上传 / 失败记录 / 门店补传清单）的筛选条件**单一事实源**。
+ * 数据页（上传任务 / 已上传 / 失败记录）的筛选条件**单一事实源**。
  *
  * 原先四个入口（api/tasks、api/uploaded、api/failed、api/export）各写一份 WHERE 构造，
  * 后果实测过一次：export 的失败记录分支漏了 `source = 'quantity_check' OR` 豁免，
@@ -13,10 +13,6 @@
  *   $db->query("{$q['select']} {$q['where']} {$q['order']} LIMIT ? OFFSET ?",
  *              array_merge($q['params'], [$perPage, $offset]));
  *
- * 门店补传清单（TYPE_RETAIL_TASKS，手动上传页的门店分支）走的是同一张 `upload_tasks` 表，
- * 但口径是**该门店的零售采集单**：`source = 'retail'` 写死、`company` 必填、按单据日期倒序
- * （11 票用户指定；上传任务页是 id 倒序，两者刻意不同）。
- *
  * 本类**不读超全局**：筛选参数由调用方传入，故可在不碰 Web 的情况下直接构造任意组合核对。
  */
 namespace App;
@@ -26,37 +22,32 @@ class RecordQuery
     public const TYPE_TASKS = 'tasks';
     public const TYPE_UPLOADED = 'uploaded';
     public const TYPE_FAILED = 'failed';
-    /** 手动上传页门店分支的补传清单（该门店 + 零售采集单；company 必填） */
-    public const TYPE_RETAIL_TASKS = 'retail_tasks';
 
     /** 合法类型全集（导出的 type 参数白名单用它，免得那个白名单成为第二份类型枚举） */
-    public const TYPES = [self::TYPE_TASKS, self::TYPE_UPLOADED, self::TYPE_FAILED, self::TYPE_RETAIL_TASKS];
+    public const TYPES = [self::TYPE_TASKS, self::TYPE_UPLOADED, self::TYPE_FAILED];
 
     /**
      * 构造一条记录的查询（WHERE + SELECT + ORDER），各数据页共用。
      *
-     * @param string              $type    TYPE_TASKS / TYPE_UPLOADED / TYPE_FAILED / TYPE_RETAIL_TASKS
+     * @param string              $type    TYPE_TASKS / TYPE_UPLOADED / TYPE_FAILED
      * @param array<string,mixed> $filters 筛选参数（生产传 $_GET；本类不读超全局）
      * @return array{select:string, where:string, count_from:string, params:array<int,string>, order:string}
      *         where 为 '' 或 'WHERE a AND b'（不含前导空格）；
      *         count_from 是 `SELECT COUNT(*) … FROM` 的表名——由本类给出，免得调用方
      *         各自再写一遍表名（写错就会出现"计数与数据来自不同表"、页面对不上导出）
-     * @throws \InvalidArgumentException 未知类型，或门店补传清单缺 company——**都不静默返回空条件**：
+     * @throws \InvalidArgumentException 未知类型——**不静默返回空条件**：
      *         失败页因此会把全表当失败记录吐出来（而这正是它最不该出错的地方）
      */
     public static function build(string $type, array $filters): array
     {
         if (!in_array($type, self::TYPES, true)) {
             throw new \InvalidArgumentException(
-                "RecordQuery: 未知的记录类型「{$type}」（只认 tasks / uploaded / failed / retail_tasks）"
+                "RecordQuery: 未知的记录类型「{$type}」（只认 tasks / uploaded / failed）"
             );
         }
-        // 门店补传清单与上传任务页是**同一张表、同一组列、同一套日期参数名**，差别只在固定口径与排序，
-        // 故下面"列前缀 / 日期参数名映射"共用同一分支；固定口径在下一段单独处理
-        $isRetailTasks = $type === self::TYPE_RETAIL_TASKS;
-        $isTaskTable = $type === self::TYPE_TASKS || $isRetailTasks;
+        $isTaskTable = $type === self::TYPE_TASKS;
         // 日志页与 upload_tasks 左连接取单据类型，两张表都有 djbh / ent_name / company 等同名列，
-        // 列名必须限定前缀；两张任务表都是单表查询，保持裸列名
+        // 列名必须限定前缀；任务表是单表查询，保持裸列名
         $column = $isTaskTable ? '' : 'upload_logs.';
 
         $conditions = [];
@@ -85,19 +76,6 @@ class RecordQuery
             $add("({$column}source = 'quantity_check' OR NOT EXISTS (SELECT 1 FROM upload_logs ok"
                 . " WHERE ok.djbh = {$column}djbh AND ok.company = {$column}company"
                 . " AND ok.response_status IN ('上传成功', '单据重复')))");
-        } elseif ($isRetailTasks) {
-            // 门店补传清单的两条固定口径，都不由调用方给：
-            // - source='retail'：这个清单的定义就是"门店采集来的单"，调用方传 source 不生效
-            // - company：**必填**。缺了它构造出来的是一条"全部门店混在一起"的清单，
-            //   而导出会把它写成一个看不出毛病的 xlsx——静默的错误数据比报错难收拾得多
-            $company = trim((string)($filters['company'] ?? ''));
-            if ($company === '') {
-                throw new \InvalidArgumentException(
-                    'RecordQuery: 门店补传清单必须指定 company（不指定即"全部门店的单据混成一条清单"，不静默返回全量）'
-                );
-            }
-            $add('company = ?', $company);
-            $add("source = 'retail'");
         }
         // tasks 页无固定口径：任务状态由下拉的默认值"等待上传"给出
 
@@ -127,13 +105,12 @@ class RecordQuery
                 $add("{$column}response_status = ?", (string)$filters['response_status']);
             }
         }
-        // source 与 company 在门店补传清单里是固定口径（上面已写死），不再作为可选项重复追加——
-        // 重复追加不会改变结果，但会让"这一页到底筛的是什么"出现第二种说法
-        if (!empty($filters['source']) && !$isRetailTasks) {
+        if (!empty($filters['source'])) {
             $add("{$column}source = ?", (string)$filters['source']);
         }
-        // 所属企业：下拉的值就是 company 列的值（未识别也在下拉里，照常筛得出来）
-        if (!empty($filters['company']) && !$isRetailTasks) {
+        // 所属企业：下拉的值就是 company 列的值（未识别也在下拉里，照常筛得出来）；
+        // 门店的手工建单行 company 就是所选门店，按门店筛照样筛得到
+        if (!empty($filters['company'])) {
             $add("{$column}company = ?", (string)$filters['company']);
         }
 
@@ -165,11 +142,7 @@ class RecordQuery
             // 计数用哪张表也由本类说了算：调用方复述表名，就可能出现"计数查 A 表、数据查 B 表"
             'count_from' => $isTaskTable ? 'upload_tasks' : 'upload_logs',
             'params' => $params,
-            // 门店清单按**单据日期**倒序（11 票用户指定：操作者在第一页看到的就是最近要处理的单），
-            // 上传任务页按 id 倒序（后采集的先显示）。两者刻意不同，不是漏改
-            'order' => $isRetailTasks
-                ? 'ORDER BY rq DESC, id DESC'
-                : ($isTaskTable ? 'ORDER BY id DESC' : 'ORDER BY upload_logs.id DESC'),
+            'order' => $isTaskTable ? 'ORDER BY id DESC' : 'ORDER BY upload_logs.id DESC',
         ];
     }
 

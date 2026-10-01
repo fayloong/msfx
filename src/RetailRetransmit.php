@@ -1,19 +1,21 @@
 <?php
 /**
- * 零售门店单据的补传 —— 单条（上传任务页）与批量（手动上传页）两个入口共用的唯一实现
+ * 零售门店单据的**上传**——补传（上传任务页）与手工建单（手动上传页）共用的唯一实现
  *
- * 补传 = **向码上放心平台的真实申报，不可逆**。装配错一项就是把单据报到错误主体，所以三关
+ * 传到平台 = **真实申报，不可逆**。装配错一项就是把单据报到错误主体，所以三关
  * fail-closed 全在第一次平台调用之前：不过则不发一次调用、不写一条日志、任务行一个字段都不动
  * （见 docs/adr/0006-credential-as-routing-subject.md、docs/adr/0011-retail-retransmit-metadata-and-manual-trigger.md）。
  *
- * 为什么这段流程在类里而不在端点里（工单 07）：票面要求批量补传与单条补传共用同一份装配与落库，
- * 而端点文件不能被另一个端点 `include`（会执行它的认证、参数解析与 exit）。故两个端点各自只留
- * 「解析请求 + 流式输出」，调用差异只有异常处理——批量端点逐条 try/catch 后继续下一条，单条端点
- * 让异常冒到 `_final`。装配仍走 `RetailRequestAssembler`（工单 05 的纯函数接缝），本类不重抄任何映射规则。
+ * 为什么这段流程在类里而不在端点里（工单 07）：两个入口共用同一份装配与落库，
+ * 而端点文件不能被另一个端点 `include`（会执行它的认证、参数解析与 exit）。故各端点只留
+ * 「解析请求 + 流式输出」，流程在这里；`App\RetailManualEntry` 是手工建单那侧的前置（校验 +
+ * 对手方解析 + 落库），落库后同样调本类上传。装配仍走 `RetailRequestAssembler`
+ * （工单 05 的纯函数接缝），本类不重抄任何映射规则。
  *
  * 调用方：
- *   - src/api/tasks_retry_retail.php       单条（上传任务页零售行的"补传"）
- *   - src/api/tasks_batch_retry_retail.php 批量（手动上传页选定门店后的"批量补传"）
+ *   - src/api/tasks_retry_retail.php 单条补传（上传任务页零售行的"补传"）
+ *   - App\RetailManualEntry::create() 门店手工建单（手动上传页的在线新增 / xlsx 导入）——
+ *     同样是"上传一条门店单据"，差别只在日志的 source（补传记 retail_retry、手工建单记 manual）
  *
  * 不做 flock（批发链路有 `logs/upload.lock`，那是给 cron 与批量共用的入口互斥用的）：本链路由人点击触发，
  * 同单并发最多撞上"同一个人连点两下"——第二发会得到平台的"该单据号已存在"（→ 单据重复），
@@ -28,7 +30,11 @@ namespace App;
 
 class RetailRetransmit
 {
-    /** upload_logs.source 的值：与任务行的 source='retail'（采集）区分开，标识"这次是人工补传" */
+    /**
+     * upload_logs.source 的**默认**值：与任务行的 source='retail'（采集）区分开，标识"这次是人工补传"。
+     * 手工建单走同一条链路但传 `manual`（`RetailManualEntry::LOG_SOURCE`）——补传与新建是两件事，
+     * 来源列上要分得清。
+     */
     public const SOURCE = 'retail_retry';
 
     /** 重试与限速：沿用批发链路的既有约定（见 UploadService 顶部常量） */
@@ -37,15 +43,17 @@ class RetailRetransmit
     private const API_INTERVAL_US = 330000;
 
     /**
-     * 补传一条零售单据（必要时拆单，逐个子单调用平台）。
+     * 上传一条零售单据（必要时拆单，逐个子单调用平台）。
      *
      * @param array    $task 落库的任务行（元数据一律取自这里，不接受调用方传单据字段）
      * @param Database $db   任务状态写回用
      * @param callable|null $onProgress 每个子单的结果回调（收到一条真实结果即调一次）
+     * @param string   $logSource 写进 upload_logs.source 的来源值：补传默认 retail_retry，
+     *                            手工建单传 manual——同一段链路、不同的入口，来源列要分得清
      * @return array{total:int, success:int, failed:int} total/success/failed 均按**子单**计
      * @throws \RuntimeException 校验不过（非零售企业 / 门店无凭据位或未配齐 / 无路由 / 装配必填项缺失）
      */
-    public function retransmit(array $task, Database $db, ?callable $onProgress = null): array
+    public function retransmit(array $task, Database $db, ?callable $onProgress = null, string $logSource = self::SOURCE): array
     {
         $djbh = (string)$task['djbh'];
         $company = trim((string)($task['company'] ?? ''));
@@ -55,7 +63,7 @@ class RetailRetransmit
         // 1) 只做零售。批发单据走 kyt 路径（tasks_retry / tasks_batch_retry），
         //    拿零售模板装配批发单、或拿批发主体装配门店单，都会把单据报到错误主体
         if (!Enterprise::isRetail($company)) {
-            throw new \RuntimeException("单号 {$djbh}: 「{$company}」不是零售企业，本入口只补传门店单据");
+            throw new \RuntimeException("单号 {$djbh}: 「{$company}」不是零售企业，本入口只上传门店单据");
         }
 
         // 2) 凭据 = 该门店**那套**（每家企业恰一套，见 docs/adr/0012），且四字段填齐。
@@ -105,7 +113,7 @@ class RetailRetransmit
             $bill['trace_codes'] = $codes;
 
             $assembled = RetailRequestAssembler::assemble($bill, $company, $credential);
-            $attempt = $this->uploadSingle($client, $assembled['request'], $bill, $company, $credentialKey, $taskId, $logWriter);
+            $attempt = $this->uploadSingle($client, $assembled['request'], $bill, $company, $credentialKey, $taskId, $logWriter, $logSource);
 
             $attempt['success'] ? $success++ : $failed++;
 
@@ -131,29 +139,13 @@ class RetailRetransmit
     {
         return [
             'djbh' => $djbh,
-            'ent_name' => '', // 零售没有往来单位（对手方 ID 在源表里），前端回落到 company 显示门店名
+            'ent_name' => '', // 零售的对手方是平台 ID（采集的来自源表、手工建的由名称查出），前端回落到 company 显示门店名
             'company' => $company,
             'success' => $attempt['success'],
             'request_status' => $attempt['request_status'],
             'response_status' => $attempt['response_status'],
             'response' => $attempt['response'],
         ];
-    }
-
-    /**
-     * 一条"没能进平台"的进度行：校验被拒（非零售 / 凭据不属于该门店或未配齐 / 无路由 / 装配缺项）
-     * 或任务已不存在。原因写在 `response` 里——与平台返回同一条渲染路径。
-     *
-     * 批量端点用它逐条报出被拒的单据；单条端点不经过这里（异常直接冒到 `_final`）。
-     */
-    public static function rejectedProgress(string $djbh, string $company, string $message): array
-    {
-        return self::progressLine($djbh, $company, [
-            'success' => false,
-            'request_status' => '请求失败',
-            'response_status' => null,
-            'response' => json_encode(['error' => $message], JSON_UNESCAPED_UNICODE),
-        ]);
     }
 
     /**
@@ -169,7 +161,8 @@ class RetailRetransmit
         string $company,
         string $credentialKey,
         int $taskId,
-        LogWriter $logWriter
+        LogWriter $logWriter,
+        string $logSource
     ): array {
         for ($attempt = 1; $attempt <= self::MAX_RETRIES; $attempt++) {
             $result = $client->execute($req);
@@ -185,7 +178,7 @@ class RetailRetransmit
                 'task_id' => $taskId,
                 'trace_codes' => $bill['trace_codes'],
                 'rq' => $bill['rq'],
-                'source' => self::SOURCE,
+                'source' => $logSource,
                 'company' => $company,
                 'credential' => $credentialKey,
             ]);

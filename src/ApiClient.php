@@ -106,12 +106,17 @@ class ApiClient
     /**
      * 查询往来单位信息。
      *
+     * $refEntId 是**申报主体**的单位编码（查出来的往来单位是相对它而言的）：批发传河药那套、
+     * 门店手工建单传该门店自己那套。不传时回落到 `.env` 的河药凭据（迁移期兼容；河药凭据本就
+     * 从那个键读，故批发链路行为不变）。用错主体的编码查，查到的是**别人名下的往来单位**——
+     * 门店单会因此把单据报到错误主体，故调用方一律显式传。
+     *
      * @return array{ent_name: string, ent_id: string, ref_ent_id: string}|null
      */
-    public function queryEntInfo(string $entName): ?array
+    public function queryEntInfo(string $entName, ?string $refEntId = null): ?array
     {
         $req = new \AlibabaAlihealthDrugKytListpartsRequest;
-        $req->setRefEntId(Config::get('REFENTID_HYYY'));
+        $req->setRefEntId($refEntId ?? Config::get('REFENTID_HYYY'));
         $req->setEntName($entName);
         $req->setAuditFlag("1");
         $req->setPageSize("20");

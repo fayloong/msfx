@@ -27,6 +27,7 @@
 | 11 | 门店数据 2 年保留期 + 待补传清单倒序 | **✅ 已完成** | `App\RetailRetention`（2 年截止日的**单一事实源**）+ 采集下限（`fetch_bills_retail`：`--all` 语义变为"最近 2 年"，显式超期日期拒绝并退出 1）+ 清理出口（`cleanup_logs` 新增第 3 条，按 `rq` 判、非 `created_at`）+ 清单排序改 `rq DESC, id DESC`。生产库清掉 236 条超期门店单（备份在仓库外）。依据是平台原话 `FAIL_BIZ_PARAM_BILL_TIME_BEFORE_ERROR`，决策落 ADR 0013。见本票"验收" |
 | 12 | 门店分支清单补齐上传任务页能力（筛选/导出/刷新/批删/字段与操作） | **✅ 已完成** | `RecordQuery` 加第 4 类 `retail_tasks`（source='retail' 写死、**company 必填**、排序 `rq DESC, id DESC`）——门店清单与导出因此共用同一段 WHERE；`manual_retail_tasks.php` 改走它并把 `task_status` 交给页面（默认待补传，可切已处理/全部）；`export.php` 加 `retail_tasks` 分支（列与门店表格对齐、文件名「门店补传_日期.xlsx」、缺 company 直接 400）；门店分支加筛选栏 / 导出 / 刷新 / 批量删除 / 行内编辑·删除·补传|重传，表格加"补传任务创建时间""状态""操作"三列；新增 `tests/record_query_test.php`（码数口径收进 `TraceSplitter::countCodes`）。**推翻 07 票第三条固定口径**（该票已加注记）。提交 `5d8154d`（收口 `7c10875`，两远端均已跟上）。见本票「验收」与「实现笔记」 |
 | 13 | 任务状态词表统一为「等待上传」 | **✅ 已完成** | 门店采集单不再落 `待补传`——与批发**共用一个状态值**：`fetch_bills_retail.php` 落库值改 `等待上传`；`init_db.php` 加**幂等**归一迁移（每次都跑、未命中即 0 行，刻意的"取值归一"型迁移，不碰 `updated_at`），生产库 6,139 行已于 2026-10-01 执行；上传任务页删掉 `待补传` 选项与徽标、手动上传页门店分支默认值改 `等待上传`、行内按钮判定同步。**推翻 07 票 §8 的取值决定与 ADR 0007"零售任务状态用新值 待补传"一条**（后者的解除条件已由工单 02 兑现）。决策与代价落 ADR 0014；已知后果（仪表盘"等待上传"卡片计入门店单）本票不改。提交 `e98c8bc`（收口 `3ffdae7`，两远端均已跟上）。见本票「验收」与「Comments」 |
+| 14 | 门店手工新增单据（在线新增 + xlsx 导入），撤掉门店补传清单 | **✅ 已完成** | 手动上传页门店分支与批发同构：`321`/`116` 不显示"往来单位名称"（对手是消费者，接口里没有对手方入参），`104`/`203` 的名称由服务端用该门店凭据查出 `ent_id` 并按发货/收货语义落到 from/to（`App\EntDirectory` + `App\RetailManualEntry`）；任务行沿用 `source='retail'`、日志来源写 `manual`；2 年下限同样适用。**撤掉**：门店补传清单（页面 + `api/manual_retail_tasks.php` + `api/tasks_batch_retry_retail.php` + `RecordQuery` 第 4 类 `retail_tasks` + 导出的同名分支）。**推翻 spec §11 的"不提供从零手工录入"**（Out of Scope 两条移出）。决策落 ADR 0015。见本票「验收」 |
 
 > **注意**：上表 02–09 是**垂直切片**（tracer bullet）版，每票各自切穿"数据 → 后端 → 页面 → 验收"。
 > 2026-09-29 的 to-tickets 轮把最初的**横向切层**版整体替换掉了，那一版（另一套 02–09）留档在
@@ -271,9 +272,11 @@ FROM upload_tasks WHERE task_status = '等待上传'
 **交互**（用户明确要求）：进入"手动上传"页时，**页面最上方有"所属企业"下拉**，选定后显示该企业对应的表单内容。
 
 - **批发表单**：保持现状（日期 / 单号 / 单据类型下拉 / 往来单位 / 追溯码）
-- **零售表单**：**不提供从零手工录入**。零售入口是数据页上的"重传"——单据元数据（from/toUserId、refUserId、日期、类型、追溯码）全部取自采集时落库的记录，用户只选门店 + 凭据 + 单号。理由：手工录 4 个平台 ID 几乎必然出错，且本轮不查平台，录错了察觉不了
-- **xlsx 导入只保留批发**；`template_download.php` 不分叉。零售的批量需求由"采集 + 批量重传"覆盖
-- **拆独立文件**（如 `api/manual_create_retail.php`），不改造现有 `manual_create.php` / `manual_import.php`。批发路径已在生产运行且有 `ent_list` 依赖，零售字段与接口完全不同，塞进同一文件会让两边都难读；`public/index.php` 按 `company` 的企业类型分发
+- ~~**零售表单**：不提供从零手工录入。零售入口是数据页上的"重传"——单据元数据（from/toUserId、refUserId、日期、类型、追溯码）全部取自采集时落库的记录，用户只选门店 + 凭据 + 单号。理由：手工录 4 个平台 ID 几乎必然出错，且本轮不查平台，录错了察觉不了~~
+  **2026-10-01 工单 14 推翻**：用户要求门店分支与批发同构（在线新增 + xlsx 导入），补传清单与上传任务页重复、撤掉。手工建单**仍然不由人录平台 ID**——人填往来单位名称，服务端用该门店凭据查出 `ent_id` 并按发货/收货语义落到 from/to（`App\RetailManualEntry`），见 `docs/adr/0015`
+- ~~**xlsx 导入只保留批发**；`template_download.php` 不分叉。零售的批量需求由"采集 + 批量重传"覆盖~~
+  **2026-10-01 工单 14 推翻**：门店分支有自己的导入端点（`api/manual_import_retail.php`），列与批发同一套、解析共用 `App\BillSheetParser`；`template_download.php?type=retail` 给门店版（示例行换成门店类型、表头注明 321/116 留空）
+- **拆独立文件**（`api/manual_create_retail.php` / `api/manual_import_retail.php`），不改造现有 `manual_create.php` / `manual_import.php`。批发路径已在生产运行且有 `ent_list` 依赖，零售字段与接口完全不同，塞进同一文件会让两边都难读（**这条一直成立**）
 
 ### 12. 隐藏约束（沿用现有）
 
@@ -300,8 +303,9 @@ FROM upload_tasks WHERE task_status = '等待上传'
 - **零售平台状态查询**（`lsyd.searchbill.detail` / `lsyd.query.billstatus`）——用户 2026-09-29 判定"暂时搁置对账功能，暂时没有很好的办法可以对账"
 - **零售数量对账**——无本地数量基线；三级流水线（`shl` 粗筛 → `singlerelation` 码级精查）依赖 `skwms_new` 视图与 `searchbill.detail` 的 `min_pkg_count`，零售两者皆无
 - **`update_state` 表回写**——本项目不对该生产表做任何写入（只读也不读，见 ADR 0007）。手动补传是否导致外部系统重复上传，作为独立议题另行确认
-- **零售 xlsx 导入与模板**——只保留批发
-- **零售从零手工录入单据**——只支持"重传已采集单据"
+- ~~**零售 xlsx 导入与模板**——只保留批发~~
+- ~~**零售从零手工录入单据**——只支持"重传已采集单据"~~
+  （以上两条 **2026-10-01 工单 14 移出 Out of Scope**：门店分支改为与批发同构的"在线新增 + xlsx 导入"）
 - **仪表盘按企业拆分**——本轮不做
 - **多套凭据的自动分发规则**——本轮由人工在下拉框显式选择
 - **`config/sql.php` 内联 SQL 的下线**——本轮仍作为参考 SQL 保留

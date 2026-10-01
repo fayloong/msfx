@@ -163,7 +163,7 @@ class UploadService
 
         for ($attempt = 0; $attempt < self::MAX_RETRIES; $attempt++) {
             try {
-                $entId = $this->resolveEntId($bill['ent_name'], $context['company'], $apiClient);
+                $entId = $this->resolveEntId($bill['ent_name'], $context['company'], $apiClient, $credential);
                 if ($entId === null) {
                     $response = json_encode(['error' => '无法获取往来单位ent_id: ' . $bill['ent_name']], JSON_UNESCAPED_UNICODE);
                     $this->writeLog($billCode, $bill, $traceCodes, $context, [
@@ -261,36 +261,23 @@ class UploadService
     }
 
     /**
-     * 获取往来单位 ent_id，优先 SQLite 缓存（按企业区分，同名往来单位跨企业各有各的 ent_id），未命中调 API。
+     * 获取往来单位 ent_id（缓存优先，未命中调平台）——实现收在 `App\EntDirectory`，
+     * 与门店手工建单共用一份：那一边也要"人填的名称 → 平台认的 ent_id"，两边各写一份的话，
+     * 缓存键、回写时机、ref_ent_id 取谁，迟早各说各话。
      *
-     * 用哪套凭据查由调用方传入的 client 决定——批发链路即任务所属企业的凭据。
-     * 留债：ApiClient::queryEntInfo 内部的 ref_ent_id 仍读 .env（见 CLAUDE.md「企业配置与凭据」，
-     * 查询类凭据随 .env 旧键下线一并处理）；因本服务只放行批发单据，目前与传入凭据一致。
+     * ref_ent_id 取**该企业凭据**里的（此前是 `queryEntInfo` 内部读 .env 的河药值——那笔留债在此还上；
+     * 河药凭据的 ref_ent_id 本就取自同一个 .env 键，行为不变）。
      */
-    private function resolveEntId(string $entName, string $company, ApiClient $apiClient): ?string
+    private function resolveEntId(string $entName, string $company, ApiClient $apiClient, array $credential): ?string
     {
-        $db = Database::getInstance();
-        $cached = $db->queryOne(
-            "SELECT ent_id FROM ent_list WHERE ent_name = ? AND company = ?",
-            [$entName, $company]
+        $found = EntDirectory::resolve(
+            $company,
+            $entName,
+            $apiClient,
+            (string)($credential['ref_ent_id'] ?? '')
         );
 
-        if ($cached && !empty($cached['ent_id'])) {
-            return $cached['ent_id'];
-        }
-
-        // API 在线查询
-        $entInfo = $apiClient->queryEntInfo($entName);
-        if ($entInfo && !empty($entInfo['ent_id'])) {
-            // 写入缓存（唯一键 (company, ent_name)：同名往来单位在不同企业下各存一行）
-            $db->execute(
-                "INSERT OR REPLACE INTO ent_list (company, ent_name, ent_id, ref_ent_id) VALUES (?, ?, ?, ?)",
-                [$company, $entInfo['ent_name'], $entInfo['ent_id'], $entInfo['ref_ent_id'] ?? '']
-            );
-            return $entInfo['ent_id'];
-        }
-
-        return null;
+        return $found === null ? null : $found['ent_id'];
     }
 
     /** 按企业凭据取 API 客户端（AppKey 决定签名与平台限流池，同一批同企业共用实例） */
