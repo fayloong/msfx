@@ -1,9 +1,10 @@
 # 16: 「所属企业」下拉把凭据未配齐的企业用字体标出来（全站 6 处）
 
 - Type: task
-- Status: done（2026-10-01；**验收第 4 项"斜体在浏览器里显不显"仍待用户确认**——本机无浏览器，
-  只验到标记层：6 处下拉 104 个选项的样式位逐条核对 0 失败。若浏览器不认 `<option>` 的斜体，
-  改文字标记是下一步，只动 `companyOptionAttrs()` 一处）
+- Status: done（2026-10-01；提交 `9f73176`、收口 `10e72a6`，gitee 与 origin 均已跟上。
+  **验收第 4 项"斜体在浏览器里显不显"仍待用户确认**——本机无浏览器，只验到标记层：6 处下拉
+  104 个选项的样式位逐条核对 0 失败。若浏览器不认 `<option>` 的斜体，改文字标记是下一步，
+  只动 `companyOptionAttrs()` 一处）
 - Blocked by: 无
 - 关联：`docs/adr/0012`（门店与凭据 1:1）、`src/Enterprise.php`（`retailCredentialReady()` / `selectableNames()`）、
   `src/views/layout.php`（全站视图共用的函数所在处）、`tests/enterprise_config_test.php`
