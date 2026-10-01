@@ -1,7 +1,8 @@
 # 17: 「所属企业」下拉改口径——有凭据的加粗黑字、没凭据的正常字体灰字
 
 - Type: task
-- Status: done（2026-10-01；提交 `d7369b1`）
+- Status: done（2026-10-01；提交 `d7369b1`、收口 `0c0334b`，gitee 与 origin 均已跟上。
+  **验收第 4 项"浏览器里最终长什么样"仍待用户确认**——本机无浏览器，标记层已验实）
 - Blocked by: 无（16 已完成）
 - 关联：`16-company-dropdown-credential-font.md`（本票改的就是它定的字体口径）、`src/views/layout.php`
   的 `companyOptionAttrs()`、`src/Enterprise.php` 的 `credentialReady()` / `STATE_*`、`docs/adr/0012`
