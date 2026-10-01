@@ -1,7 +1,7 @@
 # 15: 上传任务页的「批量重传」支持门店单（按行分流）
 
 - Type: task
-- Status: done（2026-10-01）
+- Status: done（2026-10-01；提交 `1905572`、收口 `41ff330`，gitee 与 origin 均已跟上）
 - Blocked by: 无（14 已完成）
 - 关联：`docs/adr/0011`（补传的人工触发与失败也翻已处理）、`docs/adr/0012`（凭据按门店取）、`docs/adr/0015`（撤清单的连带后果，本票补的就是它）、`CLAUDE.md`「手动上传」末尾那条**已知缺口**（本票做成后要把它删掉）、`src/api/tasks_batch_retry.php`、`src/RetailRetransmit.php`
 
