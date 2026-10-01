@@ -32,7 +32,7 @@
 
 ### 核心流程
 
-- **定时上传 (Cron Upload)**：分两步独立调度 —— `scripts/fetch_bills.php` 定时（当前 cron 每 30 分钟）从 SQL Server 采集单据写入 upload_tasks（source=cron, task_status=等待上传），采集带计数门卫（当天单据计数无变化则跳过）；`scripts/upload_pending.php` **只读取批发主体的等待上传任务**（`company` 白名单，不是"排除零售/其他来源"的排除法——零售单压根不以"等待上传"落库；当前 crontab 未启用，手动触发），通过 UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速、追溯码超该接口上限拆分，上限取自 `App\Enterprise::route()`——批发 kyt 为 3500）→ LogWriter 写 JSONL + SQLite。手动上传保持立即上传不变。
+- **定时上传 (Cron Upload)**：分两步独立调度 —— `scripts/fetch_bills.php` 定时（当前 cron 每 30 分钟）从 SQL Server 采集单据写入 upload_tasks（source=cron, task_status=等待上传），采集带计数门卫（当天单据计数无变化则跳过）；`scripts/upload_pending.php` **只读取批发主体的等待上传任务**（`company` 白名单，不是"排除零售/其他来源"的排除法——**拦住门店单的就是这道白名单**：零售单虽然也以"等待上传"落库，但 `company` 是门店名，进不了白名单，见 ADR 0014；当前 crontab 未启用，手动触发），通过 UploadService 调码上放心 API（含 ent_list 缓存查找、3 次重试、0.33s 限速、追溯码超该接口上限拆分，上限取自 `App\Enterprise::route()`——批发 kyt 为 3500）→ LogWriter 写 JSONL + SQLite。手动上传保持立即上传不变。
 
 - **零售采集 (Retail Collection)**：`scripts/fetch_bills_retail.php` 定时（cron 与 `fetch_bills` 同频、**错开 5 分钟**——两者都是写 SQLite 的进程）从 **dyt 链接服务器**采集门店单据：源表 `dyt.msfx.dbo.zsm_ls`（单据头）+ `zsm_ls_code`（追溯码，一码一行）。单据类型写死四种 `104`/`203`/`321`/`116`（`bill_type` 是 int；`999` 语义未明，用户判定不采）。认领走 `App\Enterprise::claim()`（平台 ID 优先、门店名回退），落库 `source='retail'` + `task_status=等待上传`（与批发**共用一个状态值**，2026-10-01 统一，见 ADR 0014；拦住门店单不被 cron 取走的是 company 白名单，不是状态值）。**全程只读 SELECT、不调任何平台接口**，故不受 8-20 点限流窗口约束；**没有计数门卫**（幂等靠 `(company, djbh)` 去重）、**不需要拆单**（实测单张码数上限 1,718 < 3,500）。源库不可用时非零退出且不写库。**保留下限 2 年**：采集 SQL 始终带 `bill_time >= 截止日`（见"保留期"），显式指定的超期日期会被拒绝并退出 1。见 ADR 0007 / 0008 / 0013，口径细节见 CLAUDE.md 的"零售单据采集"。
 
