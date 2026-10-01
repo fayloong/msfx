@@ -11,6 +11,11 @@
 
 require __DIR__ . '/../vendor/autoload.php';
 
+// 下拉渲染助手 companyOptionAttrs() 在 src/views/layout.php——全站视图共用的函数都放那儿（如 layout()），
+// 6 处下拉因此都能用。它是**纯函数**：include 这个文件不产生任何输出（HTML 全在函数体里），
+// 唯一带副作用的那段是文件末尾的退出登录处理，只在 $_GET['action']==='logout' 时才走（CLI 下不会）
+require __DIR__ . '/../src/views/layout.php';
+
 use App\Enterprise;
 
 $failures = 0;
@@ -122,6 +127,37 @@ check('retailCredentialReady：已配齐门店为 ready', ($ready['门店二'] ?
 check('retailCredentialReady：待配凭据门店为 pending', ($ready['门店三'] ?? null) === 'pending');
 check('retailCredentialReady：没声明凭据位的门店为 no_slot（配置缺口，别混进待配凭据）', ($ready['门店四'] ?? null) === 'no_slot', json_encode($ready, JSON_UNESCAPED_UNICODE));
 check('retailCredentialReady：不含批发企业', !array_key_exists('批发企业', $ready));
+
+// credentialReady：与 retailCredentialReady 的**差别就在这**——覆盖全部企业。下拉要能在人**选之前**
+// 就标出"没有 AppKey 的企业"，而批发主体也在那份下拉里（.env 缺字段时它同样会是 pending）
+$allReady = Enterprise::credentialReady();
+check('credentialReady：含批发企业（retailCredentialReady 不含）',
+    ($allReady['批发企业'] ?? null) === 'ready', json_encode($allReady, JSON_UNESCAPED_UNICODE));
+check('credentialReady：含全部 5 家企业', count($allReady) === 5);
+check('credentialReady：三态与 fixture 相符',
+    ($allReady['门店二'] ?? null) === 'ready' && ($allReady['门店三'] ?? null) === 'pending'
+    && ($allReady['门店四'] ?? null) === 'no_slot', json_encode($allReady, JSON_UNESCAPED_UNICODE));
+
+// selectableOptions：**选项清单与就绪态是同一件事的两面**——分开取，就会有人只取名字、忘了取态，
+// 于是那个下拉里的待配凭据企业悄悄变回正常字体。故不再保留只返回名字的旧形（老调用点当场报错）
+$opts = Enterprise::selectableOptions();
+check('selectableOptions：全部企业 + 未识别 = 6 项', count($opts) === 6, json_encode($opts, JSON_UNESCAPED_UNICODE));
+check('selectableOptions：键就是 credentialReady 的名 + 未识别，顺序照配置',
+    array_keys($opts) === ['批发企业', '门店一', '门店二', '门店三', '门店四', Enterprise::UNIDENTIFIED],
+    implode(',', array_keys($opts)));
+check('selectableOptions：未识别的态是 unidentified', ($opts[Enterprise::UNIDENTIFIED] ?? null) === 'unidentified');
+
+// companyOptionAttrs：全站 6 处下拉**唯一一份**渲染规则。**白名单式**——只 pending / no_slot 出样式，
+// 其余（含未知态）一律空串：将来多一个态时默认"不高亮"，而不是乱高亮
+check('companyOptionAttrs：ready 不加样式', companyOptionAttrs('ready') === '', companyOptionAttrs('ready'));
+check('companyOptionAttrs：pending 斜体 + 灰字',
+    companyOptionAttrs('pending') === ' class="fst-italic text-muted"', companyOptionAttrs('pending'));
+check('companyOptionAttrs：no_slot 与 pending 同一档（两者都传不出去；别在别处那套三态徽标里混）',
+    companyOptionAttrs('no_slot') === companyOptionAttrs('pending'));
+check('companyOptionAttrs：未识别不加样式（它不是企业、没有凭据概念）',
+    companyOptionAttrs('unidentified') === '');
+check('companyOptionAttrs：未知态不加样式（白名单，不是黑名单）',
+    companyOptionAttrs('') === '' && companyOptionAttrs('nonsense') === '');
 
 // ---------- 用例 3: 认领——ID 优先，且按单据类型选列 ----------
 $r = Enterprise::claim('321', 'ID1', '', '');

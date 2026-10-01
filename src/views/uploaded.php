@@ -1,12 +1,14 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
-// "所属企业"筛选下拉的选项（企业枚举 + `未识别`）由 Enterprise::selectableNames() 给出单一一份，
-// 三数据页共用。配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常。
+// "所属企业"筛选下拉的选项由 Enterprise::selectableOptions() 给出单一一份（企业名 => 凭据就绪态，
+// 另含 `未识别`），全站 6 处下拉共用。**就绪态不是白带的**：没配齐凭据的企业（还没拿到 AppKey 的
+// 门店）在选项上就得看得出来，别等人选中了才由别处的禁用态告诉他——渲染规则见 companyOptionAttrs()。
+// 配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常。
 try {
-    $companyOptions = App\Enterprise::selectableNames();
+    $companyOptions = App\Enterprise::selectableOptions();
 } catch (\Throwable $e) {
-    $companyOptions = [App\Enterprise::UNIDENTIFIED];
+    $companyOptions = [App\Enterprise::UNIDENTIFIED => 'unidentified'];
 }
 
 layout('上传成功', 'uploaded');
@@ -29,8 +31,8 @@ layout('上传成功', 'uploaded');
                 <label class="form-label small text-muted">所属企业</label>
                 <select class="form-select" id="filter-company">
                     <option value="">全部</option>
-                    <?php foreach ($companyOptions as $name): ?>
-                        <option value="<?= htmlspecialchars($name) ?>"><?= htmlspecialchars($name) ?></option>
+                    <?php foreach ($companyOptions as $name => $state): ?>
+                        <option value="<?= htmlspecialchars($name) ?>"<?= companyOptionAttrs($state) ?>><?= htmlspecialchars($name) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>

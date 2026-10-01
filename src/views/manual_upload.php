@@ -2,18 +2,26 @@
 require_once __DIR__ . '/layout.php';
 
 // 顶部"所属企业"下拉与门店分支要用的企业清单：**只含企业名、类型与"该店凭据是否配齐"**，
-// 不含任何密钥（密钥留在服务端）。页面据此切换分支、把"待配凭据"写成按钮的禁用原因；
+// 不含任何密钥（密钥留在服务端）。页面据此切换分支、给选项上字体、把"待配凭据"写成按钮的禁用原因；
 // 用哪套凭据不由页面选（门店与凭据 1:1，见 docs/adr/0012），真正的校验在
 // src/api/manual_create_retail.php、src/api/manual_import_retail.php 与 App\RetailManualEntry
 // ——页面是显示层，不是可信边界
-$companies = [];      // [{name, type}] 顶部下拉
+$companies = [];      // [{name, type, state}] 顶部下拉；state 决定选项字体（见 companyOptionAttrs）
 $retailStores = [];   // 门店名 => 'ready'|'pending'|'no_slot'（门店名缺席 = 该店不在配置里）
 $defaultCompany = ''; // 默认选中批发主体：页面进来就是现在这套批发表单
 $configError = '';
 $wholesaleWarning = '';
 try {
+    // 就绪态与 $retailStores 取自同一份判据（credentialReady 那一处）：这里多要的是**批发主体**
+    // 也在内——下拉里它也是一个选项，没配齐时同样要看得出来
+    $credentialReady = App\Enterprise::credentialReady();
     foreach (App\Enterprise::all() as $company) {
-        $companies[] = ['name' => $company['name'], 'type' => $company['type']];
+        $companies[] = [
+            'name'  => $company['name'],
+            'type'  => $company['type'],
+            // 键必在（两处遍历的是同一份配置）；`?? ''` 只是让"万一"表现成不高亮，而不是整页 500
+            'state' => $credentialReady[$company['name']] ?? '',
+        ];
     }
     $retailStores = App\Enterprise::retailCredentialReady();
 } catch (\Throwable $e) {
@@ -51,7 +59,8 @@ layout('手动上传', 'manual-upload');
                         <?php foreach ($companies as $c): ?>
                             <option value="<?= htmlspecialchars($c['name']) ?>"
                                     data-type="<?= htmlspecialchars($c['type']) ?>"
-                                    <?= $c['name'] === $defaultCompany ? 'selected' : '' ?>>
+                                    <?= $c['name'] === $defaultCompany ? 'selected' : '' ?>
+                                    <?= companyOptionAttrs($c['state']) ?>>
                                 <?= htmlspecialchars($c['name']) ?>（<?= $c['type'] === App\Enterprise::TYPE_RETAIL ? '门店' : '批发' ?>）
                             </option>
                         <?php endforeach; ?>

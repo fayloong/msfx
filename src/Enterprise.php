@@ -173,7 +173,10 @@ class Enterprise
         return self::$companies;
     }
 
-    /** @return array<int,string> 全部企业名（页面"所属企业"筛选下拉用） */
+    /**
+     * @return array<int,string> 全部企业名，**按配置顺序**（页面下拉要的是带就绪态的
+     *   `selectableOptions()`，它另含 `未识别`；这份只是纯名单）
+     */
     public static function names(): array
     {
         self::ensureLoaded();
@@ -340,31 +343,26 @@ class Enterprise
     }
 
     /**
-     * 零售门店的补传可用性（页面用）：门店名 => 三态之一。
+     * **全部企业**的凭据就绪态（页面用）：企业名 => 三态之一。
      *
-     *   'ready'    凭据已配齐，可以补传
+     *   'ready'    凭据四字段填齐，可以上传
      *   'pending'  凭据位在、四字段没填齐——**待配凭据**，等 AppKey/SECRETKEY 到手即可，预期内的正常状态
      *   'no_slot'  连凭据位都没在配置里声明——**配置缺口**，不是等就能好的那种
      *
-     * 门店名不在返回的数组里 = 该门店不在配置中。三种"不能补传"分开给，是因为它们要不同的人做
-     * 不同的事（等授权 / 补配置 / 查配置或源库），混成一句"不可用"会误导操作者——尤其别把
-     * `no_slot` 说成"预期内的正常状态"（它是配置漏了，链路那头 fail-closed 照样拦得住，
-     * 但页面上的说明得是真的）。
+     * 企业名不在返回的数组里 = 该企业不在配置中。
      *
-     * 页面曾经还要渲染凭据下拉、故得拿到凭据位键与 label；取消人工选凭据后这些都不必再出后端，
-     * 少一份"哪些字段能出页面"的口径要维护。
+     * 与 `retailCredentialReady()` 的差别**只有"覆盖哪些企业"**：这份含批发主体（那个下拉里批发企业
+     * 也在），且它的凭据迁到配置前仍从 `.env` 读——`.env` 缺字段时它同样会是 `pending`，此时标出来
+     * 才是真话。三态的判据只在这一处，"下拉里标着能用、按钮却是禁用"那种自相矛盾因此不可能出现。
      *
      * @return array<string,string>
      */
-    public static function retailCredentialReady(): array
+    public static function credentialReady(): array
     {
         self::ensureLoaded();
 
         $ready = [];
         foreach (self::$companies as $company) {
-            if ($company['type'] !== self::TYPE_RETAIL) {
-                continue;
-            }
             $credential = self::credentialFor($company['name']);
             $ready[$company['name']] = $credential === null
                 ? 'no_slot'
@@ -374,17 +372,54 @@ class Enterprise
     }
 
     /**
-     * 页面"所属企业"下拉与编辑弹窗的选项：全部企业名 + `未识别`。
+     * 零售门店的补传可用性（页面用）：门店名 => 同款三态，**只含零售**。
      *
-     * `未识别` **不是一个企业**，但它确实是 `company` 列的一个取值（门店认领失败的行）——
-     * 那正是需要人去查配置或源库的那批，必须能单独筛出来。三数据页共用这一份，
-     * 免得"哪些选项该出现"在三个视图里各写一遍（本项目的常见漂移来源）。
+     * 三种"不能补传"分开给，是因为它们要不同的人做不同的事（等授权 / 补配置 / 查配置或源库），
+     * 混成一句"不可用"会误导操作者——尤其别把 `no_slot` 说成"预期内的正常状态"（它是配置漏了，
+     * 链路那头 fail-closed 照样拦得住，但页面上的说明得是真的）。门店名缺席 = 该门店不在配置中。
      *
-     * @return array<int,string>
+     * 判据全部来自 `credentialReady()`，这里只按企业类型过滤：两份各遍历一遍，迟早会出现
+     * "下拉里标着能用、补传按钮却是禁用"这种没人能一眼看出矛盾的状态。
+     *
+     * 页面曾经还要渲染凭据下拉、故得拿到凭据位键与 label；取消人工选凭据后这些都不必再出后端，
+     * 少一份"哪些字段能出页面"的口径要维护。
+     *
+     * @return array<string,string>
      */
-    public static function selectableNames(): array
+    public static function retailCredentialReady(): array
     {
-        return array_merge(self::names(), [self::UNIDENTIFIED]);
+        $ready = [];
+        foreach (self::credentialReady() as $name => $state) {
+            if (self::isRetail($name)) {
+                $ready[$name] = $state;
+            }
+        }
+        return $ready;
+    }
+
+    /**
+     * 页面"所属企业"下拉与编辑弹窗的选项：**企业名 => 凭据就绪态**（见 `credentialReady()`），
+     * 另含 `未识别` => `'unidentified'`。
+     *
+     * 键与值一起给，是因为它们要被同一个 `<option>` 一起用——就绪态决定这个选项长什么样
+     * （`companyOptionAttrs()`）。分两处取，就会有人只取名字、忘了取态，那个下拉里的待配凭据企业
+     * 于是悄悄变回正常字体，**而没有任何地方会报错**。改形时连名字一起换、不留 `selectableNames`
+     * 别名也是为此：老调用点当场炸，而不是静默丢掉样式。
+     *
+     * `未识别` **不是一个企业**（故态取 `unidentified`，不在三态之列），但它确实是 `company` 列的
+     * 一个取值（门店认领失败的行）——那正是需要人去查配置或源库的那批，必须能单独筛出来。
+     * 全站 6 处下拉（三个筛选栏 + 两个编辑弹窗 + 手动上传页顶部）共用这一份，
+     * 免得"哪些选项该出现"在各视图里各写一遍（本项目的常见漂移来源）。
+     *
+     * @return array<string,string>
+     */
+    public static function selectableOptions(): array
+    {
+        $options = self::credentialReady();
+        // 排在最后。企业名真叫 `未识别` 属配置错误（自检不拦这一条），此处按哨兵值处理——
+        // 展示上不会多出一项
+        $options[self::UNIDENTIFIED] = 'unidentified';
+        return $options;
     }
 
     /**
