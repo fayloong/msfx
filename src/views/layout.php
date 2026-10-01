@@ -23,7 +23,7 @@
  */
 function companyOptionAttrs(string $state): string
 {
-    return in_array($state, ['pending', 'no_slot'], true)
+    return in_array($state, [\App\Enterprise::STATE_PENDING, \App\Enterprise::STATE_NO_SLOT], true)
         ? ' class="fst-italic text-muted"'
         : '';
 }

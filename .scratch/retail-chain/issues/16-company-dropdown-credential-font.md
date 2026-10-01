@@ -1,7 +1,9 @@
 # 16: 「所属企业」下拉把凭据未配齐的企业用字体标出来（全站 6 处）
 
 - Type: task
-- Status: done
+- Status: done（2026-10-01；**验收第 4 项"斜体在浏览器里显不显"仍待用户确认**——本机无浏览器，
+  只验到标记层：6 处下拉 104 个选项的样式位逐条核对 0 失败。若浏览器不认 `<option>` 的斜体，
+  改文字标记是下一步，只动 `companyOptionAttrs()` 一处）
 - Blocked by: 无
 - 关联：`docs/adr/0012`（门店与凭据 1:1）、`src/Enterprise.php`（`retailCredentialReady()` / `selectableNames()`）、
   `src/views/layout.php`（全站视图共用的函数所在处）、`tests/enterprise_config_test.php`
@@ -77,10 +79,10 @@
 
 ## 验收
 
-1. ✅ `php tests/enterprise_config_test.php` 全绿，含 12 条新增断言：
-   `credentialReady()` 三态与 fixture 相符且**含批发企业**；`retailCredentialReady()` 四条既有断言
-   原样通过（重构不回归的证据）；`selectableOptions()` 的键序与 `未识别` 态；`companyOptionAttrs()`
-   的 `pending`/`no_slot` 出样式、`ready`/`unidentified`/未知态出空串
+1. ✅ `php tests/enterprise_config_test.php` 全绿：**新增 12 条断言、删掉 1 条**（`names()` 那条随方法
+   一起删，见收口）——三态字面量的钉法、`credentialReady()` 三态与 fixture 相符且**含批发企业**、
+   `retailCredentialReady()` 四条既有断言原样通过（重构不回归的证据）、`selectableOptions()` 的键序与
+   `未识别` 态、`companyOptionAttrs()` 的 `pending`/`no_slot` 出样式、`ready`/`unidentified`/未知态出空串
 2. ✅ `tests/*_test.php` 七个自包含脚本全绿（`search_bill` / `singlerelation` 两个探针要传单号且会调
    平台，本就只作手动调试，未跑）
 3. ✅ **6 处下拉逐一静态核对**：`grep -n companyOptionAttrs src/views/*.php` 命中 6 个渲染点
@@ -118,3 +120,26 @@
   已在 `enterprise_config_test.php` 里注明该 include 无输出、无副作用。
 - **一处没做的事**：`validate()` 不拦"企业名恰好叫 `未识别`"（新返回形状下它会与哨兵键撞名）。
   属于既有的配置自检缺口，与旧实现同样存在（旧 `array_merge` 会渲染出重复项），本票不顺手扩大范围。
+
+### 2026-10-01 code-review 收口
+
+两轴并行审（`git diff 26b48b6...HEAD`）。**Standards：无硬性违反**；**Spec：无缺失、无范围蔓延**，
+6 处下拉计数与既有契约均经独立实跑复核属实。改了三处、留了两处：
+
+- **补 `STATE_*` 常量**（Standards 判断性提示 1：裸字面量散落）：`STATE_READY/PENDING/NO_SLOT/
+  UNIDENTIFIED` 定义在 `Enterprise`，`credentialReady()`、`selectableOptions()`、`companyOptionAttrs()`
+  的白名单、三个视图的降级分支全部改用它。**但断言的仍是字面量**（`=== 'pending'` 而非常量）——
+  这几个值同时是内联 JS 的比较口径，改常量值时断言必须跟着响。常量注释里写明了这一点，
+  免得被读成"词汇表已单点收口"。
+- **删掉 `Enterprise::names()`**（两轴都点到的生产死代码）：它唯一的调用者就是本票删掉的
+  `selectableNames()`；顺序断言已由 `selectableOptions()` 那条覆盖。
+- **三页那段注释从三行压到两行**（判断性提示 2：逐字重复三遍）：渲染规则只写在 `layout.php`，
+  视图留一句指针即可。
+- **留 `manual_upload.php` 的 `?? ''` 哨兵**（判断性提示 3）：键必在（两处遍历同一份配置），
+  这个兜底只影响"要不要上样式"，显示层 fail-safe 比 fail-loud 合适。
+- **留共享函数在视图文件**（判断性提示 5）：全站视图都 require 它，省一处 include；代价是测试要
+  include 视图文件，已在该测试里注明该 include 无输出、无副作用。
+
+Spec 轴另提的两点已照办／记档：① 票面原写"12 条新增断言"实为 11（收口后 12），已改正；
+② `no_slot` 在真实配置中**无样本**（16 家全 ready/pending），故"两态同档"目前**只有单测断言、
+无真实渲染证据**——真实配置里出现第一家 `no_slot` 时才会在页面上第一次显形。

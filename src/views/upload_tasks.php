@@ -14,14 +14,13 @@ try {
     $configError = $e->getMessage();
     $retailStores = [];
 }
-// "所属企业"筛选下拉与编辑弹窗的选项由 Enterprise::selectableOptions() 给出单一一份（企业名 =>
-// 凭据就绪态，另含 `未识别`），全站 6 处下拉共用。**就绪态不是白带的**：没配齐凭据的企业（还没拿到
-// AppKey 的门店）在选项上就得看得出来——本页行内的"待配凭据"徽标要选中那家店才看得见，
-// 而下拉里 17 个选项长得一模一样，人是在选之前就不知道该选哪家的（渲染规则见 companyOptionAttrs()）。
+// "所属企业"筛选下拉与编辑弹窗的选项：企业名 => 凭据就绪态（没配齐的会显示成斜体灰字，
+// 规则见 layout.php 的 companyOptionAttrs()）。本页尤其需要它——行内的"待配凭据"徽标要选中
+// 那家店才看得见，而下拉里 17 个选项长得一模一样，人是在选之前就不知道该选哪家的。
 // 上面的 try 已经证明配置可载入，这里不再重复降级分支
 $companyOptions = $configError === ''
     ? App\Enterprise::selectableOptions()
-    : [App\Enterprise::UNIDENTIFIED => 'unidentified'];
+    : [App\Enterprise::UNIDENTIFIED => App\Enterprise::STATE_UNIDENTIFIED];
 
 layout('上传任务', 'upload-tasks');
 ?>

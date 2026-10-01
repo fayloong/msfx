@@ -1,14 +1,12 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
-// "所属企业"筛选下拉的选项由 Enterprise::selectableOptions() 给出单一一份（企业名 => 凭据就绪态，
-// 另含 `未识别`），全站 6 处下拉共用。**就绪态不是白带的**：没配齐凭据的企业（还没拿到 AppKey 的
-// 门店）在选项上就得看得出来，别等人选中了才由别处的禁用态告诉他——渲染规则见 companyOptionAttrs()。
-// 配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常。
+// "所属企业"筛选下拉的选项：企业名 => 凭据就绪态（没配齐的会显示成斜体灰字，规则见 layout.php
+// 的 companyOptionAttrs()）。配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常。
 try {
     $companyOptions = App\Enterprise::selectableOptions();
 } catch (\Throwable $e) {
-    $companyOptions = [App\Enterprise::UNIDENTIFIED => 'unidentified'];
+    $companyOptions = [App\Enterprise::UNIDENTIFIED => App\Enterprise::STATE_UNIDENTIFIED];
 }
 
 layout('上传成功', 'uploaded');

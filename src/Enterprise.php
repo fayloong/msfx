@@ -21,6 +21,20 @@ class Enterprise
     public const TYPE_WHOLESALE = 'wholesale';
     public const TYPE_RETAIL = 'retail';
 
+    /**
+     * 凭据就绪态——`credentialReady()` 的取值，页面据此决定"所属企业"下拉里怎么显示。
+     * 含义见 `credentialReady()` 的说明。
+     *
+     * 这几个字面量**同时是前端与 PHP 两侧的口径**（页面把 `retailCredentialReady()` 的结果
+     * json_encode 进内联 JS，那儿按 `'pending'` / `'no_slot'` 直接比较），故这里定常量只为
+     * 消掉 PHP 侧的拼写漂移，别当成"词汇表已经单点收口"——改取值要连内联 JS 一起改。
+     */
+    public const STATE_READY = 'ready';
+    public const STATE_PENDING = 'pending';
+    public const STATE_NO_SLOT = 'no_slot';
+    /** `未识别` 的态：它**不是企业**、没有凭据概念，故不在上面三态之列（页面不据此上样式） */
+    public const STATE_UNIDENTIFIED = 'unidentified';
+
     /** 凭据必须同时填齐的四个字段；四项全空 = 待配凭据（合法），填一半 = 配置错误 */
     private const CREDENTIAL_FIELDS = ['appkey', 'secretkey', 'ref_ent_id', 'ent_id'];
 
@@ -171,16 +185,6 @@ class Enterprise
     {
         self::ensureLoaded();
         return self::$companies;
-    }
-
-    /**
-     * @return array<int,string> 全部企业名，**按配置顺序**（页面下拉要的是带就绪态的
-     *   `selectableOptions()`，它另含 `未识别`；这份只是纯名单）
-     */
-    public static function names(): array
-    {
-        self::ensureLoaded();
-        return array_values(array_map(fn($c) => $c['name'], self::$companies));
     }
 
     /** 按企业名（company 列的值）查找 */
@@ -365,8 +369,8 @@ class Enterprise
         foreach (self::$companies as $company) {
             $credential = self::credentialFor($company['name']);
             $ready[$company['name']] = $credential === null
-                ? 'no_slot'
-                : (self::credentialConfigured($credential) ? 'ready' : 'pending');
+                ? self::STATE_NO_SLOT
+                : (self::credentialConfigured($credential) ? self::STATE_READY : self::STATE_PENDING);
         }
         return $ready;
     }
@@ -418,7 +422,7 @@ class Enterprise
         $options = self::credentialReady();
         // 排在最后。企业名真叫 `未识别` 属配置错误（自检不拦这一条），此处按哨兵值处理——
         // 展示上不会多出一项
-        $options[self::UNIDENTIFIED] = 'unidentified';
+        $options[self::UNIDENTIFIED] = self::STATE_UNIDENTIFIED;
         return $options;
     }
 

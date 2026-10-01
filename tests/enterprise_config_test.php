@@ -97,7 +97,6 @@ Enterprise::load($structure, $local);
 
 // ---------- 用例 1: 合并与查询 ----------
 check('企业数 5', count(Enterprise::all()) === 5, '实际 ' . count(Enterprise::all()));
-check('names() 顺序与配置一致', Enterprise::names() === ['批发企业', '门店一', '门店二', '门店三', '门店四'], implode(',', Enterprise::names()));
 check('isRetail 判定', Enterprise::isRetail('门店一') === true && Enterprise::isRetail('批发企业') === false);
 check('未识别不是配置里的企业', Enterprise::find(Enterprise::UNIDENTIFIED) === null);
 check('find() 取到类型', (Enterprise::find('门店二')['type'] ?? '') === 'retail');
@@ -127,6 +126,13 @@ check('retailCredentialReady：已配齐门店为 ready', ($ready['门店二'] ?
 check('retailCredentialReady：待配凭据门店为 pending', ($ready['门店三'] ?? null) === 'pending');
 check('retailCredentialReady：没声明凭据位的门店为 no_slot（配置缺口，别混进待配凭据）', ($ready['门店四'] ?? null) === 'no_slot', json_encode($ready, JSON_UNESCAPED_UNICODE));
 check('retailCredentialReady：不含批发企业', !array_key_exists('批发企业', $ready));
+
+// 三态与 `unidentified` 的**字面量**同时是前端口径：页面把 retailCredentialReady() 的结果
+// json_encode 进内联 JS，那儿按 'pending' / 'no_slot' 直接比较。故这里钉的是字面量而不是常量——
+// 改常量值时本断言必须跟着响，否则页面样式会静默失配
+check('状态字面量就是内联 JS 比较的那几个值',
+    Enterprise::STATE_READY === 'ready' && Enterprise::STATE_PENDING === 'pending'
+    && Enterprise::STATE_NO_SLOT === 'no_slot' && Enterprise::STATE_UNIDENTIFIED === 'unidentified');
 
 // credentialReady：与 retailCredentialReady 的**差别就在这**——覆盖全部企业。下拉要能在人**选之前**
 // 就标出"没有 AppKey 的企业"，而批发主体也在那份下拉里（.env 缺字段时它同样会是 pending）
