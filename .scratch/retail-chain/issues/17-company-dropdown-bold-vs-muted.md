@@ -1,7 +1,7 @@
 # 17: 「所属企业」下拉改口径——有凭据的加粗黑字、没凭据的正常字体灰字
 
 - Type: task
-- Status: open
+- Status: done（2026-10-01；提交 `d7369b1`）
 - Blocked by: 无（16 已完成）
 - 关联：`16-company-dropdown-credential-font.md`（本票改的就是它定的字体口径）、`src/views/layout.php`
   的 `companyOptionAttrs()`、`src/Enterprise.php` 的 `credentialReady()` / `STATE_*`、`docs/adr/0012`
@@ -45,9 +45,12 @@
 
 - `tests/enterprise_config_test.php`：`companyOptionAttrs()` 的断言按新类名改（`ready` 那条从
   "不加样式"变成"加粗黑字"）
-- `CLAUDE.md`（文件树 `layout.php` 行、"三数据页"那条 bullet、手动上传章节）、`CONTEXT.md`
-  （"所属企业"词条、"待配凭据"词条）——把"斜体灰字"的说法改成新口径
-- `spec.md` 票表加第 17 行
+- **三个视图的注释**（upload_tasks / uploaded / failed）：它们各写了一句旧的"斜体灰字"。改法是
+  **不再抄具体类名**、只留指向 `companyOptionAttrs()` 的指针——这条规则已经改过一次口径，
+  注释里再抄一遍就是等它第二次过时
+- `CLAUDE.md`（文件树 `layout.php` 行、"三数据页"那条 bullet 与其小标题、手动上传章节）、
+  `CONTEXT.md`（"所属企业"词条、"待配凭据"词条、"手动上传"词条）——把"斜体灰字"的说法改成新口径
+- `spec.md` 票表加第 17 行；16 票加"口径被取代"的注记
 
 ### 明确不做
 
@@ -62,13 +65,46 @@
 
 ## 验收
 
-1. `php tests/enterprise_config_test.php` 全绿，`companyOptionAttrs()` 的实现断言按新类名改过
-2. 全部 7 个自包含测试脚本仍全绿
-3. 渲染复验：只读脚本 require 真实的 4 个视图文件，6 处下拉每个选项的样式位与
-   `credentialReady()` 逐条对上——`ready` 必带 `fw-bold text-black`，`pending`/`no_slot` 必带
-   `fw-normal text-muted`，`未识别` 与"全部"占位项必不带
-4. **浏览器里最终长什么样由用户确认**（本机无浏览器；两类都上样式后，"加粗看着够不够明显、
-   灰字对比度够不够"是主观判断）
-5. 文档同步：`CLAUDE.md` / `CONTEXT.md` / `spec.md`
+1. ✅ `php tests/enterprise_config_test.php` 全绿，`companyOptionAttrs()` 的实现断言按新类名改过
+2. ✅ 全部 7 个自包含测试脚本仍全绿（`search_bill` / `singlerelation` 两个探针要传单号且会调平台，未跑）
+3. ✅ 渲染复验：只读脚本 require 真实的 4 个视图文件，6 处下拉 **104 个选项**每个的样式位与
+   `credentialReady()` 逐条对上，**0 失败**——`ready` 带 `fw-bold text-black`、`pending`/`no_slot`
+   带 `fw-normal text-muted`、`未识别` 与"全部"占位项不带，且两类**互斥**（同时命中即判失败）。
+   本轮另补了上一轮审查指出的盲区：脚本现在**连"每页应有几处下拉"一起断言**
+   （2/1/2/1），某个 `<select>` 被改名或删掉会判失败而不是安静地少报一处
+4. ⏳ **浏览器里最终长什么样由用户确认**——本机无浏览器/JS 引擎。标记层已验到，剩下的是主观判断：
+   加粗够不够明显、灰字对比度够不够、`未识别` 保持默认字体是否合适。**故本项留空**
+5. ✅ 文档同步：`CLAUDE.md` / `CONTEXT.md` / `spec.md` / 16 票注记
 
 ## Comments
+
+### 2026-10-01 实现笔记
+
+- **只动 `companyOptionAttrs()` 一处，6 个调用点一字未改**——16 票把渲染规则收成一份的回报，
+  本票正好是它的第一次兑现（改口径不必再满仓找下拉）。
+- **`fw-normal` 是显式写出来的**：默认继承本就是 400。写出来是为了让"这一档是正常字体"成为
+  代码里的话——哪天全局 CSS 把 `option` 加粗了，这一档会跟着变而没人会想到这里。
+- **去掉 `fst-italic`**：用户要的是"正常字体"。留着斜体与加粗并列会变成三重区分（粗/斜/色），没必要。
+- **`未识别` 保持不上样式**（本票的一处自主收窄）：用户口径是"没有 AppKey 的**企业**"，而它不是企业
+  （是认领失败那批的 `company` 取值，表格里另有整行标红那套）。**若希望它也灰下去，改 default
+  分支一行即可**——已当面告知用户。
+- **三个视图注释改成"不抄类名、只留指针"**：它们原本各写了一句"斜体灰字"，这次全过时了。
+  再抄一遍就是等它第二次过时。
+
+### 2026-10-01 code-review 收口
+
+两轴并行审（`git diff f62955b...HEAD`）。**代码无硬性违反、实现无错**；改了三处：
+
+- **票面 `Status: open` 越出本仓词表** → 改 `done`。本仓开票用 `todo`（查 git 历史：15 票开票那次
+  提交就是 `todo`），关闭用 `done（日期；提交…）`。本票开票写成 `open`，且同一提交里 `spec.md`
+  已标 ✅，自相矛盾。**这是本票的一处流程失误**：`done` 本该随 feat 提交落下，本票落在了收口提交。
+- **`CLAUDE.md:168` 小标题漏改**：仍写"下拉字体区分见工单 16"，而同段落正文、文件树、手动上传章节
+  都已改成 16/17。两轴都点到了同一处。
+- **复验脚本的盲区**（Spec 轴指出）：原先只数选项，某个 `<select>` 被改名或删掉时它会**安静地少报
+  一处**而不是判失败。已补"每页应有几处下拉"的断言，并用一次变异测试确认它真会响
+  （把 uploaded 的期望改成 3 → 报"处数不符"且退出码非 0）。
+- 另一条判断性提示（`layout.php` docblock 里的 `unidentified` 裸字面量）**采纳**：改指
+  `STATE_UNIDENTIFIED`，让"哪一态走 default"在常量层也读得出。
+
+Spec 轴对复验脚本的抓错能力做了实测（两类搞反 96 失败、漏 `text-black` 36 失败、删 `ready` 分支
+36 失败，均退出 1），本票据此认定"标记层已验实"。
