@@ -7,8 +7,9 @@
  *               （下限 2 年——超期单据采进来也传不上去，见 App\RetailRetention）
  *
  * 只采集入库、不上传——零售单据由外部系统上传，本项目只做"可见 + 人工补传"（见 docs/adr/0007）。
- * 落库 task_status='待补传'（不复用"等待上传"，那语义是"cron 会来取走并上传"）、source='retail'；
- * 自动上传链路对它们零动作（取数侧 company 白名单 + UploadService 的 fail-closed 守卫）。
+ * 落库 task_status='等待上传'、source='retail'——**与批发共用一个状态值**（2026-10-01 统一，见
+ * docs/adr/0014）。门店单的"等待上传"**不代表 cron 会来取走它**：自动上传链路对它们零动作
+ * （取数侧 company 白名单 + UploadService 的 fail-closed 守卫），补传始终由人点。
  *
  * 落库的元数据必须够人工补传装配用（工单 06）：除追溯码外还要 from_user_id / to_user_id /
  * physic_type——补传时不会回头问源库，这三列缺一列这条单就永远补不出去（见 ADR 0010）。
@@ -20,7 +21,7 @@
  *
  * ⚠️ 测试阶段临时口径（2026-09-30 用户指定，与 ADR 0007 的原始决定相反，测试结束需回收）：
  *   1. **单条 SQL**：zsm_ls LEFT JOIN zsm_ls_code，不再分"先头后码"两步。
- *   2. **带 NOT EXISTS(update_state)**：只采外部系统尚未上传的单，待补传清单里不再有已上传的单。
+ *   2. **带 NOT EXISTS(update_state)**：只采外部系统尚未上传的单，门店补传清单里不再有已上传的单。
  *      代价见 ADR 0007：已上传的单在页面上不可见；update_state 无企业列，跨门店单号重复时它自身会串。
  *   3. **默认按 bill_time 限当日**（cron 的口径）；历史欠账用 **`--all` 一次性快照**补——
  *      `--all` 不带日期条件、全表扫（bill_time 无索引），**跑一次即可，别挂进 cron**。
@@ -100,7 +101,7 @@ try {
     ]);
 
     // ── 单条 SQL：单据头 LEFT JOIN 追溯码（测试阶段口径，见文件头） ──
-    // 必须 LEFT JOIN 而非内连接：没码的单也要采——它是待补传队列里值得看见的一条。
+    // 必须 LEFT JOIN 而非内连接：没码的单也要采——它是补传队列里值得看见的一条。
     // physic_type 不在"顺手拷来的老 SQL"里，但补传装配要它（ADR 0010），故显式补上；
     // ref_ent_id 取回来只为与源表列对齐，**本轮不使用**（那是全表单一值的总部主体，见 ADR 0010）。
     $sql = "select ls.bill_code,ls.bill_time,ls.bill_type,ls.physic_type,
@@ -233,7 +234,7 @@ try {
         $db->execute(
             "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential,
                                        from_user_id, to_user_id, physic_type, created_at, updated_at)
-             VALUES (?, ?, '', ?, ?, '待补传', 'retail', ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, '', ?, ?, '等待上传', 'retail', ?, ?, ?, ?, ?, ?, ?)",
             [
                 $bill['bill_time'],
                 $djbh,

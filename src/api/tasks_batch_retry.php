@@ -73,8 +73,8 @@ try {
     echo json_encode(['_final' => true, 'success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE) . "\n";
 } catch (\Throwable $e) {
     // 尝试恢复状态，忽略数据库错误（与单条重传 tasks_retry 保持一致）。
-    // 逐条恢复为**各自调用前的状态**而不是统一写"等待上传"：零售单据是"待补传"，
-    // 统一改回"等待上传"会让它被当成待自动上传的单据
+    // 逐条恢复为**各自调用前的状态**而不是统一写"等待上传"：在"已处理"的行上点重传
+    // （补传失败后的出口，见 ADR 0011），失败后不该把它拖回待上传队列
     try {
         foreach ($tasks as $t) {
             $db->execute(

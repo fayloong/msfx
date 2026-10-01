@@ -47,7 +47,7 @@ function fullFilters(): array
     return [
         'djbh' => 'XSO',
         'ent_name' => '某单位',
-        'task_status' => '待补传',
+        'task_status' => '等待上传',
         'response_status' => '上传成功',
         'source' => 'cron',
         'company' => '某某门店',
@@ -114,7 +114,9 @@ check('门店清单列名不限定前缀（单表查询）', strpos($q['where'],
 $q = RecordQuery::build(RecordQuery::TYPE_RETAIL_TASKS, [
     'company' => '某某门店',
     'djbh' => 'XSO',
-    'task_status' => '待补传',
+    // 2026-10-01 起门店单与批发共用"等待上传"（docs/adr/0014）：词表有变化时，
+    // 这条用例钉的是"任务状态是等值条件"，取值本身跟着页面下拉走
+    'task_status' => '等待上传',
     'response_status' => '上传失败',
     'date_from' => '2026-09-01',
     'date_to' => '2026-09-30',

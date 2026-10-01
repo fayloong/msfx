@@ -56,7 +56,6 @@ layout('上传任务', 'upload-tasks');
                 <label class="form-label small text-muted">任务状态</label>
                 <select class="form-select" id="filter-task-status">
                     <option value="等待上传" selected>等待上传</option>
-                    <option value="待补传">待补传</option>
                     <option value="已处理">已处理</option>
                     <option value="">全部</option>
                 </select>
@@ -353,9 +352,10 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
     }
     let confirmCallback = null;
 
+    // 门店采集单与批发共用"等待上传"（2026-10-01 统一，见 docs/adr/0014）：
+    // 区分靠"所属企业"列与来源列，不再有单独的状态色
     const taskStatusBadges = {
         '等待上传': 'bg-secondary',
-        '待补传': 'bg-warning text-dark',
         '已处理': 'bg-primary',
     };
     const responseStatusBadges = {

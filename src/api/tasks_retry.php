@@ -66,7 +66,7 @@ try {
     echo json_encode(['_final' => true, 'success' => true, 'result' => $result], JSON_UNESCAPED_UNICODE) . "\n";
 } catch (\Throwable $e) {
     // 尝试恢复状态，忽略数据库错误。恢复为**调用前的状态**而不是写死"等待上传"：
-    // 零售单据是"待补传"（只能人工补传），统一改回"等待上传"会让它被当成待自动上传的单据
+    // 在"已处理"的行上点重传（补传失败后的出口，见 ADR 0011），失败后不该把它拖回待上传队列
     try {
         $db->execute(
             "UPDATE upload_tasks SET task_status = ?, request_status = NULL, response_status = NULL, updated_at = datetime('now','localtime') WHERE id = ?",

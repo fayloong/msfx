@@ -56,7 +56,7 @@ layout('手动上传', 'manual-upload');
                         <?php endforeach; ?>
                     <?php endif; ?>
                 </select>
-                <div class="form-text" id="company-hint">批发：手工在线新增或 xlsx 导入；门店：从已采集的待补传单据里勾选批量补传。</div>
+                <div class="form-text" id="company-hint">批发：手工在线新增或 xlsx 导入；门店：从已采集的门店单据里勾选批量补传。</div>
             </div>
         </div>
     </div>
@@ -182,7 +182,7 @@ layout('手动上传', 'manual-upload');
 <!-- ── 零售分支：不提供从零手工录入，只列该门店已采集的单据（可补传、可编辑、可删除） ── -->
 <div id="branch-retail" class="d-none">
     <!-- 筛选栏：单号 / 任务状态 / 响应状态 / 单据日期 / 补传任务创建时间。
-         两个日期选择器**都没有默认值**——待补传是积压队列，默认藏起 7 天前的单会被读成"这家店没单了" -->
+         两个日期选择器**都没有默认值**——未处理的单据是积压队列，默认藏起 7 天前的单会被读成"这家店没单了" -->
     <div class="card border-0 shadow-sm mb-3">
         <div class="card-body">
             <div class="row g-2 align-items-end">
@@ -193,7 +193,9 @@ layout('手动上传', 'manual-upload');
                 <div class="col-md-1">
                     <label class="form-label small text-muted">任务状态</label>
                     <select class="form-select" id="retail-filter-task-status">
-                        <option value="待补传" selected>待补传</option>
+                        <!-- 默认"等待上传"＝该门店未处理的单（与批发共用一个状态值，见 docs/adr/0014）；
+                             "已处理"是补传失败那些行的出口——它们已翻终态，切过去才在这页重传 -->
+                        <option value="等待上传" selected>等待上传</option>
                         <option value="已处理">已处理</option>
                         <option value="">全部</option>
                     </select>
@@ -275,7 +277,7 @@ layout('手动上传', 'manual-upload');
     </div>
 </div>
 
-<!-- 追溯码弹窗（门店分支的待补传清单用；与上传任务页那份同一套交互：查看 + 复制） -->
+<!-- 追溯码弹窗（门店分支的补传清单用；与上传任务页那份同一套交互：查看 + 复制） -->
 <div class="modal fade" id="traceModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -431,10 +433,10 @@ layout('手动上传', 'manual-upload');
         '321': '使用出库', '116': '消费者退货入库',
     };
 
-    // 状态徽标配色与上传任务页同一套（两个页面的状态列看起来要一致）
+    // 状态徽标配色与上传任务页同一套（两个页面的状态列看起来要一致）；
+    // 门店采集单与批发共用"等待上传"（2026-10-01 统一，见 docs/adr/0014）
     const taskStatusBadges = {
         '等待上传': 'bg-secondary',
-        '待补传': 'bg-warning text-dark',
         '已处理': 'bg-primary',
     };
     const responseStatusBadges = {
@@ -478,7 +480,7 @@ layout('手动上传', 'manual-upload');
     let currentRetailPage = 1;
     let retailTotal = 0;              // 当前筛选条件下的总条数（导出前判断"有没有数据"看它）
 
-    // 两个日期范围选择器都**不设默认值**：待补传是积压队列，默认藏起 7 天前的单会被读成
+    // 两个日期范围选择器都**不设默认值**：未处理的单据是积压队列，默认藏起 7 天前的单会被读成
     // "这家店没单了"。上传任务页那套"输入关键词时忽略默认 7 天范围"的补偿逻辑因此不需要
     const fpRetailRq = flatpickr('#retail-filter-rq-range', {mode: 'range', dateFormat: 'Y-m-d', locale: 'zh'});
     const fpRetailCreated = flatpickr('#retail-filter-created-range', {mode: 'range', dateFormat: 'Y-m-d', locale: 'zh'});
@@ -656,8 +658,8 @@ layout('手动上传', 'manual-upload');
 
     // 行内补传/重传按钮：不可补传时禁用并把上面那句原因放进 title
     function retailRetryButton(r) {
-        // 待补传的行按"补传"叫，已处理的按"重传"叫：同一件事，但后者是再来一次
-        const label = r.task_status === '待补传' ? '补传' : '重传';
+        // 未处理（等待上传）的行按"补传"叫，已处理的按"重传"叫：同一件事，但后者是再来一次
+        const label = r.task_status === '等待上传' ? '补传' : '重传';
         const reason = retailRetryBlockReason(r);
         if (reason !== null) {
             return `<span class="d-inline-block" tabindex="0" title="${esc(reason)}">
@@ -807,7 +809,7 @@ layout('手动上传', 'manual-upload');
             appendLog(logEl, 'error', '请求失败: ' + err.message);
         } finally {
             spinner.classList.add('d-none');
-            // 传完刷新清单：已处理的单据不再出现在"待补传"里（失败的也不在了——它的出口是失败记录页）。
+            // 传完刷新清单：已处理的单据不再出现在"等待上传"里（失败的也不在了——它的出口是失败记录页）。
             // 这批单据都已处置过，勾选集清空；页码保持不动，本页被传空时 loadRetailTasks 会自己回退到最后一页
             retailSelectedIds.clear();
             loadRetailTasks(company);
