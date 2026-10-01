@@ -153,16 +153,18 @@ check('selectableOptions：键就是 credentialReady 的名 + 未识别，顺序
     implode(',', array_keys($opts)));
 check('selectableOptions：未识别的态是 unidentified', ($opts[Enterprise::UNIDENTIFIED] ?? null) === 'unidentified');
 
-// companyOptionAttrs：全站 6 处下拉**唯一一份**渲染规则。**白名单式**——只 pending / no_slot 出样式，
-// 其余（含未知态）一律空串：将来多一个态时默认"不高亮"，而不是乱高亮
-check('companyOptionAttrs：ready 不加样式', companyOptionAttrs('ready') === '', companyOptionAttrs('ready'));
-check('companyOptionAttrs：pending 斜体 + 灰字',
-    companyOptionAttrs('pending') === ' class="fst-italic text-muted"', companyOptionAttrs('pending'));
+// companyOptionAttrs：全站 6 处下拉**唯一一份**渲染规则。**两类都标、互为参照**——只标"不能用"的
+// 那一类时，人看得出哪些不能用、却看不出哪些能用，17 项的列表里等于没给参照系（16 票的做法，
+// 17 票改成现在这样）。其余（`未识别` 与未知态）走 default 分支，**兜底原样而非兜底高亮**
+check('companyOptionAttrs：ready 加粗 + 黑字',
+    companyOptionAttrs('ready') === ' class="fw-bold text-black"', companyOptionAttrs('ready'));
+check('companyOptionAttrs：pending 正常字体 + 灰字',
+    companyOptionAttrs('pending') === ' class="fw-normal text-muted"', companyOptionAttrs('pending'));
 check('companyOptionAttrs：no_slot 与 pending 同一档（两者都传不出去；别在别处那套三态徽标里混）',
     companyOptionAttrs('no_slot') === companyOptionAttrs('pending'));
-check('companyOptionAttrs：未识别不加样式（它不是企业、没有凭据概念）',
+check('companyOptionAttrs：未识别不上样式（它不是企业、没有凭据概念）',
     companyOptionAttrs('unidentified') === '');
-check('companyOptionAttrs：未知态不加样式（白名单，不是黑名单）',
+check('companyOptionAttrs：未知态不上样式（default 分支兜底原样，不是兜底高亮）',
     companyOptionAttrs('') === '' && companyOptionAttrs('nonsense') === '');
 
 // ---------- 用例 3: 认领——ID 优先，且按单据类型选列 ----------

@@ -14,9 +14,9 @@ try {
     $configError = $e->getMessage();
     $retailStores = [];
 }
-// "所属企业"筛选下拉与编辑弹窗的选项：企业名 => 凭据就绪态（没配齐的会显示成斜体灰字，
-// 规则见 layout.php 的 companyOptionAttrs()）。本页尤其需要它——行内的"待配凭据"徽标要选中
-// 那家店才看得见，而下拉里 17 个选项长得一模一样，人是在选之前就不知道该选哪家的。
+// "所属企业"筛选下拉与编辑弹窗的选项：企业名 => 凭据就绪态（下拉据此分字体，规则与类名见
+// layout.php 的 companyOptionAttrs()，此处不抄一遍）。本页尤其需要它——行内的"待配凭据"徽标
+// 要选中那家店才看得见，而下拉里 17 个选项长得一模一样，人是在选之前就不知道该选哪家的。
 // 上面的 try 已经证明配置可载入，这里不再重复降级分支
 $companyOptions = $configError === ''
     ? App\Enterprise::selectableOptions()

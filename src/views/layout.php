@@ -4,28 +4,40 @@
  * "所属企业"下拉里单个选项的样式——全站**唯一一份**渲染规则（三个筛选栏 + 两个编辑弹窗 +
  * 手动上传页顶部，共 6 处）。放在这儿是因为全站视图都 require_once 本文件（同 layout()）。
  *
- * 凭据没配齐的企业用**斜体 + 灰字**标出来。理由是"选中之后"的提示来不及：下拉里 17 个选项长得
- * 一模一样，人在**选之前**无从知道哪家现在传不出去，而补传按钮的禁用与行内徽标都得先选中才看得见。
+ * 两类都标，**互为参照**：
+ *   `ready`（凭据填齐、能传）        → **加粗 + 黑字**
+ *   `pending` / `no_slot`（传不出去）→ **正常字体 + 灰字**
  *
- * 三态的定义与判据在 `App\Enterprise::credentialReady()`：
- *   `pending`（凭据位在、四字段没填齐——等密钥，预期内的正常状态）
- *   `no_slot`（连凭据位都没声明——配置缺口）
- * 两者在下拉里**同一档**：对"现在能不能传"这个问题，它们答案一样。它们在别处是分开的
- * （上传任务页的徽标 `待配凭据` 灰 / `未声明凭据位` 红），因为那儿问的是"该谁去做哪件事"。
- * `ready` 与 `unidentified`（`未识别` 不是企业）原样显示。
+ * 为什么两类都要标：只标"不能用"的那一类时，人看得出哪些不能用、却看不出哪些能用——在一个 17 项的
+ * 列表里等于没给参照系，"能用"的那几家只能靠一个个数（16 票就是那么做的，被本口径取代）。
+ * 又为什么要提前到选项上：下拉里 17 个选项长得一模一样，人在**选之前**无从知道该选哪家，
+ * 而补传按钮的禁用与行内徽标都得先选中才看得见。
  *
- * **白名单式**：只认上面两个态，其余（含将来新增的态）一律不加样式——写成兜底高亮的话，
- * 多一个态就会让一批正常企业莫名其妙变灰。
+ * 三态的定义与判据在 `App\Enterprise::credentialReady()`：`ready`（四字段填齐）/`pending`
+ * （凭据位在、等密钥——预期内的正常状态）/`no_slot`（连凭据位都没声明——配置缺口）。后两者在下拉里
+ * **同一档**：对"现在能不能传"这个问题它们答案一样。它们在别处是分开的（上传任务页的徽标
+ * `待配凭据` 灰 / `未声明凭据位` 红），因为那儿问的是"该谁去做哪件事"。
+ *
+ * `unidentified`（`未识别`）与未知态**不上样式**：用户的口径是"没有 AppKey 的**企业**"，而 `未识别`
+ * 不是一个企业（它是认领失败那批的 `company` 取值，表格里另有整行标红那套标记）。将来新增的态也走
+ * 这条 default 分支——兜底**原样**而不是兜底高亮，多一个态才不会让一批正常企业莫名其妙变灰。
  *
  * 返回**属性串**（含前导空格），直接接在 `<option` 之后即可。内容全是固定字面量，不含用户输入。
- * 类名取自 Bootstrap 5.3.3 本地副本（不依赖 CDN）：`fst-italic` = font-style:italic，
- * `text-muted` = 次级文字色。
+ * 类名取自 Bootstrap 5.3.3 本地副本（不依赖 CDN）：`fw-bold`/`fw-normal` = 字重 700/400，
+ * `text-black` = 纯黑，`text-muted` = 次级文字色。
+ *
+ * `fw-normal` 本是默认值（继承就是 400），显式写出来是为了让"这一档是正常字体"成为代码里的话——
+ * 哪天全局 CSS 把 `option` 加粗了，这一档会跟着变，而没人会想到这里。
  */
 function companyOptionAttrs(string $state): string
 {
-    return in_array($state, [\App\Enterprise::STATE_PENDING, \App\Enterprise::STATE_NO_SLOT], true)
-        ? ' class="fst-italic text-muted"'
-        : '';
+    if ($state === \App\Enterprise::STATE_READY) {
+        return ' class="fw-bold text-black"';
+    }
+    if (in_array($state, [\App\Enterprise::STATE_PENDING, \App\Enterprise::STATE_NO_SLOT], true)) {
+        return ' class="fw-normal text-muted"';
+    }
+    return '';
 }
 
 /**

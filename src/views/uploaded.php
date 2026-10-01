@@ -1,8 +1,9 @@
 <?php
 require_once __DIR__ . '/layout.php';
 
-// "所属企业"筛选下拉的选项：企业名 => 凭据就绪态（没配齐的会显示成斜体灰字，规则见 layout.php
-// 的 companyOptionAttrs()）。配置坏了不该让整页打不开：下拉退化为只剩"未识别"，页面其余部分照常。
+// "所属企业"筛选下拉的选项：企业名 => 凭据就绪态（下拉据此分字体，规则与类名见 layout.php 的
+// companyOptionAttrs()，此处不抄一遍）。配置坏了不该让整页打不开：下拉退化为只剩"未识别"，
+// 页面其余部分照常。
 try {
     $companyOptions = App\Enterprise::selectableOptions();
 } catch (\Throwable $e) {
