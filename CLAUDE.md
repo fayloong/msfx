@@ -30,7 +30,11 @@ root/
 │       ├── request/*.php          # API 请求类（批发 drug.kyt.* + 零售 drugtrace.top.lsyd.* 两个，见下方说明）
 │       └── domain/*.php           # 返回结果的 DTO（本项目里惰性，响应走 simplexml → SimpleXMLElement）
 ├── src/                  # 项目自建类（namespace App\，PSR-4 自动加载）
-│   ├── Config.php                # .env 配置加载
+│   ├── Config.php                # .env 配置加载；sqlServer() —— SQL Server 连接五字段（server/port/database/
+│   │                             #   username/password）的**唯一来源**，四个连接点（TaskFetcher / UpdateStateWriter /
+│   │                             #   fetch_bills_retail / backfill_rq）都调它；**不含 timeout**（那是连接点的属性：
+│   │                             #   回写就地叠加 5s、其余用 SqlSrvHelper 默认 30s）；方法内确保已 load（幂等），
+│   │                             #   调用点忘了先 load 不会静默用兜底默认值
 │   ├── Database.php              # SQLite 数据库封装（单例）
 │   ├── Auth.php                  # 单用户 session 认证
 │   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检、批发主体入口（wholesaleSubject）、某企业的凭据键（defaultCredentialKey，编辑任务改企业时用）、某企业那套凭据（credentialFor，门店与凭据 1:1）、全部企业的凭据就绪态（credentialReady：企业名 => ready/pending/no_slot，**三态判据的唯一一处**）、补传可用性摘要（retailCredentialReady＝前者按零售过滤）、全站 6 处"所属企业"下拉的选项（selectableOptions：企业名 => 就绪态，另含 `未识别` => unidentified）
@@ -406,6 +410,8 @@ root/
 - `db.php`（不在仓库内，位于 Web PHP include_path），提供 `info_log()`、`hht()` 等函数
   - CLI 环境下 `db.php` 不可用，CLI 脚本内部定义了 `info_log()` 桩函数输出到 stderr
 - `src/SqlSrvHelper.php` 通过 composer `classmap` 自动加载（非 namespace 类）
+  - 它的连接配置由 `App\Config::sqlServer()` 提供（单一来源，见文件树 `Config.php` 一行）；
+    四处连接点改调它之前是四处各写一份五字段，漏改一处会静默连到另一个库
 - PHP 扩展：`sqlsrv`（SQL Server）、`curl`、`sqlite3`
 - 运行环境：PHP 8.1 + Nginx + SQL Server
 

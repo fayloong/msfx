@@ -13,13 +13,7 @@ class TaskFetcher
 
     public function __construct(?array $config = null)
     {
-        $this->db = new \SqlSrvHelper($config ?? [
-            'server' => Config::get('DB_SERVER', '192.168.2.133'),
-            'port' => Config::get('DB_PORT', '1433'),
-            'database' => Config::get('DB_DATABASE', 'hyyy_zyscm'),
-            'username' => Config::get('DB_USERNAME', 'sa'),
-            'password' => Config::get('DB_PASSWORD', ''),
-        ]);
+        $this->db = new \SqlSrvHelper($config ?? Config::sqlServer());
     }
 
     /**

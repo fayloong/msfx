@@ -92,14 +92,9 @@ if ($snapshotAll) {
 }
 
 try {
-    // 与 TaskFetcher 同一条连接配置（4 段式链接服务器名可在同一连接上直接查，见探测结论）
-    $source = new \SqlSrvHelper([
-        'server'   => Config::get('DB_SERVER', '192.168.2.133'),
-        'port'     => Config::get('DB_PORT', '1433'),
-        'database' => Config::get('DB_DATABASE', 'hyyy_zyscm'),
-        'username' => Config::get('DB_USERNAME', 'sa'),
-        'password' => Config::get('DB_PASSWORD', ''),
-    ]);
+    // 与 TaskFetcher 同一条连接配置（`Config::sqlServer()`，五字段单一来源；
+    // 4 段式链接服务器名可在同一连接上直接查，见探测结论）
+    $source = new \SqlSrvHelper(Config::sqlServer());
 
     // ── 单条 SQL：单据头 LEFT JOIN 追溯码（测试阶段口径，见文件头） ──
     // 必须 LEFT JOIN 而非内连接：没码的单也要采——它是补传队列里值得看见的一条。

@@ -88,17 +88,14 @@ class UpdateStateWriter
     private function db(): \SqlSrvHelper
     {
         if ($this->db === null) {
-            $this->db = new \SqlSrvHelper($this->config ?? [
-                'server'   => Config::get('DB_SERVER', '192.168.2.133'),
-                'port'     => Config::get('DB_PORT', '1433'),
-                'database' => Config::get('DB_DATABASE', 'hyyy_zyscm'),
-                'username' => Config::get('DB_USERNAME', 'sa'),
-                'password' => Config::get('DB_PASSWORD', ''),
+            // 五字段取自 Config::sqlServer()（唯一来源）；timeout 在调用点叠加——
+            // 注入 $config 时不叠加，原样下传（保留注入点的原语义）
+            $this->db = new \SqlSrvHelper($this->config ?? (Config::sqlServer() + [
                 // 登录超时比 SqlSrvHelper 的默认 30s 短得多：这条回写在 Web 请求里（人点补传），
                 // 源库不可达时每条成功单都要卡一次连接超时，30s × 一屏单据 = 操作者以为页面死了。
                 // 源库在同一内网，5s 连不上就是不可用——写失败本就是尽力而为（记警告继续）
-                'timeout'  => 5,
-            ]);
+                'timeout' => 5,
+            ]));
         }
         return $this->db;
     }

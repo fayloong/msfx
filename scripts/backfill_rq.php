@@ -70,13 +70,7 @@ if (empty($remainingDjbhs)) {
 } else {
     echo "\n=== Step 3: SQL Server 查询（剩余 {$remainingCount} 条记录，" . count($remainingDjbhs) . " 个不同单号） ===\n";
 
-    $ss = new \SqlSrvHelper([
-        'server' => Config::get('DB_SERVER', '192.168.2.133'),
-        'port' => Config::get('DB_PORT', '1433'),
-        'database' => Config::get('DB_DATABASE', 'hyyy_zyscm'),
-        'username' => Config::get('DB_USERNAME', 'sa'),
-        'password' => Config::get('DB_PASSWORD', ''),
-    ]);
+    $ss = new \SqlSrvHelper(Config::sqlServer());
 
     $batchSize = 200;
     $batches = array_chunk($remainingDjbhs, $batchSize);
