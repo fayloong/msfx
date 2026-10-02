@@ -43,10 +43,18 @@ class RetailRetransmit
      */
     public const SOURCE = 'retail_retry';
 
-    /** 重试与限速：沿用批发链路的既有约定（见 UploadService 顶部常量） */
+    /**
+     * 重试与限速。
+     *
+     * `API_INTERVAL_US` 由 330ms 放宽到 **400ms**（2026-10-02）：330ms 对应的理论速率是
+     * **3.03 单/秒**（假想往返为 0），正好压在平台"1 秒内不超过 3 单"的限流边界上——页面上的
+     * 单条补传一天也点不了几次，边界上跑看不出问题；而票 06 的批量补传会**连续调用上千次**，
+     * 贴着边界跑迟早撞限流，一撞就是成片的假失败。400ms 对应 2.5 单/秒，加上网络往返后
+     * 实际约 1.5–2 单/秒，留出余量（代价是每单慢 70ms，两千多单多花约三分半钟）。
+     */
     private const MAX_RETRIES = 3;
     private const RETRY_INTERVAL_SEC = 30;
-    private const API_INTERVAL_US = 330000;
+    private const API_INTERVAL_US = 400000;
 
     /**
      * 源库上传状态回写的写入器。**惰性缓存**：批量补传逐条调用 retransmit() 时只连一次源库，

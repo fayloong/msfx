@@ -47,8 +47,8 @@ root/
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传；往来单位解析委托 EntDirectory
 │   ├── EntDirectory.php          # 往来单位名录：人填的名称 → 平台认的 ent_id（ent_list 缓存按 (company, ent_name) 隔离 → 未命中才调平台、查到才回写）；批发链路与门店手工建单共用一份
 │   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 App\RetailRetransmit
-│   ├── RetailRetransmit.php      # 零售单据上传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态 → **全部子单成功后回写源库 update_state**）：单条补传（tasks_retry_retail）、批量重传里的零售那批（tasks_batch_retry 逐条调它，日志来源 retail_retry）、门店手工建单（App\RetailManualEntry，日志来源 manual）三处共用；装配仍走 RetailRequestAssembler
-│   ├── RetailBatchUpload.php     # 零售门店单据的**批量上传**（票 06；能力已备、暂不启用）：取数口径 `PENDING_SQL`（门店来源 + 等待上传；**刻意不把 `未识别` 筛进 SQL**——脚本末尾那句"跳过非门店企业（含未识别）N 条"要靠它数出来）+ 主循环 `run($tasks, $upload, $dryRun, $limit, $report)`（**先跳过非门店、后限量**，未识别因此不占 `--limit` 额度；逐条 try/catch 隔离；**`--dry-run` 时 `$upload` 一次都不调**——主循环抽成收 callable 正是为了这条能自包含地断言）。上传逻辑一行不重写：逐条交给 RetailRetransmit
+│   ├── RetailRetransmit.php      # 零售单据上传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态 → **全部子单成功后回写源库 update_state**）：单条补传（tasks_retry_retail）、批量重传里的零售那批（tasks_batch_retry 逐条调它，日志来源 retail_retry）、门店手工建单（App\RetailManualEntry，日志来源 manual）三处共用；装配仍走 RetailRequestAssembler；**限速 400ms/次**（`API_INTERVAL_US`，2026-10-02 由 330ms 放宽——330ms 的理论速率 3.03 单/秒正压在平台"1 秒 3 单"的限流边界上，见"业务编码映射 → API 限速"）
+│   ├── RetailBatchUpload.php     # 零售门店单据的**批量上传**（票 06；能力已备、暂不启用）：取数口径 `PENDING_SQL`（门店来源 + 等待上传；**刻意不把 `未识别` 筛进 SQL**——脚本末尾那句"跳过非门店企业（含未识别）N 条"要靠它数出来）+ 主循环 `run($tasks, $upload, $dryRun, $limit, $report)`（**先跳过非门店、后限量**，未识别因此不占 `--limit` 额度；逐条 try/catch 隔离；**`--dry-run` 时 `$upload` 一次都不调**——主循环抽成收 callable 正是为了这条能自包含地断言）。上传逻辑一行不重写：逐条交给 RetailRetransmit；脚本侧另有 `--company=k1,k2`（按企业 key 过滤**取回之后**的队列——`PENDING_SQL` 这个取数口径本身不变）
 │   ├── UpdateStateWriter.php     # 回写零售源库状态表（告诉外部系统"这单传过了"）：幂等靠 SQL 自身（`INSERT ... WHERE NOT EXISTS`——该表无主键、无唯一约束），写失败只记 JSONL 警告、不影响上传结果；**绝不能包本地事务**（写链接服务器起不了分布式事务，MSDTC 被禁），见 docs/adr/0016；表名取自 RetailExternalUploads::TABLE（**写侧不再自己写一遍表名**）
 │   ├── RetailExternalUploads.php # 「外部上传」：外部系统已上传的门店单据——`TABLE` 常量（源库状态表名，全仓唯一一处硬编码，采集/回写/门卫共用）、分流判定 `decide()`（已上传→写记录不建任务 / 未上传→建任务 / 本地已有→跳过，两条分支的幂等判据不同；**第四个参数 `buildTasks: false` 是 `--all` 快照**（票 05）——未上传 + 本地无痕 → `ACTION_COUNT_ONLY`"只计数不建任务"，日常不传、走默认 true）、记录形状 `buildRecord()`（source=retail_external、response_status=上传成功、task_id=0、request_status 留 NULL、response 写一段出处说明）、统计累加 `tally()`（动作 → 计数；**只有 RECORD/TASK 的码数进 M**——`--dry-run` 那句"将写入 N 单 / M 码"就是它累出来的，未知动作抛异常）。即采集口径从「过滤」改「分流」那件事（票 02）；**状态闭环**（票 03）也归它：纯函数 `closureActions()`（待办 × 源库判据 → 翻任务/追加记录，**判据按 (company, djbh)**）＋编排 `closeLoop()`（读本地待办 → IN 查状态表 → 翻任务行 / 追加记录 / 记 JSONL；源库查不通时一条都不翻）
 │   ├── RetailManualEntry.php     # 门店手工建单（在线新增 + xlsx 导入共用的唯一实现）：prepare() 校验/取凭据/查对手方（唯一一次平台往返，失败即拒建单）→ create() 落库 + 交 RetailRetransmit 上传；needsCounterparty/endpoints 是「哪两类要往来单位」「对手方落 from 还是 to」的纯规则，见 docs/adr/0015
@@ -242,6 +242,8 @@ root/
 
 **`top_sdk/` 的 vendored 约定（2026-09-30 工单 04）**：`top_sdk/top/request/` 下现在共存两代请求类——批发用的 `drug.kyt.*`（SDK 2026-02 世代，原有）与零售用的 `drugtrace.top.lsyd.*`（2026-09 世代，从 `top_sdk_retail.zip` 逐类并入的 2 个：`AlibabaAlihealthDrugtraceTopLsydUploadinoutbillRequest` / `...UploadretailRequest`）。压缩包**不进仓库**。**跟进新版 SDK 只能逐类挑，不能整包覆盖**：新包里没有一个旧包的 `drug.kyt.*` 方法（它是 `drug.kyt.wes.*`），覆盖会直接砍掉批发链路；`top/domain/` 的 DTO 类在本项目里是惰性的（`TopClient` 走 `$format="xml"` → `simplexml_load_string` → `SimpleXMLElement` 直接返回，domain 类不参与响应解析）。理由与比对数据见 `docs/adr/0009`。
 
+**`TopLogger` 的已知坑（2026-10-02 实测，批量补传时踩到）**：`TopClient` 在两处会写 SDK 自己的日志——`logCommunicationError()`（HTTP 响应不是合法 JSON/XML → `top_comm_err_*.log`）与**顶层返回错误码时**（`top_biz_err_*.log`，**平台限流走这条**）。路径是 `TOP_SDK_WORK_DIR . '/logs/'`，而 `TopSdk.php:18` 把 `TOP_SDK_WORK_DIR` 定义成 **`/tmp/`**。本机 `/tmp/logs/` 属主是 **root:root 755**（9 月用 root 跑时建的），**nginx 用户在其中建不了文件** → `getFileHandle()` 的 `fopen` 返回 false → `fwrite(false, …)` 抛 TypeError。后果：**这个异常从 `TopClient::execute()` 抛穿整条上传链路，把真实原因（限流/响应不合法）掩盖成一句 `fwrite(): Argument #1 ($stream) must be of type resource, bool given`**——而那次平台调用其实已经发出去了。实测 364 条踩中 2 次（0.55%），不是持续限流。两条出路，**本次刻意选了前者**：① **不修权限**——异常发生在写日志之前、`updateTaskStatus` 之前，于是这些单**状态一个字没动、留在「等待上传」队列里可重试**（补跑一遍即清）；② 修权限（`chown nginx:nginx /tmp/logs`）——换来可见性，代价是这类单会被 `ApiClient` 判成「已处理 + 未确定」，反而要人工去失败记录页重传。**根治**要改 `ApiClient`：把顶层 `code` 识别为**可重试**的调用级错误（现在它按"业务错误不重试"处理），但那超出批量补传这一票的范围。
+
 ## Web 路由
 
 单入口 `public/index.php`，通过 `page` 参数分发：
@@ -356,7 +358,7 @@ root/
 - **进度里的"成功"按业务结果算，不照搬 `ApiClient::execute` 的 `success`**：后者是网关级（无 `code` 错误即 true），实测平台对"存在已出售的码"这类业务拒绝也返回 `success=true` + `msg_code=FAIL`，照搬会把真实失败显示成绿色 [成功]、汇总写成"成功 1"。口径与已上传页/失败页一致：`上传成功` 与 `单据重复` 都算成功（单据已在平台上），其余算失败
 - **实测（2026-09-30 首次真传）**：单条两单 + 批量一批四张（批量入口当时还在）。批量那次是新江分店 4 张 `321`，全部 `上传成功`（4 行 `upload_logs` 带 `source='retail_retry'`/门店/凭据/task_id，4 行任务翻 `已处理` + `上传成功`，该门店未处理单 24 → 20，已上传页按门店名可辨认）。**104/203 刻意未真传**：ADR 0010 的 `fromUserId`/`toUserId` 发货收货语义仍待外部系统工程师确认，传错方向会在平台上留下错误申报（装配正确性目前由工单 05 的纯函数断言兜着）。两个 lsyd 接口的响应都是同一套 TOP 信封（`result.msg_code` / `msg_info` / `response_success`），故 `ApiClient::resolveUploadResponseStatus` 两个接口族通用——`SUCCESS`+`response_success=true` → 上传成功；`msg_info` 含"该单据号已存在" → 单据重复；`msg_code=FAIL` → 上传失败。平台对**已被申报过的销售单**返回业务错误「存在已出售的码」（→ 上传失败），即补传不是"重放"而是真实申报
 - **失败也算"已处理"**（与批发链路一致）：任务表是待处理队列，`上传失败`/`未确定`/网络请求失败都翻 `已处理`，`等待上传` 队列不会无限堆积；"补传没成功"的出口是失败记录页（该页第一条条件 `response_status NOT IN ('上传成功','单据重复')` 挡住 `单据重复` 自身，实测零售的 `上传失败` 记录确实可见）。因此补传失败后要再试，是在任务页按"已处理"筛出该行重传，不是等它回到 `等待上传`
-- **批量上传脚本备而不用（票 06，2026-10-02）**：`scripts/upload_pending_retail.php` 把「等待上传」的门店单**逐条**交给本链路（取数口径、`--limit` 与 `--dry-run` 的判据都在 `App\RetailBatchUpload`），**默认不挂 cron**、由人手手动跑——它一旦进 crontab，ADR 0011 那条"补传只能人工触发、没有自动重试"即被反转，故**启用与否留给人**（见该 ADR 的补注）。它只扩"一次能走多少条"，不放松任何一关：三关 fail-closed 照旧、逐条隔离（被拒的算失败并继续下一条，与上传任务页"批量重传"里零售那批同口径）、日志来源仍是 `retail_retry`、回写与任务翻转全在 `RetailRetransmit` 里，本脚本一行上传逻辑都不重写。**首次交付一次真申报都没发**：验证在项目副本 + 本地离线桩上做（生产库与生产源库零写入已实测），生产环境的首次启用是另一个决定
+- **批量上传脚本备而不用（票 06，2026-10-02）**：`scripts/upload_pending_retail.php` 把「等待上传」的门店单**逐条**交给本链路（取数口径、`--limit` 与 `--dry-run` 的判据都在 `App\RetailBatchUpload`），**默认不挂 cron**、由人手手动跑——它一旦进 crontab，ADR 0011 那条"补传只能人工触发、没有自动重试"即被反转，故**启用与否留给人**（见该 ADR 的补注）。它只扩"一次能走多少条"，不放松任何一关：三关 fail-closed 照旧、逐条隔离（被拒的算失败并继续下一条，与上传任务页"批量重传"里零售那批同口径）、日志来源仍是 `retail_retry`、回写与任务翻转全在 `RetailRetransmit` 里，本脚本一行上传逻辑都不重写。另有 `--company=k1,k2`（2026-10-02 加）按**企业 key** 限定只传哪几家——**不给这个参数就是把队列里所有门店的待办都真传出去**；过滤在**取回之后**做（`PENDING_SQL` 那套取数口径本身不变），未知 key 直接退出 1（打错一个字母与"队列本来就是空的"在日志上长得一样）。**首次交付一次真申报都没发**：验证在项目副本 + 本地离线桩上做（生产库与生产源库零写入已实测），生产环境的首次启用是另一个决定——**2026-10-02 已首次真跑**（用户点名的 4 家门店，2,861 条待办逐条补传，结果见当日 JSONL 与失败记录页）
 
 ### 批量查询上传状态（check_bill_status.php + check_failed_logs.php）
 
@@ -591,9 +593,15 @@ php /usr/share/nginx/mashangfangxin/scripts/upload_pending.php
 #    ⚠️ **默认就是真传、不可逆**：先 --dry-run 看清单，再用 --limit=N 小步走。
 #    --dry-run 的数字是**上界**（它不代跑三关）：凭据未配齐的门店会逐条标出来，真跑时被拒、不发调用；
 #    --limit 限的是**处理条数**——未识别不占额度，被三关拒的占（它们在 N 条之内被拒，后面的不补位）
+#    --company=k1,k2 只处理这些**企业 key**（config/enterprises.php 里的 key）的待办：取数仍走
+#    PENDING_SQL（全部门店），过滤在**取回之后**做。**要只传某几家就得给这个参数**——不给就是把
+#    队列里所有门店的待办都真传出去；未知 key 直接退出 1（打错一个字母与"队列本来就是空的"
+#    在日志上长得一模一样，故 fail-closed）
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --dry-run          # 只列不传（单号/门店/码数）
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --dry-run --limit=3 # 看前 3 条会轮到什么
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --limit=2          # 处理前 2 条（真传，真实申报）
+php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php \
+    --company=dyt-baoyuan,dyt-puqianlixin,dyt-xinjiang,dyt-dahu   # 只传这 4 家门店的待办（其余门店一条不碰）
 
 # 批量查询单据上传状态（来源 1：等待上传任务；新鲜度门卫：距上次查询不足 30 分钟的单据自动跳过）
 # 注：日期参数仅打印在日志中，查询范围不受日期限制（按门卫规则扫描全部待查单据）；只查批发主体
@@ -673,7 +681,11 @@ http://192.168.2.189:8188
 - 客户端类型：上传接口必须填 `"2"`
 - 追溯码拆分阈值：单次最多 3500 个，超出自动拆分为 `单号_1, 单号_2...`
 - API 重试：最多 3 次，间隔 30s，仅网络超时重试，业务错误不重试
-- API 限速：每次调用间隔 330ms（usleep(330000)）
+- API 限速：**批发**每次调用间隔 330ms（`UploadService::API_INTERVAL_US`）；**零售 400ms**
+  （`RetailRetransmit::API_INTERVAL_US`，2026-10-02 由 330ms 放宽）。330ms 对应的理论速率是
+  **3.03 单/秒**——正好压在平台"1 秒内不超过 3 单"的限流边界上：页面单条补传一天点不了几次，
+  贴边跑看不出来；而批量补传会**连续调用上千次**，贴边迟早撞限流，撞了就是成片假失败。
+  400ms 对应 2.5 单/秒，加上网络往返实测约 **2 单/秒**
 
 ## Agent skills
 

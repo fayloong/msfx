@@ -1,12 +1,18 @@
 <?php
 /**
  * 零售门店单据的批量上传（票 06）——**能力已备、暂不启用**
- * 用法: php scripts/upload_pending_retail.php [--dry-run] [--limit=N]
+ * 用法: php scripts/upload_pending_retail.php [--dry-run] [--limit=N] [--company=key,key…]
  *   （无参数）  把「等待上传」的门店单据逐条交给现有补传链路
  *   --dry-run  只列出会轮到哪些单（单号/门店/码数），**一次平台调用都不发、不写任何库**。
  *              它是**上界**：预演不代跑三关，凭据未配齐的门店（会逐条标出来）真跑时会被拒
  *   --limit=N  最多处理 N 条（N ≥ 1），给首跑小步走用。**未识别的行不占额度**；被三关拒的**占**
  *              ——它们在 N 条之内被逐条拒掉，后面的单不补位，那正是"小步走"要的效果
+ *   --company= 只处理这些**企业 key**（config/enterprises.php 里的 key，如 `dyt-baoyuan`；
+ *              逗号分隔）的待办——取数口径仍是 `RetailBatchUpload::PENDING_SQL`（全部门店），
+ *              过滤在**取回之后**做，故"跳过非门店企业"那句统计的数会随之变小。
+ *              未知 key 直接拒绝退出 1，不静默当成空集（打错一个字母就"跑了一遍什么都没传"，
+ *              或者更糟——以为限定了范围、其实没限）。**这是"只传某几家"的唯一开关**：
+ *              不加它就是把队列里**所有**门店的待办都真传出去
  *
  * ⚠️ **这不是 cron 脚本，也不该变成 cron 脚本**（票面第 5 条）：每一条都是**向平台的真实申报、
  * 不可逆**——传错了要人去平台上收拾。本脚本把"补传"从"人在页面上逐条点"扩成"一次可以走一批"，
@@ -47,9 +53,10 @@ use App\RetailRetransmit;
 
 Config::load();
 
-// ── 参数：--dry-run / --limit=N（顺序随意，可组合；写成正则只认 `--limit=数字` 一种形态）──
+// ── 参数：--dry-run / --limit=N / --company=k1,k2（顺序随意，可组合；正则只认 `=` 那一种形态）──
 $dryRun = false;
 $limit = null;
+$companyKeys = null;
 $badArg = null;
 foreach (array_slice($argv, 1) as $arg) {
     if ($arg === '--dry-run') {
@@ -62,6 +69,15 @@ foreach (array_slice($argv, 1) as $arg) {
             echo "[upload_pending_retail] 参数无效: {$arg}（--limit 至少为 1；只想看清单用 --dry-run）\n";
             exit(1);
         }
+    } elseif (preg_match('/^--company=(.+)$/', $arg, $m)) {
+        $companyKeys = array_values(array_filter(
+            array_map('trim', explode(',', $m[1])),
+            static fn(string $v): bool => $v !== ''
+        ));
+        if ($companyKeys === []) {
+            echo "[upload_pending_retail] 参数无效: {$arg}（--company 没有给出任何企业 key）\n";
+            exit(1);
+        }
     } else {
         $badArg = $arg;
         break;
@@ -69,7 +85,7 @@ foreach (array_slice($argv, 1) as $arg) {
 }
 
 if ($badArg !== null) {
-    echo "[upload_pending_retail] 参数无效: {$badArg}，需要 --dry-run、--limit=N（可组合）\n";
+    echo "[upload_pending_retail] 参数无效: {$badArg}，需要 --dry-run、--limit=N、--company=k1,k2（可组合）\n";
     exit(1);
 }
 
@@ -79,6 +95,30 @@ try {
     // ── 取数：口径在 App\RetailBatchUpload::PENDING_SQL（门店来源 + 等待上传；未识别一并取回，
     //    由 run() 跳过并计数——票面要的那个数是它数出来的，不是 SQL 里筛掉后再猜的）──
     $tasks = $db->query(RetailBatchUpload::PENDING_SQL);
+
+    // ── --company：只留这些企业的待办 ──
+    // 过滤放在**取回之后**（而不是改 PENDING_SQL 拼 WHERE）：SQL 常量是取数口径的单一事实源，
+    // 让它按调用方的参数变形，等于把"队列里有什么"这件事拆成两份会各自漂移的规则。
+    // 未知 key 直接退出 1：打错一个字母时，"跑了一遍什么都没传"看起来跟"队列本来就是空的"
+    // 一模一样——那正是需要 fail-closed 的地方。
+    if ($companyKeys !== null) {
+        $names = [];
+        foreach ($companyKeys as $key) {
+            $company = Enterprise::findByKey($key);
+            if ($company === null) {
+                echo "[upload_pending_retail] 参数无效: 未知企业 key「{$key}」"
+                    . "（--company 用 config/enterprises.php 里的 key，如 dyt-baoyuan）\n";
+                exit(1);
+            }
+            $names[$company['name']] = true;
+        }
+        $tasks = array_values(array_filter(
+            $tasks,
+            static fn(array $t): bool => isset($names[trim((string)($t['company'] ?? ''))])
+        ));
+        echo "[upload_pending_retail] --company 限定 " . implode('、', $companyKeys)
+            . "：队列取回后留下 " . count($tasks) . " 条\n";
+    }
 
     // 空队列**秒退，不取锁**（见头部 ①）
     if (empty($tasks)) {
