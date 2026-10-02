@@ -200,6 +200,8 @@ order by bill_code, trace_codes
 
 **不设采集门卫**：批发那套 `fetch_bill_counter.json` 计数门卫是为"重视图查询空转"设计的；零售是一次 ~0.6s 的全表扫 + `(company, djbh)` 去重保证幂等，门卫只省 0.6s 却多一份要维护的状态文件。
 
+> ⚠️ **修订（2026-10-02，票 04 起不再成立）**：零售**已有**自己的计数门卫——`App\RetailCollectionGate`，基线 `data/fetch_bill_counter_retail.json`（与批发那份各一个）。理由不是性能（那一趟源库扫描省不掉，采集本身只有百毫秒级），而是**日志可读性**：没有它就看不出"今天真没新单"与"脚本压根没跑"的区别。口径见 [retail-collection-split/spec.md](../retail-collection-split/spec.md) §2 与 `CLAUDE.md` 的"零售单据采集"。
+
 **不需要拆单**：实测单张单据码数上限 1,718 < 3,500，零售暂不会触发拆分（但路由表已按接口带上限：`lsyd.uploadinoutbill` 10000 / `lsyd.uploadretail` 3500，见 §12）。
 
 **去掉 `NOT EXISTS(dyt.bs_msfx.dbo.update_state)`**（关键决策，见 ADR 0007）：该过滤会把"外部系统已上传的单"全部隐藏，而对账/核对恰恰需要看见它们。`update_state` 是外部系统的私有状态表（实测只有单号 + 上传状态两列，**无企业列**，跨门店单号重复时它自身就会串），不能拿它当本项目的采集门卫。

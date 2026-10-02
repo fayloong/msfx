@@ -150,7 +150,8 @@ try {
     $gate = RetailCollectionGate::guard(
         stateFile: RetailCollectionGate::stateFile(),
         date: $date,
-        count: static fn(string $d): array => RetailCollectionGate::counts($source, $d, RETAIL_BILL_TYPES),
+        // 类型清单与 2 年下限都从这一处传进去：门卫数的范围必须与下面采集 SQL 的范围逐字一致
+        count: static fn(string $d): array => RetailCollectionGate::counts($source, $d, RETAIL_BILL_TYPES, $retentionCutoff),
         collect: static function () use ($source, $date, $retentionCutoff): void {
             // ── 单条 SQL：单据头 LEFT JOIN 追溯码，外加拿一个"已上传"标志列 ──
             // 必须 LEFT JOIN 而非内连接：没码的单也要采——它要么是待补传的一条、要么是一份外部上传记录。

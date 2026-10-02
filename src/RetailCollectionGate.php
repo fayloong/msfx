@@ -35,7 +35,7 @@
  */
 namespace App;
 
-final class RetailCollectionGate
+class RetailCollectionGate
 {
     /**
      * 基线文件名（`data/` 下）。
@@ -71,7 +71,9 @@ final class RetailCollectionGate
      *                                 ；失败请抛异常（本方法捕住后按"无基线"处理）
      * @param callable      $collect   `fn(): void`；抛出的任何异常**原样上抛**，基线不写
      * @return array{skipped:bool,counts:?array,reason:string,warning:?string}
-     *         `reason` 是给日志的一行话（调用方原样打印）；`warning` 非 null 时另起一行打
+     *         `reason` 是给日志的一行话（调用方原样打印，三个数就在那句话里）；`counts` 是这一轮
+     *         数到的三个数（计数失败/快照为 null）——调用方**没有**单独打印它的场景，留着是为了
+     *         "这一轮到底有没有数到数"能被直接问出来（测试断言的就是它）；`warning` 非 null 时另起一行打
      * @throws \Throwable `$collect` 抛出的异常原样穿过本方法
      */
     public static function guard(string $stateFile, ?string $date, callable $count, callable $collect): array
@@ -237,10 +239,13 @@ final class RetailCollectionGate
      * @param \SqlSrvHelper $source    源库连接（只发 SELECT，不写源库、不调平台）
      * @param string        $date      采集日期（YYYY-MM-DD）
      * @param array<int,int|string> $billTypes 采集的四种单据类型（由调用方传采集脚本用的那份清单）
+     * @param string        $cutoff    2 年下限（`RetailRetention::cutoffDate()`），**由调用方算一次传进来**：
+     *                                 采集 SQL 用的是脚本开头算的那一份，这里各算各的话，跨零点的那一跑
+     *                                 两个范围会差一天。范围不一致正是门卫最危险的失效方式（数窄了 = 跳过有单要采的那一轮）
      * @return array{total:int,uploaded:int,unuploaded:int}
      * @throws \RuntimeException 查询失败——调用方（`guard()`）把它当"无基线"处理，照常采集
      */
-    public static function counts(\SqlSrvHelper $source, string $date, array $billTypes): array
+    public static function counts(\SqlSrvHelper $source, string $date, array $billTypes, string $cutoff): array
     {
         $sql = "select count(*) as total, count(a.bill_code) as uploaded,
                        count(*) - count(a.bill_code) as unuploaded
@@ -250,8 +255,9 @@ final class RetailCollectionGate
                   left join (select distinct bill_code from " . RetailExternalUploads::TABLE . ") a
                          on a.bill_code = ls.bill_code";
 
-        // 2 年下限与采集 SQL 一样"始终在"（纵深：超期日期在脚本入口已被拒），等值条件是当日口径
-        $row = $source->queryOne($sql, [RetailRetention::cutoffDate(), $date]);
+        // 2 年下限与采集 SQL 一样"始终在"（纵深：超期日期在脚本入口已被拒），等值条件是当日口径；
+        // 下限用的是调用方给的那一份，与采集 SQL 逐字同一个值
+        $row = $source->queryOne($sql, [$cutoff, $date]);
         if (!is_array($row)) {
             throw new \RuntimeException('门卫计数查询失败: ' . $source->getErrorMessage());
         }
