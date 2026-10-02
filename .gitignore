@@ -6,6 +6,7 @@
 /data/fetch_bill_counter_retail.json
 /logs/*.jsonl
 /logs/*.lock
+/logs/top_*.log
 /config/.env
 /config/enterprises.local.php
 .DS_Store

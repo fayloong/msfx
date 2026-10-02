@@ -19,6 +19,13 @@ namespace App;
 
 // 请求类不在 composer 的 autoload 里（它们由 SDK 自己的 Autoloader 加载，与 ApiClient 同构）；
 // 本类不依赖 ApiClient，故自己引入 SDK 入口
+// SDK 工作目录（TopLogger 拼 <WORK_DIR>/logs/top_*.log）：必须在 require 之前定义，
+// 而本文件与 ApiClient.php 都能是"第一个加载 SDK 的文件"——谁先谁定这个常量，
+// 故这里也来一份同样的守卫（理由与实测见 ApiClient.php 顶部那段注释）。
+if (!defined('TOP_SDK_WORK_DIR')) {
+    define('TOP_SDK_WORK_DIR', dirname(__DIR__));
+}
+
 require_once __DIR__ . '/../top_sdk/TopSdk.php';
 
 class RetailRequestAssembler

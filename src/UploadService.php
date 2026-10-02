@@ -214,7 +214,9 @@ class UploadService
                     sleep(self::RETRY_INTERVAL_SEC);
                 }
 
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
+                // \Throwable 而非 \Exception：`\Error`（TypeError 等）不被后者捕获，会抛穿整条链路
+                // （2026-10-02 实测：SDK 的 TopLogger 写日志失败即抛 TypeError）。重试一轮更安全。
                 if ($attempt >= self::MAX_RETRIES - 1) {
                     $response = json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
                     $this->writeLog($billCode, $bill, $traceCodes, $context, [

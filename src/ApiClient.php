@@ -2,6 +2,20 @@
 
 namespace App;
 
+// TOP SDK 的工作目录（TopLogger 用它拼 <WORK_DIR>/logs/top_*_err_*.log）。
+// 默认值是 /tmp/（见 top_sdk/TopSdk.php:18），而 /tmp/logs 在本机是 root:root 755——以 nginx
+// 用户跑时 fopen 失败 → getFileHandle() 返回 false → fwrite(false, …) 抛 TypeError，从
+// TopClient::execute() 抛穿整条上传链路，把真实的平台错误（限流 code=7 / 响应不合法）
+// 掩盖成一句类型错误（2026-10-02 实测，2,861 条里踩中 4 次）。
+// TopSdk.php 那句是 `if (!defined(...))`，文件头也注明"在 include 之前定义这些常量，
+// 不要直接修改本文件"——所以在 require 之前定义即可，不需要动 vendored 的 SDK。
+// ⚠️ 本文件与 RetailRequestAssembler.php 都 require TopSdk.php，**谁先被自动加载谁定这个常量**，
+//    故两处各有一份同样的守卫（`if (!defined)` 幂等）——只在其中一处定义会随加载顺序静默回落 /tmp/，
+//    `tests/api_client_test.php` 先加载装配类再断言，钉住这条。
+if (!defined('TOP_SDK_WORK_DIR')) {
+    define('TOP_SDK_WORK_DIR', dirname(__DIR__));
+}
+
 require_once __DIR__ . '/../top_sdk/TopSdk.php';
 
 class ApiClient
@@ -44,7 +58,7 @@ class ApiClient
                     'success' => false,
                     'data' => $resp,
                     'error' => $resp->msg ?? 'Unknown API error',
-                    'is_network_error' => false,
+                    'is_network_error' => self::isRetryableTopError($resp->code, (string)($resp->msg ?? '')),
                 ];
             }
 
@@ -54,8 +68,11 @@ class ApiClient
                 'error' => '',
                 'is_network_error' => false,
             ];
-        } catch (\Exception $e) {
-            // cURL 异常 → 网络错误
+        } catch (\Throwable $e) {
+            // cURL 异常 → 网络错误。
+            // 捕 \Throwable 而非 \Exception：`\Error`（TypeError 等）不被后者捕获——SDK 内部抛出的
+            // Error 因此会**抛穿整条上传链路**（2026-10-02 实测：TopLogger 写日志失败抛的 TypeError
+            // 把限流掩盖成一句类型错误）。归为「网络错误（可重试）」比抛穿安全。
             $msg = $e->getMessage();
             return [
                 'success' => false,
@@ -64,6 +81,25 @@ class ApiClient
                 'is_network_error' => true,
             ];
         }
+    }
+
+    /**
+     * 顶层错误码是否属于「调用级、等一会儿重试就能成」的那一类。
+     *
+     * 与 `resolveUploadResponseStatus()` 的区别：那个读的是**业务响应**（success=true + data 里的
+     * msg_code），本方法读的是**顶层 code**（网关级错误，SDK 在 TopClient.php:330 专门为它写日志）。
+     * 顶层 code 过去一律按「业务错误不重试」处理，但限流是典型的可重试错误——实测封禁只有一两秒
+     * （sub_msg: "This ban will last for N more seconds"），而重试间隔是 30 秒。
+     * 判据：code=7（App Call Limited）或 msg 含 "App Call Limited"（code 变了也能兜住）。
+     *
+     * @param mixed $code 顶层错误码（string|int）
+     */
+    public static function isRetryableTopError($code, string $msg): bool
+    {
+        if ((string)$code === '7') {
+            return true;
+        }
+        return stripos($msg, 'App Call Limited') !== false;
     }
 
     /**

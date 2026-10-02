@@ -42,11 +42,11 @@ root/
 │   ├── Auth.php                  # 单用户 session 认证
 │   ├── Enterprise.php            # 企业/门店配置解析、门店认领（平台 ID 优先）、接口路由与码上限、配置自检、批发主体入口（wholesaleSubject）、某企业的凭据键（defaultCredentialKey，编辑任务改企业时用）、某企业那套凭据（credentialFor，门店与凭据 1:1）、全部企业的凭据就绪态（credentialReady：企业名 => ready/pending/no_slot，**三态判据的唯一一处**）、补传可用性摘要（retailCredentialReady＝前者按零售过滤）、全站 6 处"所属企业"下拉的选项（selectableOptions：企业名 => 就绪态，另含 `未识别` => unidentified）
 │   ├── BillType.php              # 单据类型码归一化（字母前缀 ↔ 3 位数字码）
-│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算、上传响应状态解析 resolveUploadResponseStatus——批发与零售补传共用，平台响应怎么读只在这一个文件里回答）；forCredential 按一套凭据造客户端（内部只挑 appkey/secretkey 两个字段）；queryEntInfo(名称, ref_ent_id) —— 查往来单位，**ref_ent_id 必传**（申报主体自己那套，没有默认值）
+│   ├── ApiClient.php             # 封装 TopClient（上传/查询/搜索/singlerelation 码级折算、上传响应状态解析 resolveUploadResponseStatus——批发与零售补传共用，平台响应怎么读只在这一个文件里回答；**顶层错误码可重试判定 isRetryableTopError**——code=7/App Call Limited 即平台限流，判 is_network_error=true 走重试通道）；forCredential 按一套凭据造客户端（内部只挑 appkey/secretkey 两个字段）；queryEntInfo(名称, ref_ent_id) —— 查往来单位，**ref_ent_id 必传**（申报主体自己那套，没有默认值）；**文件顶部把 TOP_SDK_WORK_DIR 钉在项目根**（在 require TopSdk 之前；SDK 日志因此落 logs/top_*.log，见下方 TopLogger 坑）
 │   ├── TaskFetcher.php           # 从 SQL Server 拉取/统计待上传单据（含 fetch_bills 门卫计数、fetchBillQuantities 数量基线聚合、fetchWmsCodesByDjbhList 第 2 级码基线现查）
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传；往来单位解析委托 EntDirectory
 │   ├── EntDirectory.php          # 往来单位名录：人填的名称 → 平台认的 ent_id（ent_list 缓存按 (company, ent_name) 隔离 → 未命中才调平台、查到才回写）；批发链路与门店手工建单共用一份
-│   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 App\RetailRetransmit
+│   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 App\RetailRetransmit；**自己 require TopSdk**，故顶部也定义了 TOP_SDK_WORK_DIR（与 ApiClient 同款、幂等——谁先加载谁定，见下方 TopLogger 坑）
 │   ├── RetailRetransmit.php      # 零售单据上传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态 → **全部子单成功后回写源库 update_state**）：单条补传（tasks_retry_retail）、批量重传里的零售那批（tasks_batch_retry 逐条调它，日志来源 retail_retry）、门店手工建单（App\RetailManualEntry，日志来源 manual）三处共用；装配仍走 RetailRequestAssembler；**限速 400ms/次**（`API_INTERVAL_US`，2026-10-02 由 330ms 放宽——330ms 的理论速率 3.03 单/秒正压在平台"1 秒 3 单"的限流边界上，见"业务编码映射 → API 限速"）
 │   ├── RetailBatchUpload.php     # 零售门店单据的**批量上传**（票 06；能力已备、暂不启用）：取数口径 `PENDING_SQL`（门店来源 + 等待上传；**刻意不把 `未识别` 筛进 SQL**——脚本末尾那句"跳过非门店企业（含未识别）N 条"要靠它数出来）+ 主循环 `run($tasks, $upload, $dryRun, $limit, $report)`（**先跳过非门店、后限量**，未识别因此不占 `--limit` 额度；逐条 try/catch 隔离；**`--dry-run` 时 `$upload` 一次都不调**——主循环抽成收 callable 正是为了这条能自包含地断言）。上传逻辑一行不重写：逐条交给 RetailRetransmit；脚本侧另有 `--company=k1,k2`（按企业 key 过滤**取回之后**的队列——`PENDING_SQL` 这个取数口径本身不变）
 │   ├── UpdateStateWriter.php     # 回写零售源库状态表（告诉外部系统"这单传过了"）：幂等靠 SQL 自身（`INSERT ... WHERE NOT EXISTS`——该表无主键、无唯一约束），写失败只记 JSONL 警告、不影响上传结果；**绝不能包本地事务**（写链接服务器起不了分布式事务，MSDTC 被禁），见 docs/adr/0016；表名取自 RetailExternalUploads::TABLE（**写侧不再自己写一遍表名**）
@@ -182,6 +182,10 @@ root/
 ├── tests/
 │   ├── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php；用例 16 是工单 07 验收第 3 条的离线口径——2000 码的 104 在 10000 上限下不拆、4000 码的 321 在 3500 上限下拆 3500+500）
 │   ├── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
+│   ├── api_client_test.php       # App\ApiClient 自包含断言测试（php tests/api_client_test.php）：顶层可重试判据
+│   │                             #   isRetryableTopError（限流 code=7 / msg 兜底 / 大小写 / 参数错误与空码不重试）
+│   │                             #   + TOP_SDK_WORK_DIR 指向项目根（**先加载装配类**再断言——钉住"与加载顺序无关"，
+│   │                             #   只在 ApiClient 一处定义时这条变红）
 │   ├── enterprise_config_test.php # App\Enterprise 自包含断言测试：配置解析/门店认领/接口路由/配置自检
 │   ├── config_test.php           # App\Config::sqlServer() 自包含断言测试：键集合恰为五字段（**不含 timeout**）、
 │   │                             #   未显式 load() 时 password 非空（**唯一能分辨 load 跑没跑**的一条——生产 .env 的
@@ -234,6 +238,7 @@ root/
 ├── CONTEXT.md                    # 领域词汇表（单上下文布局）
 ├── composer.json / composer.lock # 依赖 phpoffice/phpspreadsheet；src/SqlSrvHelper.php 走 classmap 加载
 ├── .gitignore                    # 排除 vendor/、data/*.db*、data/fetch_bill_counter*.json、logs/*.jsonl、logs/*.lock、
+│                                 #   **logs/top_*.log**（SDK 自己写的日志，2026-10-02 起落在这里：日志目录已注入项目内）、
 │                                 #   config/.env、config/enterprises.local.php、top_sdk_retail.zip、tests/company.txt、.DS_Store
 ├── upload_test.php               # 原始上传脚本（旧版，保留参考；**勿运行**——include 路径失效、连的是旧库、ent_list 读写早于多企业改动）
 ├── get_ent_list_test.php         # 原始往来单位同步脚本（旧版，保留参考；**勿运行**——ent_list 唯一键已改为 (company, ent_name)）
@@ -242,7 +247,12 @@ root/
 
 **`top_sdk/` 的 vendored 约定（2026-09-30 工单 04）**：`top_sdk/top/request/` 下现在共存两代请求类——批发用的 `drug.kyt.*`（SDK 2026-02 世代，原有）与零售用的 `drugtrace.top.lsyd.*`（2026-09 世代，从 `top_sdk_retail.zip` 逐类并入的 2 个：`AlibabaAlihealthDrugtraceTopLsydUploadinoutbillRequest` / `...UploadretailRequest`）。压缩包**不进仓库**。**跟进新版 SDK 只能逐类挑，不能整包覆盖**：新包里没有一个旧包的 `drug.kyt.*` 方法（它是 `drug.kyt.wes.*`），覆盖会直接砍掉批发链路；`top/domain/` 的 DTO 类在本项目里是惰性的（`TopClient` 走 `$format="xml"` → `simplexml_load_string` → `SimpleXMLElement` 直接返回，domain 类不参与响应解析）。理由与比对数据见 `docs/adr/0009`。
 
-**`TopLogger` 的已知坑（2026-10-02 实测，批量补传时踩到）**：`TopClient` 在两处会写 SDK 自己的日志——`logCommunicationError()`（HTTP 响应不是合法 JSON/XML → `top_comm_err_*.log`）与**顶层返回错误码时**（`top_biz_err_*.log`，**平台限流走这条**）。路径是 `TOP_SDK_WORK_DIR . '/logs/'`，而 `TopSdk.php:18` 把 `TOP_SDK_WORK_DIR` 定义成 **`/tmp/`**。本机 `/tmp/logs/` 属主是 **root:root 755**（9 月用 root 跑时建的），**nginx 用户在其中建不了文件** → `getFileHandle()` 的 `fopen` 返回 false → `fwrite(false, …)` 抛 TypeError。后果：**这个异常从 `TopClient::execute()` 抛穿整条上传链路，把真实原因（限流/响应不合法）掩盖成一句 `fwrite(): Argument #1 ($stream) must be of type resource, bool given`**——而那次平台调用其实已经发出去了。实测 364 条踩中 2 次（0.55%），不是持续限流。两条出路，**本次刻意选了前者**：① **不修权限**——异常发生在写日志之前、`updateTaskStatus` 之前，于是这些单**状态一个字没动、留在「等待上传」队列里可重试**（补跑一遍即清）；② 修权限（`chown nginx:nginx /tmp/logs`）——换来可见性，代价是这类单会被 `ApiClient` 判成「已处理 + 未确定」，反而要人工去失败记录页重传。**根治**要改 `ApiClient`：把顶层 `code` 识别为**可重试**的调用级错误（现在它按"业务错误不重试"处理），但那超出批量补传这一票的范围。
+**`TopLogger` 的坑（2026-10-02 实测踩到，同日已修，见 `.scratch/top-sdk-top-error/spec.md`）**：`TopClient` 在两处会写 SDK 自己的日志——`logCommunicationError()`（HTTP 响应不是合法 JSON/XML → `top_comm_err_*.log`）与**顶层返回错误码时**（`top_biz_err_*.log`，**平台限流走这条**）。路径是 `TOP_SDK_WORK_DIR . '/logs/'`，而 `TopSdk.php:18` 把 `TOP_SDK_WORK_DIR` 定义成 **`/tmp/`**；本机 `/tmp/logs/` 属主是 **root:root 755**（9 月用 root 跑时建的），**nginx 用户写不进去** → `getFileHandle()` 的 `fopen` 返回 false → `fwrite(false, …)` 抛 **TypeError**（属 `\Error`，不被 `catch (\Exception)` 捕获）→ 从 `TopClient::execute()` **抛穿整条上传链路**，把真实原因（限流 / 响应不合法）掩盖成一句 `fwrite(): Argument #1 ($stream) must be of type resource, bool given`——而那次平台调用其实已经发出去了。批量补传 2,861 条实测踩中 4 次。
+
+**修法（三处，均不动 vendored 的 `top_sdk/`）**：
+- ① **SDK 工作目录钉在项目内**：`src/ApiClient.php` 与 `src/RetailRequestAssembler.php` 在 `require TopSdk.php` **之前**各定义一次 `TOP_SDK_WORK_DIR = dirname(__DIR__)`（SDK 文件头就是这么推荐的，那句 `if (!defined(...))` 支持外部注入）。**两个入口都要写**——它们是 src/ 侧仅有的两个 require TopSdk 的文件，**谁先被自动加载谁定这个常量**，只写一处会随加载顺序**静默**回落 `/tmp/`（`tests/api_client_test.php` 先加载装配类再断言，专钉这条）。SDK 日志因此落到项目 `logs/top_*.log`（`.gitignore` 已加 `/logs/top_*.log`）。
+- ② **顶层限流判为可重试**：顶层 `code` 过去一律按「业务错误不重试」处理，于是限流（`code=7` / `App Call Limited`）被静默判成失败并翻「已处理」，只能人工去失败记录页重传。新增纯函数 `ApiClient::isRetryableTopError(code, msg)`（**code=7 或 msg 含 "App Call Limited"**，后者是 code 将来变了不失效的兜底），`execute()` 用它决定 `is_network_error`——限流于是走**既有重试通道**（3 次 / 30 秒；实测封禁只有一两秒）。将来若发现别的可重试顶层码，在**这一处**加。
+- ③ **`catch (\Exception)` → `catch (\Throwable)`**：`ApiClient::execute()` 与 `UploadService::uploadSingle()` 各一处。改动 ① 之后理论上不再抛，但 SDK 内部任何别的 `\Error` 也一样会抛穿，归为「网络错误（可重试）」比抛穿安全。
 
 ## Web 路由
 
@@ -351,7 +361,7 @@ root/
 - **批量补传：清单已撤、能力回到上传任务页**（工单 14 撤清单 → 工单 15 补出口）：撤掉的是手动上传页那份 `tasks_batch_retry_retail.php` + 门店清单（它是上传任务页的第二个实现，由"采集 + 上传任务页按门店筛"覆盖）；**批量补传这条路本身没有取消**——2026-10-01 由上传任务页的"批量重传"按行分流承接（见上条"入口"与工单 15）。**xlsx 导入是另一回事**——它是从零建单，不是对已有任务批量重传
 - **日志来源：补传写 `retail_retry`、手工建单写 `manual`**（`RetailRetransmit::retransmit()` 的来源参数）——补传与新建是两件事，来源列上要分得清；两者都用已存在的取值，三个页面的标签/徽标/下拉不必各加一处
 - **回写源库 update_state（工单 18，见 `docs/adr/0016`）**：**全部子单成功后**往 `dyt.bs_msfx.dbo.update_state`（表名见 `App\RetailExternalUploads::TABLE`）写一行 `(原始单号, '1')`——告诉外部系统"这单传过了"，与采集侧读同一张表做的**分流**形成闭环（这也是它**推翻 ADR 0007"从不回写"**的那一条）。写的是**原始单号**（拆分的 `_N` 后缀对那张表没有意义）；`上传成功` 与 `单据重复` 都算成功（单据已在平台上），任一子单失败则**不写**——平台上只有半截，写了会让外部系统永不处理它。落点是 `App\UpdateStateWriter`：幂等靠 `INSERT ... WHERE NOT EXISTS`（该表无主键、无唯一约束，**已有同号多行先例**），**绝不能包本地事务**（写链接服务器起不了分布式事务，MSDTC 被禁——2026-10-02 探测实证），**写失败只记 JSONL 警告**（`type=update_state_write_failed`）、不改上传结果与任务状态（上传已不可逆，这是尽力而为的后续动作），警告也**不进 `upload_logs`**（那会污染失败记录页这个唯一告警出口）。连接登录超时取 5s（比 `SqlSrvHelper` 默认的 30s 短）：源库不可达时每条成功单都要卡一次，30s × 一屏单据会让操作者以为页面死了
-- **链路**：`Enterprise::route()` 给的接口与码上限 → 超限才拆单（沿用 `单号_1` 约定；实测零售单张码数上限 1,718，不触发）→ `RetailRequestAssembler::assemble()` → `ApiClient::execute()`（0.33s 间隔、仅网络错误重试 3 次/30s、业务错误不重试）→ `LogWriter` 写 JSONL + `upload_logs`（`source='retail_retry'`，带 company/credential/task_id）→ 翻 `upload_tasks`：`task_status='已处理'` + `request_status`/`response_status`/`resp`，并把该行 `credential` 覆盖为**这次实际用的那套**（采集预填该门店那套，这里写回的是同一套——单套时代这一写不改变取值，只是把事实记下来）
+- **链路**：`Enterprise::route()` 给的接口与码上限 → 超限才拆单（沿用 `单号_1` 约定；实测零售单张码数上限 1,718，不触发）→ `RetailRequestAssembler::assemble()` → `ApiClient::execute()`（间隔 400ms、仅网络错误重试 3 次/30s、业务错误不重试；**顶层限流也算网络错误**，见"业务编码映射 → API 重试"）→ `LogWriter` 写 JSONL + `upload_logs`（`source='retail_retry'`，带 company/credential/task_id）→ 翻 `upload_tasks`：`task_status='已处理'` + `request_status`/`response_status`/`resp`，并把该行 `credential` 覆盖为**这次实际用的那套**（采集预填该门店那套，这里写回的是同一套——单套时代这一写不改变取值，只是把事实记下来）
 - **三关 fail-closed 都在第一次平台调用之前**（非零售企业 / 门店无凭据位或未配齐 / 无路由或装配必填项缺失），任一不过即整条拒绝：不发一次调用、不写一条日志、**任务行一个字段都不动**（实测：拒绝后 `updated_at` 不变）。页面上的禁用态（未识别 / 待配凭据）只是显示层提示，真正的关口在链路里——任何直接调端点的路径都拦得住
 - **批量入口的分流与口径（工单 15）**：`api/tasks_batch_retry.php` 按行的 `source` 分流，判据**不是企业类型**（`未识别` 行也在 retail 那一份里，会被三关**逐条**拒掉，而不是像分流前那样把整批带下水）。两处刻意的非对称：**批发那批被守卫拒绝即整批打住**——零售那部分一行都不动（不传、不复位），去掉坏行再点一次；**零售逐条隔离**，被拒的行算**失败**并发一条与真实结果同形状的进度行。`_final.result` 是**合并数 + 两段明细**（`total` = 本批任务行数；`success`/`failed` = 批发子单 + 零售单据，与进度流里前端边跑边数的口径一致，跑完数字不跳变，前端因此不分叉）。空批次**不调** `UploadService`——那是给它取 flock 用的，纯门店批次不该被正在跑的 cron 上传挡住。跨门店勾选允许（凭据按行取），聚合数仍是一套。**失败记录页的"重传关联任务"打的是同一个端点**（响应体它不看，跑完就刷新列表），故零售行同样按 `source` 分流——改动前它对零售行是**静默空转**（守卫整批拒绝、页面无任何反馈，且那一抛会把该行的 `request_status`/`response_status` 抹成 NULL）；该页的确认框**没有**这三处点名（本票范围只到上传任务页）
 - **异常时不复位任务状态**（批发链路的单条重传会复位、批量重传只复位**批发那批**，本入口一律不复位）：任务行只在平台调用**之后**被写，故异常要么发生在第一次调用之前（没动过，复位是空操作）、要么发生在某个子单已完成之后（那一写就是本次尝试的真实结果，复位反而把结果抹成 NULL）
@@ -648,6 +658,7 @@ php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php 2026-08-16
 # 运行单元测试
 php /usr/share/nginx/mashangfangxin/tests/trace_splitter_test.php
 php /usr/share/nginx/mashangfangxin/tests/quantity_check_test.php
+php /usr/share/nginx/mashangfangxin/tests/api_client_test.php
 php /usr/share/nginx/mashangfangxin/tests/enterprise_config_test.php
 php /usr/share/nginx/mashangfangxin/tests/config_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_upload_test.php
@@ -680,7 +691,9 @@ http://192.168.2.189:8188
 - 药品类型：`3`=普药（非89开头追溯码）, `2`=特药（89开头追溯码）
 - 客户端类型：上传接口必须填 `"2"`
 - 追溯码拆分阈值：单次最多 3500 个，超出自动拆分为 `单号_1, 单号_2...`
-- API 重试：最多 3 次，间隔 30s，仅网络超时重试，业务错误不重试
+- API 重试：最多 3 次，间隔 30s；**网络错误**重试、**业务错误**不重试——判据是 `is_network_error`。
+  **顶层限流（`code=7` / `App Call Limited`）也走这条重试通道**（2026-10-02 起，`ApiClient::isRetryableTopError`）：
+  它过去被当成业务错误、不重试，那张单于是被静默判失败并翻「已处理」，只能人工去失败记录页重传（见 `.scratch/top-sdk-top-error/`）
 - API 限速：**批发**每次调用间隔 330ms（`UploadService::API_INTERVAL_US`）；**零售 400ms**
   （`RetailRetransmit::API_INTERVAL_US`，2026-10-02 由 330ms 放宽）。330ms 对应的理论速率是
   **3.03 单/秒**——正好压在平台"1 秒内不超过 3 单"的限流边界上：页面单条补传一天点不了几次，

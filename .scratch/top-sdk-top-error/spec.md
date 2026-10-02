@@ -9,7 +9,7 @@
 
 **Blocked by:** None（可立即开始）
 
-**Status:** open
+**Status:** done
 
 ---
 
@@ -132,17 +132,31 @@ if (isset($resp->code) && $resp->code != 0) {
 
 ## 验收
 
-- [ ] `src/ApiClient.php` 顶部定义了 `TOP_SDK_WORK_DIR`（在 require TopSdk 之前），值为项目根目录；`.gitignore` 加了 `/logs/top_*.log`
-- [ ] `isRetryableTopError()` 是纯函数，`execute()` 用它决定 `is_network_error`
-- [ ] 新增 `tests/api_client_test.php` 自包含断言，至少覆盖：
+- [x] `src/ApiClient.php` 顶部定义了 `TOP_SDK_WORK_DIR`（在 require TopSdk 之前），值为项目根目录；`.gitignore` 加了 `/logs/top_*.log`
+- [x] `isRetryableTopError()` 是纯函数，`execute()` 用它决定 `is_network_error`
+- [x] 新增 `tests/api_client_test.php` 自包含断言，至少覆盖：
   - `('7', 'App Call Limited')` → true
   - `('7', '别的消息')` → true（code 优先）
   - `('15', 'App Call Limited')` → true（msg 兜底，code 将来变了不失效）
   - `('11', 'Invalid parameters')` → false
   - `(0, '')` → false
-- [ ] 以 **nginx 用户**跑一段探针，断言 `TOP_SDK_WORK_DIR` 指向项目根、且能在 `logs/` 下写出 `top_probe_<date>.log`（这是"崩溃已消除"的直接证据）
-- [ ] 既有离线测试全部跑通（`php tests/*.php` 逐个退出码 0；`search_bill_test.php` / `singlerelation_test.php` 两个探针要调平台，按需）
-- [ ] `CLAUDE.md`：「top_sdk 的 vendored 约定」那节里记的 TopLogger 坑，从"本次刻意不修"改成"已修"+ 一句话说明改法；业务编码映射那节若有涉及一并同步
+- [x] 以 **nginx 用户**跑一段探针，断言 `TOP_SDK_WORK_DIR` 指向项目根、且能在 `logs/` 下写出 `top_probe_<date>.log`（这是"崩溃已消除"的直接证据）
+- [x] 既有离线测试全部跑通（`php tests/*.php` 逐个退出码 0；`search_bill_test.php` / `singlerelation_test.php` 两个探针要调平台，按需）
+- [x] `CLAUDE.md`：「top_sdk 的 vendored 约定」那节里记的 TopLogger 坑，从"本次刻意不修"改成"已修"+ 一句话说明改法；业务编码映射那节若有涉及一并同步
+
+## 实现记录（2026-10-02）
+
+**改了 4 个文件 + 1 个新测试**：`src/ApiClient.php`（三处改动全在这）、`src/RetailRequestAssembler.php`（常量守卫，见下"与票面的偏差"）、`src/UploadService.php`（catch Throwable）、`.gitignore`、`tests/api_client_test.php`（新增，12 条断言）。
+
+**与票面的偏差（1 处，已确认是必要的）**：改动 1 的常量守卫**两处都要写**，只写 `ApiClient.php` 会随加载顺序静默失效。实证：写测试时**先加载装配类**再断言，常量实测为 `/tmp/`（`src/` 里有两个文件 require TopSdk.php，`RetailRequestAssembler.php` 也在内——谁先被自动加载谁定这个常量）。故 `RetailRequestAssembler.php` 也加了同样的 `if (!defined(...))` 守卫，`tests/api_client_test.php` 把"先加载装配类"这条顺序钉住。
+
+**验证证据**：
+- **探针 A（nginx 身份，`/tmp/probe_workdir.php` 一次性脚本）**：`TOP_SDK_WORK_DIR = /usr/share/nginx/mashangfangxin` ✓、在项目 `logs/` 写出 `top_probe_2026-10-02.log`（未抛异常）✓；对照实验同时**在线复现了旧行为**——同身份写 `/tmp/logs` 报 `TypeError: fwrite(): Argument #1 ($stream) must be of type resource, bool given`（`/tmp/logs` 是 root:root 755，nginx 不可写）
+- **探针 B（离线桩，`/tmp/top_stub.php` + `/tmp/probe_top_error_e2e.php`，一次调用只打到 127.0.0.1）**：桩返回 `code=7 / App Call Limited` → `ApiClient::execute()` 返回 `is_network_error=true` ✓、`error` 仍是平台真实原因 ✓、SDK 业务错误日志写进项目 `logs/top_biz_err_probe0000001_2026-10-02.log` 且未抛 TypeError ✓、没有落到 `/tmp/logs` ✓。**全程零平台调用**
+- **辨别力（逐处改坏 → 对应用例/探针变红，再逐字还原）**：去掉 msg 兜底 → 2 条红；去掉 `code=7` 判据 → 2 条红；去掉装配类的常量守卫 → 常量断言红（实际 `/tmp/`）；`execute()` 那格退回恒 `false` → 探针 B 红
+- 13 个离线测试全部退出码 0；`search_bill_test.php` / `singlerelation_test.php` **本轮未跑**（要调平台，且当前 15:25 在 8-20 点限流窗口内——与 `check_bill_status` 并发会触发平台限流，按票面"按需"跳过；改动 2 的接线已由探针 B 端到端覆盖）
+
+**实现时发现、本票未修（1 处，记在这里备查）**：顶层错误时 `$resp` 是 `SimpleXMLElement`，`'error' => $resp->msg` 存进去的是**对象**（票面说这一格"其余不动"，故保持原样）。后果：`json_encode($result)` 会写成 `{"error":{"0":"App Call Limited"}}` 而不是字符串——日志/`resp` 列里的形状不干净。下游不炸（`str_contains` 与字符串插值都走 `SimpleXMLElement::__toString`），要修就在那一行加 `(string)`，但那会改变 `resp` 列既有数据的形状，值得单独一票。
 
 ## 注意事项
 
