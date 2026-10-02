@@ -40,7 +40,8 @@ root/
 │   ├── UploadService.php         # 核心上传逻辑（cron 和 Web 共用）；上传前 fail-closed 校验任务所属企业与凭据，非批发 kyt 一律拒传；往来单位解析委托 EntDirectory
 │   ├── EntDirectory.php          # 往来单位名录：人填的名称 → 平台认的 ent_id（ent_list 缓存按 (company, ent_name) 隔离 → 未命中才调平台、查到才回写）；批发链路与门店手工建单共用一份
 │   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 App\RetailRetransmit
-│   ├── RetailRetransmit.php      # 零售单据上传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态）：单条补传（tasks_retry_retail）、批量重传里的零售那批（tasks_batch_retry 逐条调它，日志来源 retail_retry）、门店手工建单（App\RetailManualEntry，日志来源 manual）三处共用；装配仍走 RetailRequestAssembler
+│   ├── RetailRetransmit.php      # 零售单据上传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态 → **全部子单成功后回写源库 update_state**）：单条补传（tasks_retry_retail）、批量重传里的零售那批（tasks_batch_retry 逐条调它，日志来源 retail_retry）、门店手工建单（App\RetailManualEntry，日志来源 manual）三处共用；装配仍走 RetailRequestAssembler
+│   ├── UpdateStateWriter.php     # 回写零售源库 dyt.bs_msfx.dbo.update_state（告诉外部系统"这单传过了"）：幂等靠 SQL 自身（`INSERT ... WHERE NOT EXISTS`——该表无主键、无唯一约束），写失败只记 JSONL 警告、不影响上传结果；**绝不能包本地事务**（写链接服务器起不了分布式事务，MSDTC 被禁），见 docs/adr/0016
 │   ├── RetailManualEntry.php     # 门店手工建单（在线新增 + xlsx 导入共用的唯一实现）：prepare() 校验/取凭据/查对手方（唯一一次平台往返，失败即拒建单）→ create() 落库 + 交 RetailRetransmit 上传；needsCounterparty/endpoints 是「哪两类要往来单位」「对手方落 from 还是 to」的纯规则，见 docs/adr/0015
 │   ├── BillSheetParser.php       # xlsx 导入表的解析：读表 → 按单号分组成「一单一条」（同单号多行合并、一行一个码也认）；批发与门店两个导入端点共用，只管「读成什么」、不管「合不合法」
 │   ├── RetailRetention.php       # 门店数据保留期（平台硬性规定 2 年，不接受 2 年前的单据）：YEARS + cutoffDate() 是采集下限与清理下限的**唯一来源**；两个调用点必须共用，各写各的会让超期数据滞留
@@ -110,6 +111,9 @@ root/
 │   │                             #  updated_at 清 3 个月前、**门店（零售）任务按 rq 单据日期清 2 年前**（平台不接受 2 年前的
 │   │                             #  单据，见 App\RetailRetention——这条判"单据本身多老"，前两条判"记录存了多久"）
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列；按 djbh 关联处一律限定批发主体——djbh 不是跨企业唯一的）
+│   ├── backfill_update_state.php # 【一次性回填，2026-10-02 已执行】把回写功能上线前已补传成功的 8 个零售单号补进
+│   │                             #  dyt.bs_msfx.dbo.update_state（判据取自 upload_logs：零售企业 + 已上传成功/单据重复）；
+│   │                             #  幂等可重跑（重跑即 0 写入、N 跳过），见 docs/adr/0016
 │   ├── init_db.php               # 初始化/迁移 SQLite 数据库及表结构（幂等；含 company/credential 列、历史回填、
 │   │                             #  ent_list 唯一键重建、三列补传元数据、任务状态取值归一 待补传→等待上传）
 │   ├── sqlite_query.php          # 调试工具：直接传 SQL 查询/操作 SQLite（表格输出）
@@ -198,11 +202,13 @@ root/
 
 > ⚠️ **2026-09-30 起为测试阶段临时口径**（用户指定，与 ADR 0007 的原始决定**相反**，测试结束需回收）：采集改为**单条 SQL**（`zsm_ls LEFT JOIN zsm_ls_code`）+ **`NOT EXISTS(update_state)` 过滤**（只采外部系统尚未上传的单）。代价照 ADR 0007：已上传的单在页面上不可见；`update_state` 无企业列，跨门店单号重复时它自身会串。原先的"两步 SQL + 全量"口径见 git 历史。
 >
+> **2026-10-02 补（工单 18，见 `docs/adr/0016`）**：本项目**人工补传成功后也回写这张表**（`App\UpdateStateWriter`）——"外部系统已上传"与"本项目已补传"在同一张表上合流，这个过滤因此不再只反映外部系统的进度。ADR 0007 的"从不回写"一条就此推翻（该 ADR 已加修订注）。
+>
 > **日期：cron 限当日，历史欠账走 `--all` 一次全量**（2026-09-30 用户定）——不带参数 = 当日；`--all` = 不带等值日期条件的一次性全量快照，把外部系统尚未上传的历史单一次性入库，**跑一次即可、别挂进 cron**。
 >
 > **2 年下限（2026-09-30 用户定，平台硬性规定）**：采集 SQL **始终**带 `bill_time >= 截止日`（`App\RetailRetention`，今天是 2026-09-30 则 2024-09-30）——`--all` 靠它截断，故其语义是"**最近 2 年**的快照"而非全部历史（票 03 回填的首跑数字是旧口径，重跑会变小）；cron 的当日采集天然满足。**显式指定一个超期日期时直接拒绝并退出 1**（在连源库之前）：静默采回 0 条会被读成"那天真没单据"，而真相是那天即使有单也补传不出去。依据是平台的原话——补传 2023 年的单会返回 `FAIL_BIZ_PARAM_BILL_TIME_BEFORE_ERROR`「系统不支持上传2年前单据」。决策与代价见 `docs/adr/0013`。
 
-- **源**：dyt 链接服务器（`dyt.msfx.dbo.zsm_ls` 单据头 + `zsm_ls_code` 追溯码，**一码一行**；`bs_msfx.dbo.update_state` 单号 + 状态两列，**只读**、仅用于过滤），复用 `SqlSrvHelper` 同一条连接直接查 4 段式名；全程只读 SELECT，不写源库
+- **源**：dyt 链接服务器（`dyt.msfx.dbo.zsm_ls` 单据头 + `zsm_ls_code` 追溯码，**一码一行**；`bs_msfx.dbo.update_state` 单号 + 状态两列，**本脚本只读、仅用于过滤**——本项目对该表唯一的写入在补传链路，见 `App\UpdateStateWriter`），复用 `SqlSrvHelper` 同一条连接直接查 4 段式名；**采集全程只读 SELECT**
 - **单条 SQL（测试阶段口径）**：`LEFT JOIN` + `NOT EXISTS(update_state)` + `bill_time >= ?`（保留下限，始终在）+ `bill_time = ?`（默认当日；`--all` 时不加这一段）。**必须 LEFT JOIN 而非内连接**——没码的单也要采（它是补传队列里值得看见的一条）
 - **去重在 PHP 侧收口**：`321` 存在 14 列值全同的完全重复行（同一单号最多 120 行），连接结果随之放大最多 120 倍——追溯码用关联数组去重（保序），单据头字段取首次出现的行（重复行各列本就相同）。`--all` 时行数可能到数十万，走 `SqlSrvHelper::queryEach` **逐行消费**而非 `query()` 攒数组（后者会撞上 CLI 的 `memory_limit=128M`）
 - **`physic_type` 必须显式取**：老 SQL 里没有这列，但补传装配要它（ADR 0010）——漏掉它，`104`/`203` 那些单会被 SDK 的 `check()` 拒掉且**永远补不出去**
@@ -220,11 +226,12 @@ root/
 零售单据由外部系统上传，本项目只做"可见 + 人工补传"（ADR 0007）。补传**只能人工触发**——没有 cron、没有自动重试：
 向平台的每一次申报都不可逆，由人在页面上看清是哪张单再点，比自动重试可靠。落库口径、三列入库与失败算不算处理完的决策见 `docs/adr/0011`；**用哪套凭据不由人给**（门店与凭据 1:1，服务端按门店取）见 `docs/adr/0012`。
 
-`App\RetailRetransmit` 是**"上传一条门店单据"的唯一实现**（补传与手工建单共用）：三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态。端点各自只做「解析请求 + 流式输出」，流程在类里。手工建单的落库与上传走 `App\RetailManualEntry`，它再把上传交给它。
+`App\RetailRetransmit` 是**"上传一条门店单据"的唯一实现**（补传与手工建单共用）：三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态 → **全部子单成功后回写源库 update_state**。端点各自只做「解析请求 + 流式输出」，流程在类里。手工建单的落库与上传走 `App\RetailManualEntry`，它再把上传交给它。
 
 - **入口**：三个——上传任务页零售行（`source='retail'`）的"补传"按钮（`api/tasks_retry_retail.php`，工单 06；**门店手工建出来的行也在这个入口里**，因为它同表同来源）、**上传任务页的"批量重传"**（`api/tasks_batch_retry.php`，工单 15；勾选多行后按 `source` 分流，零售行逐条走本链路）、手动上传页门店分支的在线新增 / xlsx 导入（`api/manual_create_retail.php` / `api/manual_import_retail.php`，2026-10-01）。补传那条先弹窗列出单据元数据（单号/日期/类型/门店/码数）→ 确认即传，**页面上没有任何要填的字段**；元数据全部取自采集时落库的记录，不接受调用方传任何单据字段（手工录 4 个平台 ID 几乎必然出错）。**手工新增是它的例外**：没有源表行可取，`from/to/physicType` 只能现场确定——但同样不由人录 ID，人填的是往来单位名称、由服务端查出 ent_id（`App\EntDirectory`），见 `docs/adr/0015`
 - **批量补传：清单已撤、能力回到上传任务页**（工单 14 撤清单 → 工单 15 补出口）：撤掉的是手动上传页那份 `tasks_batch_retry_retail.php` + 门店清单（它是上传任务页的第二个实现，由"采集 + 上传任务页按门店筛"覆盖）；**批量补传这条路本身没有取消**——2026-10-01 由上传任务页的"批量重传"按行分流承接（见上条"入口"与工单 15）。**xlsx 导入是另一回事**——它是从零建单，不是对已有任务批量重传
 - **日志来源：补传写 `retail_retry`、手工建单写 `manual`**（`RetailRetransmit::retransmit()` 的来源参数）——补传与新建是两件事，来源列上要分得清；两者都用已存在的取值，三个页面的标签/徽标/下拉不必各加一处
+- **回写源库 update_state（工单 18，见 `docs/adr/0016`）**：**全部子单成功后**往 `dyt.bs_msfx.dbo.update_state` 写一行 `(原始单号, '1')`——告诉外部系统"这单传过了"，与采集侧的 `NOT EXISTS(update_state)` 过滤形成闭环（这也是它**推翻 ADR 0007"从不回写"**的那一条）。写的是**原始单号**（拆分的 `_N` 后缀对那张表没有意义）；`上传成功` 与 `单据重复` 都算成功（单据已在平台上），任一子单失败则**不写**——平台上只有半截，写了会让外部系统永不处理它。落点是 `App\UpdateStateWriter`：幂等靠 `INSERT ... WHERE NOT EXISTS`（该表无主键、无唯一约束，**已有同号多行先例**），**绝不能包本地事务**（写链接服务器起不了分布式事务，MSDTC 被禁——2026-10-02 探测实证），**写失败只记 JSONL 警告**（`type=update_state_write_failed`）、不改上传结果与任务状态（上传已不可逆，这是尽力而为的后续动作），警告也**不进 `upload_logs`**（那会污染失败记录页这个唯一告警出口）。连接登录超时取 5s（比 `SqlSrvHelper` 默认的 30s 短）：源库不可达时每条成功单都要卡一次，30s × 一屏单据会让操作者以为页面死了
 - **链路**：`Enterprise::route()` 给的接口与码上限 → 超限才拆单（沿用 `单号_1` 约定；实测零售单张码数上限 1,718，不触发）→ `RetailRequestAssembler::assemble()` → `ApiClient::execute()`（0.33s 间隔、仅网络错误重试 3 次/30s、业务错误不重试）→ `LogWriter` 写 JSONL + `upload_logs`（`source='retail_retry'`，带 company/credential/task_id）→ 翻 `upload_tasks`：`task_status='已处理'` + `request_status`/`response_status`/`resp`，并把该行 `credential` 覆盖为**这次实际用的那套**（采集预填该门店那套，这里写回的是同一套——单套时代这一写不改变取值，只是把事实记下来）
 - **三关 fail-closed 都在第一次平台调用之前**（非零售企业 / 门店无凭据位或未配齐 / 无路由或装配必填项缺失），任一不过即整条拒绝：不发一次调用、不写一条日志、**任务行一个字段都不动**（实测：拒绝后 `updated_at` 不变）。页面上的禁用态（未识别 / 待配凭据）只是显示层提示，真正的关口在链路里——任何直接调端点的路径都拦得住
 - **批量入口的分流与口径（工单 15）**：`api/tasks_batch_retry.php` 按行的 `source` 分流，判据**不是企业类型**（`未识别` 行也在 retail 那一份里，会被三关**逐条**拒掉，而不是像分流前那样把整批带下水）。两处刻意的非对称：**批发那批被守卫拒绝即整批打住**——零售那部分一行都不动（不传、不复位），去掉坏行再点一次；**零售逐条隔离**，被拒的行算**失败**并发一条与真实结果同形状的进度行。`_final.result` 是**合并数 + 两段明细**（`total` = 本批任务行数；`success`/`failed` = 批发子单 + 零售单据，与进度流里前端边跑边数的口径一致，跑完数字不跳变，前端因此不分叉）。空批次**不调** `UploadService`——那是给它取 flock 用的，纯门店批次不该被正在跑的 cron 上传挡住。跨门店勾选允许（凭据按行取），聚合数仍是一套。**失败记录页的"重传关联任务"打的是同一个端点**（响应体它不看，跑完就刷新列表），故零售行同样按 `source` 分流——改动前它对零售行是**静默空转**（守卫整批拒绝、页面无任何反馈，且那一抛会把该行的 `request_status`/`response_status` 抹成 NULL）；该页的确认框**没有**这三处点名（本票范围只到上传任务页）
@@ -442,6 +449,11 @@ php /usr/share/nginx/mashangfangxin/scripts/cleanup_logs.php
 
 # 回填 upload_logs 的单据日期（首次部署后执行一次即可）
 php /usr/share/nginx/mashangfangxin/scripts/backfill_rq.php
+
+# 回填源库上传状态（2026-10-02 已执行；把回写功能上线前已补传成功的零售单号补进
+# dyt.bs_msfx.dbo.update_state，判据取自 upload_logs；**幂等可重跑**，重跑即 0 写入、N 跳过）
+# 生产库上跑注意属主：以 nginx 用户执行（su -s /bin/bash nginx -c "php ..."），见 init_db 那条
+php /usr/share/nginx/mashangfangxin/scripts/backfill_update_state.php
 
 # 初始化/迁移 SQLite 数据库（幂等，可重复执行；含 company/credential 列、历史回填、ent_list 唯一键重建、
 # upload_tasks 的 from_user_id/to_user_id/physic_type 三列——这三列**没有历史回填**，

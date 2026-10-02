@@ -27,6 +27,10 @@
  * 8-20 点窗口不共享池子。**但配置并不禁止不同企业的凭据共用同一个 AppKey**（同一开发者账号下的多个企业
  * 本就可以合法共用，故 `Enterprise::validate()` 不拦），所以真有门店与河药共用 AppKey 时，"补传不受
  * 8-20 点窗口约束"这条就不再成立——那时才需要拿锁与错峰，别默认它永远成立。
+ *
+ * 上报平台之后还有一步**回写源库**：全部子单成功后往 dyt.bs_msfx.dbo.update_state 写一行，告诉
+ * 外部系统"这单传过了"（见 App\UpdateStateWriter 与 docs/adr/0016）。它是**上传之后的尽力而为**——
+ * 写失败只记 JSONL 警告，不影响本类的返回值、任务状态与进度行。
  */
 namespace App;
 
@@ -43,6 +47,12 @@ class RetailRetransmit
     private const MAX_RETRIES = 3;
     private const RETRY_INTERVAL_SEC = 30;
     private const API_INTERVAL_US = 330000;
+
+    /**
+     * 源库上传状态回写的写入器。**惰性缓存**：批量补传逐条调用 retransmit() 时只连一次源库，
+     * 而三关被拒的单（一个平台调用都没发）根本走不到它跟前。
+     */
+    private ?UpdateStateWriter $stateWriter = null;
 
     /**
      * 上传一条零售单据（必要时拆单，逐个子单调用平台）。
@@ -128,6 +138,14 @@ class RetailRetransmit
             }
 
             usleep(self::API_INTERVAL_US);
+        }
+
+        // 回写源库"这单传过了"：**全部子单都成功**才写——拆单时任一片失败，平台上只有半截，
+        // 写了会让外部系统永远不再处理它（零售实测单张 ≤1,718 码、不触发拆单，此判据是防御）。
+        // 写**原始单号**：子单号（单号_1）对 update_state 那张表没有意义。
+        // 写失败只记 JSONL 警告、不改上面的任何结果（上传已不可逆，这是尽力而为的后续动作）
+        if ($success > 0 && $failed === 0) {
+            ($this->stateWriter ??= new UpdateStateWriter())->mark($djbh);
         }
 
         return ['total' => count($chunks), 'success' => $success, 'failed' => $failed];
