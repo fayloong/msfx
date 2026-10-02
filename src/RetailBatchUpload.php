@@ -43,6 +43,17 @@ class RetailBatchUpload
                                  ORDER BY id";
 
     /**
+     * 一条待办的处理结果——`run()` 交给 `$report` 的事件里的 `outcome`。
+     *
+     * 由**本类判定**而不是让调用方拿 `$result` 自己看：脚本要拿它决定打「[成功]」还是「[失败]」，
+     * 而 `run()` 要拿同一个判据计数——两处各写一份 `($result['failed'] ?? 0) === 0` 的话，
+     * 改口径时总有一处会漏（本票的 code-review 正是从这儿抓到的）。
+     */
+    public const OUTCOME_PLAN    = 'plan';    // --dry-run：这一条只是计划，没传
+    public const OUTCOME_SUCCESS = 'success'; // 全部子单都成
+    public const OUTCOME_FAILED  = 'failed';  // 有子单没成，或被三关拒（后者的原因在 error 里）
+
+    /**
      * 跑一轮批量上传：分流 → 限量 → 逐条交给 `$upload`（或 `--dry-run` 只报告）。
      *
      * 序列上的一处硬要求：**先跳过、后限量**。反过来的话，夹在队列里的 `未识别` 行会白占额度
@@ -58,9 +69,9 @@ class RetailBatchUpload
      *                           **`$dryRun` 时一次都不调**
      * @param bool     $dryRun   只列不传：不调 `$upload`、不写任何库
      * @param int|null $limit    最多真传几条（null = 不限）；**跳过的行不占额度**
-     * @param callable|null $report `fn(array $task, ?array $result, ?string $error): void`，逐条回调：
-     *                           - `--dry-run`：`$result`/`$error` 均为 null（这一条只是计划）
-     *                           - 真跑：`$result` 是上传返回、`$error` 是被拒原因（两者恰有其一非 null）
+     * @param callable|null $report `fn(array $task, array $event): void`，逐条回调；`$event` 的形状见
+     *                           `emit()`——`outcome`（计划/成功/失败）与 `codes`（码数）由本类给出，
+     *                           调用方照打即可，不必自己再判一遍、也不必再数一遍码
      * @return array{total:int,skipped:int,queued:int,remaining:int,success:int,failed:int,codes:int}
      *         `total` 取回的行数（含跳过）；`skipped` 非门店企业（含 `未识别`）的条数；
      *         `queued` 这轮实际处理（或计划）的条数；`remaining` 被 `--limit` 挡在外面、这轮没碰的条数
@@ -107,13 +118,14 @@ class RetailBatchUpload
         foreach ($queue as $task) {
             $stats['queued']++;
             // 码数用 TraceSplitter::countCodes（全站唯一口径：空串算 0）——日志里"N 单 / M 码"
-            // 与页面"码数"列、导出对得上，靠的就是这一处不另写一份数逗号的
-            $stats['codes'] += TraceSplitter::countCodes((string)($task['trace_codes'] ?? ''));
+            // 与页面"码数"列、导出对得上，靠的就是这一处不另写一份数逗号的。
+            // **在这里算一次、随事件交给 `$report`**：调用方（脚本）不再自己数码，两处口径
+            // 因此不会各自漂移（"这一条算不算成功"同理，见 `outcomeOf()`）
+            $codes = TraceSplitter::countCodes((string)($task['trace_codes'] ?? ''));
+            $stats['codes'] += $codes;
 
             if ($dryRun) {
-                if ($report !== null) {
-                    $report($task, null, null);
-                }
+                self::emit($report, $task, self::OUTCOME_PLAN, $codes, null, null);
                 continue;
             }
 
@@ -123,24 +135,46 @@ class RetailBatchUpload
                 // 三关拒绝（一个平台调用都没发、库也一个字没动）或链路自身出错：这一条算失败，
                 // 继续下一条。异常消息原样带出去——脚本要把它打成"这张单为什么没传"
                 $stats['failed']++;
-                if ($report !== null) {
-                    $report($task, null, $e->getMessage());
-                }
+                self::emit($report, $task, self::OUTCOME_FAILED, $codes, null, $e->getMessage());
                 continue;
             }
 
-            // 成功口径与失败记录页一致（见 ADR 0011）：只有"全部子单都成"才算这一单成功；
-            // 平台业务失败（如"存在已出售的码"）在 retransmit 里已翻成 failed，照实计
-            if (($result['failed'] ?? 0) === 0) {
-                $stats['success']++;
-            } else {
-                $stats['failed']++;
-            }
-            if ($report !== null) {
-                $report($task, $result, null);
-            }
+            $outcome = self::outcomeOf($result);
+            $outcome === self::OUTCOME_SUCCESS ? $stats['success']++ : $stats['failed']++;
+            self::emit($report, $task, $outcome, $codes, $result, null);
         }
 
         return $stats;
+    }
+
+    /**
+     * 这一条上传算成功还是失败——**唯一一处判据**：`run()` 拿它计数，调用方拿它决定打
+     * 「[成功]」还是「[失败]」。
+     *
+     * 口径与失败记录页一致（见 ADR 0011）：只有"全部子单都成"才算这一单成功；平台业务失败
+     * （如"存在已出售的码"）在 `RetailRetransmit` 里已翻成 failed，照实计。
+     */
+    public static function outcomeOf(array $result): string
+    {
+        return ($result['failed'] ?? 0) === 0 ? self::OUTCOME_SUCCESS : self::OUTCOME_FAILED;
+    }
+
+    /**
+     * 把一条事件交给 `$report`（`null` 回调是常态：调用方可能不关心逐条输出，测试里也常用）。
+     *
+     * 事件形状：`['outcome' => OUTCOME_*, 'codes' => int, 'result' => ?array, 'error' => ?string]`
+     * ——`--dry-run` 时 `result`/`error` 均为 null（这一条只是计划）；真跑时两者恰有其一非 null
+     * （`error` 非 null 即"被三关拒"，一个平台调用都没发）。
+     */
+    private static function emit(?callable $report, array $task, string $outcome, int $codes, ?array $result, ?string $error): void
+    {
+        if ($report !== null) {
+            $report($task, [
+                'outcome' => $outcome,
+                'codes' => $codes,
+                'result' => $result,
+                'error' => $error,
+            ]);
+        }
     }
 }

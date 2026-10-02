@@ -105,12 +105,16 @@ $stats = RetailBatchUpload::run(
         return uploaded();
     },
     dryRun: true,
-    report: function (array $t) use (&$reported): void {
-        $reported[] = $t['djbh'];
+    report: function (array $t, array $event) use (&$reported): void {
+        $reported[] = [$t['djbh'], $event['outcome'], $event['codes']];
     }
 );
 check('dry-run: upload 回调一次都没被调', $calls === 0, "被调了 {$calls} 次");
-check('dry-run: 每条都报告了（列出计划）', $reported === ['D1', 'D2'], implode(',', $reported));
+check(
+    'dry-run: 每条都报告为「计划」，并带上码数（判据与码数由 run 给出，脚本不自己算）',
+    $reported === [['D1', 'plan', 2], ['D2', 'plan', 1]],
+    json_encode($reported, JSON_UNESCAPED_UNICODE)
+);
 check(
     'dry-run: 统计只算计划数（成功/失败为 0，不发调用就没有结果）',
     $stats['queued'] === 2 && $stats['codes'] === 3 && $stats['success'] === 0 && $stats['failed'] === 0,
@@ -174,9 +178,9 @@ $stats = RetailBatchUpload::run(
         }
         return uploaded();
     },
-    report: function (array $t, ?array $result, ?string $error) use (&$errors): void {
-        if ($error !== null) {
-            $errors[$t['djbh']] = $error;
+    report: function (array $t, array $event) use (&$errors): void {
+        if ($event['error'] !== null) {
+            $errors[$t['djbh']] = $event['error'];
         }
     }
 );
@@ -185,14 +189,23 @@ check('被拒不影响后面的单（先 1 后 1）', $stats['success'] === 2, j
 check('被拒的原因原样报到 report（脚本要打给人看）', str_contains($errors['D2'] ?? '', '凭据尚未配齐'), json_encode($errors, JSON_UNESCAPED_UNICODE));
 
 // ---------- 用例 7: 平台业务失败（子单 failed > 0）也算失败 ----------
+$outcomes = [];
 $stats = RetailBatchUpload::run(
     [task('D1', $store)],
-    fn() => ['total' => 1, 'success' => 0, 'failed' => 1]
+    fn() => ['total' => 1, 'success' => 0, 'failed' => 1],
+    report: function (array $t, array $event) use (&$outcomes): void {
+        $outcomes[] = $event['outcome'];
+    }
 );
 check(
     '子单 failed > 0 的一单计失败（口径与失败记录页一致：只有上传成功/单据重复才算成功）',
     $stats['failed'] === 1 && $stats['success'] === 0,
     json_encode($stats, JSON_UNESCAPED_UNICODE)
+);
+check(
+    '同一条的 outcome 也是 failed——计数与"脚本该打成功还是失败"同源（outcomeOf 一处判）',
+    $outcomes === ['failed'],
+    json_encode($outcomes)
 );
 
 // ---------- 用例 8: 空队列 ----------

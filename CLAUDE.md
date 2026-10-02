@@ -323,7 +323,7 @@ root/
 
 `App\RetailRetransmit` 是**"上传一条门店单据"的唯一实现**（补传与手工建单共用）：三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态 → **全部子单成功后回写源库 update_state**。端点各自只做「解析请求 + 流式输出」，流程在类里。手工建单的落库与上传走 `App\RetailManualEntry`，它再把上传交给它。
 
-- **入口**：三个——上传任务页零售行（`source='retail'`）的"补传"按钮（`api/tasks_retry_retail.php`，工单 06；**门店手工建出来的行也在这个入口里**，因为它同表同来源）、**上传任务页的"批量重传"**（`api/tasks_batch_retry.php`，工单 15；勾选多行后按 `source` 分流，零售行逐条走本链路）、手动上传页门店分支的在线新增 / xlsx 导入（`api/manual_create_retail.php` / `api/manual_import_retail.php`，2026-10-01）。补传那条先弹窗列出单据元数据（单号/日期/类型/门店/码数）→ 确认即传，**页面上没有任何要填的字段**；元数据全部取自采集时落库的记录，不接受调用方传任何单据字段（手工录 4 个平台 ID 几乎必然出错）。**手工新增是它的例外**：没有源表行可取，`from/to/physicType` 只能现场确定——但同样不由人录 ID，人填的是往来单位名称、由服务端查出 ent_id（`App\EntDirectory`），见 `docs/adr/0015`
+- **入口**：三个 API 入口——上传任务页零售行（`source='retail'`）的"补传"按钮（`api/tasks_retry_retail.php`，工单 06；**门店手工建出来的行也在这个入口里**，因为它同表同来源）、**上传任务页的"批量重传"**（`api/tasks_batch_retry.php`，工单 15；勾选多行后按 `source` 分流，零售行逐条走本链路）、手动上传页门店分支的在线新增 / xlsx 导入（`api/manual_create_retail.php` / `api/manual_import_retail.php`，2026-10-01）——**另有 CLI 批量上传脚本备而不用**（`scripts/upload_pending_retail.php`，见本节最后一条）。补传那条先弹窗列出单据元数据（单号/日期/类型/门店/码数）→ 确认即传，**页面上没有任何要填的字段**；元数据全部取自采集时落库的记录，不接受调用方传任何单据字段（手工录 4 个平台 ID 几乎必然出错）。**手工新增是它的例外**：没有源表行可取，`from/to/physicType` 只能现场确定——但同样不由人录 ID，人填的是往来单位名称、由服务端查出 ent_id（`App\EntDirectory`），见 `docs/adr/0015`
 - **批量补传：清单已撤、能力回到上传任务页**（工单 14 撤清单 → 工单 15 补出口）：撤掉的是手动上传页那份 `tasks_batch_retry_retail.php` + 门店清单（它是上传任务页的第二个实现，由"采集 + 上传任务页按门店筛"覆盖）；**批量补传这条路本身没有取消**——2026-10-01 由上传任务页的"批量重传"按行分流承接（见上条"入口"与工单 15）。**xlsx 导入是另一回事**——它是从零建单，不是对已有任务批量重传
 - **日志来源：补传写 `retail_retry`、手工建单写 `manual`**（`RetailRetransmit::retransmit()` 的来源参数）——补传与新建是两件事，来源列上要分得清；两者都用已存在的取值，三个页面的标签/徽标/下拉不必各加一处
 - **回写源库 update_state（工单 18，见 `docs/adr/0016`）**：**全部子单成功后**往 `dyt.bs_msfx.dbo.update_state`（表名见 `App\RetailExternalUploads::TABLE`）写一行 `(原始单号, '1')`——告诉外部系统"这单传过了"，与采集侧读同一张表做的**分流**形成闭环（这也是它**推翻 ADR 0007"从不回写"**的那一条）。写的是**原始单号**（拆分的 `_N` 后缀对那张表没有意义）；`上传成功` 与 `单据重复` 都算成功（单据已在平台上），任一子单失败则**不写**——平台上只有半截，写了会让外部系统永不处理它。落点是 `App\UpdateStateWriter`：幂等靠 `INSERT ... WHERE NOT EXISTS`（该表无主键、无唯一约束，**已有同号多行先例**），**绝不能包本地事务**（写链接服务器起不了分布式事务，MSDTC 被禁——2026-10-02 探测实证），**写失败只记 JSONL 警告**（`type=update_state_write_failed`）、不改上传结果与任务状态（上传已不可逆，这是尽力而为的后续动作），警告也**不进 `upload_logs`**（那会污染失败记录页这个唯一告警出口）。连接登录超时取 5s（比 `SqlSrvHelper` 默认的 30s 短）：源库不可达时每条成功单都要卡一次，30s × 一屏单据会让操作者以为页面死了
@@ -561,10 +561,12 @@ php /usr/share/nginx/mashangfangxin/scripts/upload_pending.php
 #    逐条走现有补传实现（三关 fail-closed、日志来源 retail_retry、任务状态翻转、源库回写全照旧），
 #    排除「未识别」（判据是"是不是门店企业"）并在末尾计数；空队列**不取锁**秒退，
 #    真跑取 logs/upload_pending_retail.lock。取数口径与限量判据在 App\RetailBatchUpload
-#    ⚠️ **默认就是真传、不可逆**：先 --dry-run 看清单，再用 --limit=N 小步走
+#    ⚠️ **默认就是真传、不可逆**：先 --dry-run 看清单，再用 --limit=N 小步走。
+#    --dry-run 的数字是**上界**（它不代跑三关）：凭据未配齐的门店会逐条标出来，真跑时被拒、不发调用；
+#    --limit 限的是**处理条数**——未识别不占额度，被三关拒的占（它们在 N 条之内被拒，后面的不补位）
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --dry-run          # 只列不传（单号/门店/码数）
-php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --dry-run --limit=3 # 看前 3 条会传什么
-php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --limit=2          # 真传前 2 张（真实申报）
+php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --dry-run --limit=3 # 看前 3 条会轮到什么
+php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --limit=2          # 处理前 2 条（真传，真实申报）
 
 # 批量查询单据上传状态（来源 1：等待上传任务；新鲜度门卫：距上次查询不足 30 分钟的单据自动跳过）
 # 注：日期参数仅打印在日志中，查询范围不受日期限制（按门卫规则扫描全部待查单据）；只查批发主体

@@ -3,8 +3,10 @@
  * 零售门店单据的批量上传（票 06）——**能力已备、暂不启用**
  * 用法: php scripts/upload_pending_retail.php [--dry-run] [--limit=N]
  *   （无参数）  把「等待上传」的门店单据逐条交给现有补传链路
- *   --dry-run  只列出将要上传哪些单（单号/门店/码数），**一次平台调用都不发、不写任何库**
- *   --limit=N  最多真传 N 条（N ≥ 1），给首跑小步走用；**跳过的行不占额度**
+ *   --dry-run  只列出会轮到哪些单（单号/门店/码数），**一次平台调用都不发、不写任何库**。
+ *              它是**上界**：预演不代跑三关，凭据未配齐的门店（会逐条标出来）真跑时会被拒
+ *   --limit=N  最多处理 N 条（N ≥ 1），给首跑小步走用。**未识别的行不占额度**；被三关拒的**占**
+ *              ——它们在 N 条之内被逐条拒掉，后面的单不补位，那正是"小步走"要的效果
  *
  * ⚠️ **这不是 cron 脚本，也不该变成 cron 脚本**（票面第 5 条）：每一条都是**向平台的真实申报、
  * 不可逆**——传错了要人去平台上收拾。本脚本把"补传"从"人在页面上逐条点"扩成"一次可以走一批"，
@@ -39,9 +41,9 @@ if (!function_exists('info_log')) {
 
 use App\Config;
 use App\Database;
+use App\Enterprise;
 use App\RetailBatchUpload;
 use App\RetailRetransmit;
-use App\TraceSplitter;
 
 Config::load();
 
@@ -71,15 +73,6 @@ if ($badArg !== null) {
     exit(1);
 }
 
-/** 一条待办的一行说明（dry-run 的计划、真跑的拒绝/失败都用它排版） */
-function describeTask(array $task): string
-{
-    $codes = TraceSplitter::countCodes((string)($task['trace_codes'] ?? ''));
-    return '单号 ' . (string)($task['djbh'] ?? '')
-        . ' | 门店 ' . trim((string)($task['company'] ?? ''))
-        . ' | ' . $codes . ' 码';
-}
-
 try {
     $db = Database::getInstance();
 
@@ -105,30 +98,45 @@ try {
         return $retransmit->retransmit($task, $db);
     };
 
-    // 逐条一行结果。`$result`/`$error` 恰有其一非 null（dry-run 时两者都是 null）
-    $report = static function (array $task, ?array $result, ?string $error) use ($dryRun): void {
-        if ($dryRun) {
+    // 逐条一行结果。**判据全在事件里**（`outcome` 与 `codes` 由 App\RetailBatchUpload 判定并给出）
+    // ——脚本不再自己数码、也不再自己判"这一条算不算成功"：两处各写一份就会各自漂移
+    //
+    // 预演另标一处：按 id 顺序排在前面的单里会有**凭据未配齐**的门店（页面禁用补传的那批），
+    // 真跑时它们被三关拒、一次调用都不发。所以 `--dry-run` 的数字是**上界**——逐条标出来，
+    // "先 --dry-run 看量、再 --limit 小步走"才不会被偏乐观的数骗到。就绪态取页面同一份
+    // （Enterprise::retailCredentialReady()），不另写一份"这家能不能补传"的判据
+    $storeStates = $dryRun ? Enterprise::retailCredentialReady() : [];
+    $notReady = 0;
+    $report = static function (array $task, array $event) use ($storeStates, &$notReady): void {
+        $company = trim((string)($task['company'] ?? ''));
+        $head = '单号 ' . (string)($task['djbh'] ?? '') . ' | 门店 ' . $company . ' | ' . $event['codes'] . ' 码';
+
+        if ($event['outcome'] === RetailBatchUpload::OUTCOME_PLAN) {
             // 预演打的就是"计划"——把 [成功] 打在这儿会让人以为真传了
-            echo "[计划] " . describeTask($task) . "\n";
+            $ready = ($storeStates[$company] ?? '') === 'ready';
+            if (!$ready) {
+                $notReady++;
+            }
+            echo '[计划] ' . $head . ($ready ? '' : '（凭据未配齐，真跑会被三关拒绝、不发调用）') . "\n";
             return;
         }
-        if ($error !== null) {
+        if ($event['outcome'] === RetailBatchUpload::OUTCOME_SUCCESS) {
+            echo '[成功] ' . $head . "\n";
+            return;
+        }
+        if ($event['error'] !== null) {
             // 三关 fail-closed 拒掉（非门店 / 凭据未配齐 / 无路由 / 装配缺项）：一个平台调用都没发
-            echo "[拒绝] " . describeTask($task) . " —— {$error}\n";
+            echo '[拒绝] ' . $head . " —— {$event['error']}\n";
             return;
         }
-        if (($result['failed'] ?? 0) === 0) {
-            echo "[成功] " . describeTask($task) . "\n";
-            return;
-        }
-        echo "[失败] " . describeTask($task) . "（子单 " . (int)($result['total'] ?? 0)
-            . " 个中 " . (int)($result['failed'] ?? 0) . " 个没成，详见失败记录页）\n";
+        echo '[失败] ' . $head . '（子单 ' . (int)($event['result']['total'] ?? 0)
+            . ' 个中 ' . (int)($event['result']['failed'] ?? 0) . ' 个没成，详见失败记录页）' . "\n";
     };
 
     // ── --dry-run：不取锁，跑完就退（头部 ②）──
     if ($dryRun) {
         $stats = RetailBatchUpload::run($tasks, $upload, dryRun: true, limit: $limit, report: $report);
-        printSummary($stats, $limit, true);
+        printSummary($stats, $limit, true, $notReady);
         exit(0);
     }
 
@@ -165,16 +173,20 @@ try {
  * 失败**不改变退出码**：上传失败是业务结果，已经落在失败记录页等人处置；脚本本身没出错。
  * 非零退出只留给"参数错、取数失败"这类脚本跑不成的情形（与既有脚本同口径）。
  */
-function printSummary(array $stats, ?int $limit, bool $dryRun): void
+function printSummary(array $stats, ?int $limit, bool $dryRun, int $notReady = 0): void
 {
     if ($dryRun) {
-        echo "[upload_pending_retail] --dry-run 小结: 将上传 " . $stats['queued'] . " 单 / "
-            . $stats['codes'] . " 码；跳过未识别（非门店企业）{$stats['skipped']} 条\n";
+        echo "[upload_pending_retail] --dry-run 小结: 计划处理 " . $stats['queued'] . " 单 / "
+            . $stats['codes'] . " 码；跳过非门店企业（含未识别）{$stats['skipped']} 条\n";
+        if ($notReady > 0) {
+            // 预演是**上界**：这一行把"其中多少单真跑必被拒"说清楚（逐条也各标了一处）
+            echo "[upload_pending_retail] 注意: 其中 {$notReady} 单所属门店凭据未配齐——真跑会被三关拒绝、一次平台调用都不发\n";
+        }
         echo "[upload_pending_retail] 预演未取锁、未调平台接口、未写任何库\n";
     } else {
         echo "[upload_pending_retail] 完成: 成功 {$stats['success']} 单 / 失败 {$stats['failed']} 单"
             . "（共处理 {$stats['queued']} 单）\n";
-        echo "[upload_pending_retail] 跳过未识别（非门店企业）{$stats['skipped']} 条\n";
+        echo "[upload_pending_retail] 跳过非门店企业（含未识别）{$stats['skipped']} 条\n";
     }
 
     if ($stats['remaining'] > 0) {
