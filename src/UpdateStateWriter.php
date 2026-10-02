@@ -89,7 +89,9 @@ class UpdateStateWriter
     {
         if ($this->db === null) {
             // 五字段取自 Config::sqlServer()（唯一来源）；timeout 在调用点叠加——
-            // 注入 $config 时不叠加，原样下传（保留注入点的原语义）
+            // 注入 $config 时不叠加，原样下传（保留注入点的原语义）。
+            // 数组并集是**左侧优先**，故 sqlServer() 永远不能含 timeout（tests/config_test.php
+            // 的"键集合恰为五字段"钉着这一点），否则这里的 5s 会被静默吞掉
             $this->db = new \SqlSrvHelper($this->config ?? (Config::sqlServer() + [
                 // 登录超时比 SqlSrvHelper 的默认 30s 短得多：这条回写在 Web 请求里（人点补传），
                 // 源库不可达时每条成功单都要卡一次连接超时，30s × 一屏单据 = 操作者以为页面死了。

@@ -131,6 +131,9 @@ root/
 │   ├── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php；用例 16 是工单 07 验收第 3 条的离线口径——2000 码的 104 在 10000 上限下不拆、4000 码的 321 在 3500 上限下拆 3500+500）
 │   ├── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
 │   ├── enterprise_config_test.php # App\Enterprise 自包含断言测试：配置解析/门店认领/接口路由/配置自检
+│   ├── config_test.php           # App\Config::sqlServer() 自包含断言测试：键集合恰为五字段（**不含 timeout**）、
+│   │                             #   未显式 load() 时 password 非空（**唯一能分辨 load 跑没跑**的一条——生产 .env 的
+│   │                             #   其余四字段与硬编码默认值逐字相同）、与 Config::get() 逐键对账（抓键名拼错）
 │   ├── retail_upload_test.php    # App\RetailRequestAssembler 自包含断言测试：lsyd 入参映射（refUserId 取凭据 ref_ent_id、from/to 照搬源表列、clientType=2、码上限取自路由），判据用请求类自己的 check()
 │   ├── retail_retention_test.php # App\RetailRetention 自包含断言测试：2 年截止日的计算与边界（常规/跨年/月末/闰日溢出方向、截止日当天保留、不传参时相对今天滚动）
 │   ├── retail_manual_test.php    # App\RetailManualEntry 自包含断言测试：哪两类要往来单位名称、对手方 entId 落在 from 还是 to
@@ -488,6 +491,7 @@ php /usr/share/nginx/mashangfangxin/scripts/check_quantity.php 2026-08-16
 php /usr/share/nginx/mashangfangxin/tests/trace_splitter_test.php
 php /usr/share/nginx/mashangfangxin/tests/quantity_check_test.php
 php /usr/share/nginx/mashangfangxin/tests/enterprise_config_test.php
+php /usr/share/nginx/mashangfangxin/tests/config_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_upload_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_retention_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_manual_test.php

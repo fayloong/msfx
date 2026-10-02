@@ -155,6 +155,23 @@ UpdateStateWriter      server=192.168.2.133 port=1433 database=hyyy_zyscm userna
 前两行是**反射读**（TaskFetcher 内部 `SqlSrvHelper` 的私有 `$config`）；`UpdateStateWriter`
 那行是反射调 private `db()`——**只建连接**，没调 `markUploaded()`，故源库一行未写。
 
+### code-review 收口（两轴并行审查 `ff85521...HEAD`）
+
+**Spec 轴：无缺失、无蔓延、无硬错误。** 四连接点的五字段 + timeout 由审查者自行从
+`git show ff85521:<file>` 取旧字面量复核（不是信票面）：逐格一致，`timeout=5` 未丢；
+两个注入点靠 `??` 短路、注入数组原样下传，语义与改前相同；「明确不做」四条全守；
+验收声称与 diff 对得上。
+
+Standards 轴发现与处置：
+
+| 发现 | 轴 | 处置 |
+|---|---|---|
+| 新增 `tests/config_test.php` 未进 `CLAUDE.md` 文件树与「运行单元测试」清单——CLAUDE.md「文档同步规则」明写"新增/删除文件"必须同步，且 `tests/` 树对每个测试逐条描述 | Standards（**硬违规**） | **修**：两处都补上 |
+| 用例 4 对 `.env` 缺失无守卫——新克隆上必红，且红的形态与"键名拼错"一模一样，诊断指向错误方向 | Standards（判断） | **修**：加 SKIP 守卫；SKIP 分支已实测（副本把 `.env` 路径指空，两条 SKIP 各就各位、其余仍绿） |
+| `Config::sqlServer() + ['timeout' => 5]` 依赖"那一层永不含 timeout"的隐含前提——并集左侧优先，哪天真加了会被静默吞掉 | Standards（判断） | **补注释**：点明左侧优先 + 用例 1 的"键集合恰为五字段"正钉着这个前提 |
+| 五字段裸数组（Data Clumps / Primitive Obsession 视角） | Standards（判断） | **不修**：票面「决策」表已给理由（不放 `SqlSrvHelper`、不含 timeout），文档化决定覆盖基线 |
+| 用例 4 的 `$pairs` 与 `sqlServer()` 的键映射重复（Duplicated Code） | Standards（判断） | **不修**：那正是"独立对账"的意思，文件头注释已说明 |
+
 ### 测试辨别力实测（"跑绿"本身不算证据）
 
 临时摘掉 `sqlServer()` 里的 `self::load()` 再跑：**用例 3（password 非空）与用例 4（与

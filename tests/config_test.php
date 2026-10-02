@@ -74,20 +74,26 @@ check('用例2: 五个值都是 string', $nonString === [], implode(',', $nonStr
 // ---------- 用例 4: 与 Config::get() 逐键一致（键名拼写的对账） ----------
 // 对账用 get() 的**无默认值**形态：sqlServer() 里若把键名拼错（如 DB_DATABSE），
 // 它取到的是自己的兜底默认值，而这里取到 ''，两者不等即暴露。
-$pairs = [
-    'server' => 'DB_SERVER',
-    'port' => 'DB_PORT',
-    'database' => 'DB_DATABASE',
-    'username' => 'DB_USERNAME',
-    'password' => 'DB_PASSWORD',
-];
-$mismatch = [];
-foreach ($pairs as $field => $envKey) {
-    if ($config[$field] !== Config::get($envKey)) {
-        $mismatch[] = "{$field}({$config[$field]})≠{$envKey}(" . Config::get($envKey) . ')';
+// .env 不在场时跳过：那时 sqlServer() 的兜底默认值（192.168.2.133 等）与 get() 的 ''
+// 必然不等，红出来的形态与"键名拼错"一模一样——诊断会指向错误的方向。
+if (!file_exists($envPath)) {
+    echo "SKIP  用例4: 五字段与 Config::get() 逐键一致（config/.env 不存在，无法对账）\n";
+} else {
+    $pairs = [
+        'server' => 'DB_SERVER',
+        'port' => 'DB_PORT',
+        'database' => 'DB_DATABASE',
+        'username' => 'DB_USERNAME',
+        'password' => 'DB_PASSWORD',
+    ];
+    $mismatch = [];
+    foreach ($pairs as $field => $envKey) {
+        if ($config[$field] !== Config::get($envKey)) {
+            $mismatch[] = "{$field}({$config[$field]})≠{$envKey}(" . Config::get($envKey) . ')';
+        }
     }
+    check('用例4: 五字段与 Config::get() 逐键一致', $mismatch === [], implode(', ', $mismatch));
 }
-check('用例4: 五字段与 Config::get() 逐键一致', $mismatch === [], implode(', ', $mismatch));
 
 echo "\n";
 if ($failures === 0) {
