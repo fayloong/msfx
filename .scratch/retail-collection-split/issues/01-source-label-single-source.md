@@ -6,7 +6,7 @@
 
 **Blocked by:** None（可立即开始）
 
-**Status:** done（2026-10-02）
+**Status:** done（2026-10-02；提交 `dcdf5d7`、收口 `0990829`，gitee 与 origin 均已跟上）
 
 - [x] 新增一份来源标签常量（中文标签 + 徽标色 + 下拉选项），成为该口径的**唯一事实源**；两个日志页视图与导出都从它取（页面输出成 JS map，导出直接用）
   - 落点 `src/LogSource.php`：一份 `MAP`（取值 => [标签, 徽标色]），对外三个访问器 `labels()` / `badges()` / `label()`——两个日志页的下拉直接 foreach `labels()` 渲染，JS map 与导出各取所需
