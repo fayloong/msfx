@@ -248,10 +248,17 @@ function layout(string $title, string $activeMenu = 'dashboard'): void
                `overflow-wrap:anywhere` 是给不含空格的长串（英文/数字混排的店名）留的：少了它，
                那一串会把该列的 min-content 宽度撑住，浏览器只能给整张表加横向滚动条。 */
             .cell-longtext {
-                font-size: 0.875em;
+                font-size: 0.875rem;
                 white-space: normal;
                 word-break: break-word;
                 overflow-wrap: anywhere;
+            }
+
+            /* 格内的状态徽标（未识别 / 待配凭据 / 未声明凭据位）**不跟着缩**：Bootstrap 的
+               `.badge` 字号是 0.75em、相对所在单元格算——不挡回来，它会随上面那 14px 变成 10.5px，
+               同一行里比"来源/状态"两列的徽标小一圈。写死 12px，与其它列等大。 */
+            .cell-longtext .badge {
+                font-size: 0.75rem;
             }
 
             @media (max-width: 768px) {
