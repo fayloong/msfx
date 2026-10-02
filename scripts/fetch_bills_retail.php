@@ -78,9 +78,6 @@ Config::load();
 /** 采集的四种单据类型（写死）。`999` 语义未明，用户判定不采（见探测结论） */
 const RETAIL_BILL_TYPES = [104, 203, 321, 116];
 
-/** 单号 IN 列表分块大小（规避超长 SQL 与参数上限） */
-const IN_CHUNK_SIZE = 500;
-
 $arg = $argv[1] ?? null;
 $snapshotAll = ($arg === '--all');
 
@@ -120,6 +117,8 @@ try {
     // decide() 判 SKIP——两条路径对"已上传"给同一个结论，不会一边写记录一边又建任务。
     // 全程只读源库、不调平台接口，故不受 8-20 点限流窗口约束；也不受计数门卫约束（票 04 那套），
     // 它不扫源库大表。翻正哪些痕迹、为什么这么判，见 App\RetailExternalUploads::closeLoop()
+    // ⚠️ 票 04 的计数门卫要插在**本段之后**：门卫的"三个数都没变就直接跳过"跳的是整轮采集，
+    //    而闭环不在它的覆盖范围里（票 03 验收项：每轮都跑、不受门卫约束）
     $closure = RetailExternalUploads::closeLoop($source);
     if ($closure['error'] !== null) {
         echo "[fetch_bills_retail] 状态闭环: 源库查询失败，本轮未翻正任何痕迹（{$closure['error']}）\n";
@@ -210,7 +209,7 @@ try {
     // 判据键均为 (company, djbh)：别家企业的同名单号不算"已有"（生产库里裸单号并不唯一）。
     $taskSet = [];
     $successSet = [];
-    foreach (array_chunk(array_keys($bills), IN_CHUNK_SIZE) as $chunk) {
+    foreach (array_chunk(array_keys($bills), RetailExternalUploads::IN_CHUNK_SIZE) as $chunk) {
         $placeholders = implode(',', array_fill(0, count($chunk), '?'));
         foreach ($db->query(
             "SELECT company, djbh FROM upload_tasks WHERE djbh IN ({$placeholders})",

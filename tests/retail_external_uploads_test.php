@@ -23,7 +23,7 @@
  *   - 把 `RESPONSE_STATUS` 改成「上传失败」→ 用例 4 红（记录会从已上传页消失、跑进失败页）
  *   - 把 `SOURCE` 改成词表没登记的取值 → 用例 5 红（页面上直出机器值）
  *   - 把 `task_id` 从 0 改成别的 → 用例 4 红
- *   - 把 `closureActions()` 里 `$uploadedCodes` 那道检查去掉 → 用例 7 的"源库没标已上传"红
+ *   - 把 `closureActions()` 里 `$uploadedBills` 那道检查去掉 → 用例 7 的"源库没标已上传"红
  *   - 把 `closureActions()` 里 `$success` 的判据从 `(company, djbh)` 降成裸单号 → 用例 7 的
  *     "同名单号两家各自判"红
  *   - 把 `append_record` 的 `$hasSuccess` 检查去掉 → 用例 7 的"已有成功记录不追加"红
@@ -150,7 +150,7 @@ $OTHER = 'XSKWMS00099999';
 $actions = RetailExternalUploads::closureActions(
     pending: [$storeA => [$UP => $trace(true, false)]],
     success: [],
-    uploadedCodes: [$UP => true]
+    uploadedBills: [$UP => true]
 );
 check('闭环：已上传 + 待办任务 → 翻任务行（任务不再挂在补传队列里）',
     ($actions[$storeA][$UP]['turn_task'] ?? null) === true);
@@ -161,7 +161,7 @@ check('闭环：已上传 + 待办任务 + 无成功记录 → 追加一条外�
 $actions = RetailExternalUploads::closureActions(
     pending: [$storeA => [$UP => $trace(true, false)]],
     success: [$storeA => [$UP => true]],
-    uploadedCodes: [$UP => true]
+    uploadedBills: [$UP => true]
 );
 check('闭环：已有成功记录 → 仍翻任务行（两条痕迹各自独立判）',
     ($actions[$storeA][$UP]['turn_task'] ?? null) === true);
@@ -172,7 +172,7 @@ check('闭环：已有成功记录 → 不追加第二条成功记录',
 $actions = RetailExternalUploads::closureActions(
     pending: [$storeA => [$OTHER => $trace(false, true)]],
     success: [],
-    uploadedCodes: [$OTHER => true]
+    uploadedBills: [$OTHER => true]
 );
 check('闭环：只有补传失败记录 → 追加外部上传记录（失败页那条随后被同单号判重隐藏）',
     ($actions[$storeA][$OTHER]['append_record'] ?? null) === true);
@@ -182,7 +182,7 @@ check('闭环：只有失败记录 → 没有任务行可翻', ($actions[$storeA
 $actions = RetailExternalUploads::closureActions(
     pending: [$storeA => [$OTHER => $trace(false, true)]],
     success: [$storeA => [$OTHER => true]],
-    uploadedCodes: [$OTHER => true]
+    uploadedBills: [$OTHER => true]
 );
 check('闭环：失败记录 + 已有成功记录 → 不产生任何动作（键不出现）', !isset($actions[$storeA][$OTHER]));
 
@@ -190,7 +190,7 @@ check('闭环：失败记录 + 已有成功记录 → 不产生任何动作（�
 $actions = RetailExternalUploads::closureActions(
     pending: [$storeA => [$UP => $trace(true, true)]],
     success: [],
-    uploadedCodes: [$OTHER => true]   // 查回来的全是别的单号
+    uploadedBills: [$OTHER => true]   // 查回来的全是别的单号
 );
 check('闭环：源库没标已上传 → 一个动作都不产生', $actions === []);
 
@@ -202,14 +202,12 @@ $actions = RetailExternalUploads::closureActions(
         $storeB => [$UP => $trace(true, false)],
     ],
     success: [$storeB => [$UP => true]],
-    uploadedCodes: [$UP => true]
+    uploadedBills: [$UP => true]
 );
-check('闭环：同名单号两家都待办 → 两家各自判（甲店追加、乙店不追加）',
+check('闭环：同名单号两家都待办 → 各自判各自的（甲店追加、乙店不追加；判据按 (company, djbh)）',
     ($actions[$storeA][$UP]['append_record'] ?? null) === true
     && ($actions[$storeB][$UP]['append_record'] ?? null) === false);
-check('闭环：乙店的成功记录不算甲店的（判据按 (company, djbh)，不按裸单号）',
-    ($actions[$storeA][$UP]['append_record'] ?? null) === true);
-check('闭环：同名单号两家的任务行都翻（`$uploadedCodes` 里没有企业维度，翻正一条都不落下）',
+check('闭环：同名单号两家的任务行都翻（`$uploadedBills` 里没有企业维度，翻正一条都不落下）',
     ($actions[$storeA][$UP]['turn_task'] ?? null) === true
     && ($actions[$storeB][$UP]['turn_task'] ?? null) === true);
 
@@ -217,14 +215,14 @@ check('闭环：同名单号两家的任务行都翻（`$uploadedCodes` 里没�
 $actions = RetailExternalUploads::closureActions(
     pending: [$storeA => [strtoupper($UP) => $trace(true, false)]],
     success: [],
-    uploadedCodes: [strtolower($UP) => true]
+    uploadedBills: [strtolower($UP) => true]
 );
 check('闭环：源库回小写、清单是大写 → 仍命中（不因大小写差异"查到了却没翻"）',
     isset($actions[$storeA][strtoupper($UP)]));
 
 // ⑧ 清单为空 → 无动作（closeLoop 据此秒退，连源库都不连）
 check('闭环：清单为空 → 无动作',
-    RetailExternalUploads::closureActions(pending: [], success: [], uploadedCodes: []) === []);
+    RetailExternalUploads::closureActions(pending: [], success: [], uploadedBills: []) === []);
 
 echo "\n";
 if ($failures === 0) {

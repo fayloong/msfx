@@ -43,8 +43,13 @@ class RetailExternalUploads
     public const ACTION_TASK   = 'task';   // 建「等待上传」任务，由人补传
     public const ACTION_SKIP   = 'skip';   // 本地已有这条单的痕迹，整条跳过（幂等）
 
-    /** 单号 IN 列表分块大小（规避超长 SQL 与参数上限；与采集脚本同值） */
-    private const IN_CHUNK_SIZE = 500;
+    /**
+     * 单号 IN 列表分块大小（规避超长 SQL 与参数上限）。
+     *
+     * `public` 是给采集脚本用的：它也要按单号分块查本地痕迹（`array_chunk(…, self::IN_CHUNK_SIZE)`
+     * 那两处）。两处各写一个 500 时，改了一处另一处不会报错——只会有一边的 IN 悄悄少几个参数。
+     */
+    public const IN_CHUNK_SIZE = 500;
 
     /**
      * 分流决定：这一单该怎么落库。
@@ -103,7 +108,7 @@ class RetailExternalUploads
             'rq'              => (string)($bill['rq'] ?? ''),
             'request_status'  => null,
             'response_status' => self::RESPONSE_STATUS,
-            'response'        => self::explain('外部系统已上传该单据（源库状态表里有该单号），本项目未发起任何平台请求'),
+            'response'        => self::provenanceJson('外部系统已上传该单据（源库状态表里有该单号），本项目未发起任何平台请求'),
             'source'          => self::SOURCE,
             'company'         => (string)($bill['company'] ?? ''),
             // 认领不到门店时是 null（company 为「未识别」）——原样下传，由 LogWriter 落库
@@ -146,23 +151,23 @@ class RetailExternalUploads
      * 三处刻意之处：
      *   - **判据按 (company, djbh) 不按裸 djbh**：`$success` 用企业维度取键（生产库里裸单号
      *     并不唯一，乙店的成功记录会把甲店的待办判成"已追加过"而整条吞掉）
-     *   - **`$uploadedCodes` 只能是裸单号**：源库状态表里没有企业列（该结构限制是已知代价，
+     *   - **`$uploadedBills` 只能是裸单号**：源库状态表里没有企业列（该结构限制是已知代价，
      *     见 docs/adr/0007），这一层的串号风险无法在本地消除，只能如实建模
      *   - **追加与翻任务是两条独立的判据**：已有成功记录时任务行仍要翻（那是两条痕迹，翻正
      *     任务行与"记录已存在"无关），反过来没有任务行时也仍要追加记录
      *
      * @param array<string,array<string,array{task:bool,failure:bool}>> $pending 本地待办（企业 => 单号 => 痕迹）
      * @param array<string,array<string,bool>>                         $success 本地已有成功记录（企业 => 单号 => true）
-     * @param array<string,bool>                                       $uploadedCodes 源库状态表里有的单号
+     * @param array<string,bool>                                       $uploadedBills 源库状态表里有的单号
      * @return array<string,array<string,array{turn_task:bool,append_record:bool}>> 无动作的键不出现
      */
-    public static function closureActions(array $pending, array $success, array $uploadedCodes): array
+    public static function closureActions(array $pending, array $success, array $uploadedBills): array
     {
         // 单号比对统一按大写：SQL Server 的比较不区分大小写，源库回传的是**表里**的写法，
         // 与本地清单里的写法未必逐字相同——两侧不拉平会"查到了却没翻"（单号是 ASCII，strtoupper 够用）
         $uploaded = [];
-        foreach ($uploadedCodes as $code => $_) {
-            $uploaded[strtoupper((string)$code)] = true;
+        foreach ($uploadedBills as $djbh => $_) {
+            $uploaded[strtoupper((string)$djbh)] = true;
         }
 
         $actions = [];
@@ -255,24 +260,23 @@ class RetailExternalUploads
 
         // ── 3. 源库核对：按单号 IN 分块查状态表（**只读**）──
         // DISTINCT 不能省：那张表无主键无唯一约束（82 个单号多行），不然同一个单号会回传多行。
-        $codes = [];
+        $djbhs = [];
         foreach ($pending as $byDjbh) {
             foreach ($byDjbh as $djbh => $_) {
-                $codes[$djbh] = true;
+                $djbhs[$djbh] = true;
             }
         }
-        $uploadedCodes = [];
-        foreach (array_chunk(array_keys($codes), self::IN_CHUNK_SIZE) as $chunk) {
-            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+        $uploadedBills = [];
+        foreach (self::chunkedIn(array_keys($djbhs)) as [$chunk, $placeholders]) {
             $ok = $source->queryEach(
                 'SELECT DISTINCT bill_code FROM ' . self::TABLE . " WHERE bill_code IN ({$placeholders})",
                 $chunk,
-                static function (array $row) use (&$uploadedCodes): void {
+                static function (array $row) use (&$uploadedBills): void {
                     $code = trim((string)($row['bill_code'] ?? ''));
                     if ($code !== '') {
                         // 原样收下：与清单单号的大小写比对由 closureActions() 一处负责
                         // （SQL Server 的比较不区分大小写，回传的是**表里**的写法）
-                        $uploadedCodes[$code] = true;
+                        $uploadedBills[$code] = true;
                     }
                 }
             );
@@ -290,8 +294,7 @@ class RetailExternalUploads
 
         // ── 4. 本地已有成功记录（只查清单里出现过的单号，按 (company, djbh) 取键）──
         $success = [];
-        foreach (array_chunk(array_keys($codes), self::IN_CHUNK_SIZE) as $chunk) {
-            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+        foreach (self::chunkedIn(array_keys($djbhs)) as [$chunk, $placeholders]) {
             foreach ($db->query(
                 "SELECT DISTINCT company, djbh FROM upload_logs
                   WHERE djbh IN ({$placeholders}) AND response_status IN ('上传成功', '单据重复')",
@@ -307,7 +310,7 @@ class RetailExternalUploads
         $turned = 0;
         $recorded = 0;
 
-        foreach (self::closureActions($pending, $success, $uploadedCodes) as $company => $byDjbh) {
+        foreach (self::closureActions($pending, $success, $uploadedBills) as $company => $byDjbh) {
             foreach ($byDjbh as $djbh => $action) {
                 $item = $pending[$company][$djbh];
                 $traces = [];
@@ -329,7 +332,7 @@ class RetailExternalUploads
                           WHERE company = ? AND djbh = ? AND source = 'retail' AND task_status = '等待上传'",
                         [
                             self::RESPONSE_STATUS,
-                            self::explain('外部系统已上传该单据（源库状态表里有该单号），本行任务由状态闭环翻正；本项目未发起任何平台请求'),
+                            self::provenanceJson('外部系统已上传该单据（源库状态表里有该单号），本行任务由状态闭环翻正；本项目未发起任何平台请求'),
                             $now,
                             $company,
                             $djbh,
@@ -368,12 +371,28 @@ class RetailExternalUploads
     }
 
     /**
+     * 把待查的单号切成 `IN (?, ?, …)` 能吃的块（每块附一份占位符串）。
+     *
+     * 类里两处 IN 查询（源库核对、本地成功记录）共用这一处：分块与占位符构造各写一遍时，
+     * 改了一处另一处不会报错——只会有一边的 `IN` 悄悄少几个参数，而 SQL 照样能跑。
+     *
+     * @param array<int,string> $djbhs
+     * @return \Generator<int,array{0:array<int,string>,1:string}>
+     */
+    private static function chunkedIn(array $djbhs): \Generator
+    {
+        foreach (array_chunk($djbhs, self::IN_CHUNK_SIZE) as $chunk) {
+            yield [$chunk, implode(',', array_fill(0, count($chunk), '?'))];
+        }
+    }
+
+    /**
      * 说明出处的 JSON：任务行的 `resp` 与记录的 `response` 共用同一段结构。
      *
      * 两处都写它，是为了让「API 返回详情」弹窗里看得见这条痕迹**为什么**是这个状态——
      * 不至于让人以为本项目真调过一次平台。
      */
-    private static function explain(string $reason): string
+    private static function provenanceJson(string $reason): string
     {
         return json_encode([
             'external_upload' => true,
