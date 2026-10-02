@@ -10,6 +10,11 @@
  *   已上传 → 写一条「外部上传」记录进已上传记录页，**不建**补传任务；
  *   未上传 → 照旧建「等待上传」任务，由人在上传任务页补传。
  *
+ * **唯一的例外是 `--all` 全量快照**（票 05）：窗口内**未上传的历史单不建任务**，只留一个数
+ * ——一次跑出三万七千条「等待上传」人工处理不现实，还会把待补传这份工作清单的信号淹没
+ * （工作队列由日常采集按日累积）。它在 `decide()` 上只多传一个 `buildTasks: false`，
+ * 未上传 + 本地无痕那一格落到 ACTION_COUNT_ONLY；**日常口径一字不改**（默认参数）。
+ *
  * 判据只有一处：源库 `dyt.bs_msfx.dbo.update_state` 里有该单号（`bill_state` 实测全为 '1'，
  * 判存在即判已上传）。采集侧对它**只读**，且必须是 `EXISTS` 子查询而非 JOIN——那张表无主键、
  * 无唯一约束，实测 67,856 行里有 82 个单号是多行，JOIN 会把结果集放大。
@@ -42,6 +47,7 @@ class RetailExternalUploads
     public const ACTION_RECORD = 'record'; // 写一条外部上传记录，**不建任务行**
     public const ACTION_TASK   = 'task';   // 建「等待上传」任务，由人补传
     public const ACTION_SKIP   = 'skip';   // 本地已有这条单的痕迹，整条跳过（幂等）
+    public const ACTION_COUNT_ONLY = 'count_only'; // 快照（`--all`）：未上传的历史单不建任务，只计数
 
     /**
      * 单号 IN 列表分块大小（规避超长 SQL 与参数上限）。
@@ -54,31 +60,85 @@ class RetailExternalUploads
     /**
      * 分流决定：这一单该怎么落库。
      *
-     *   uploaded | hasTask | hasSuccess | 动作
-     *   ---------|---------|------------|--------------------------------------------------
-     *   true     | 任意    | false      | RECORD —— 写外部上传记录，**不建任务**
-     *   true     | 任意    | true       | SKIP   —— 本地已有成功记录（不变量：同一 (company, djbh)
-     *                                       最多一条成功记录），重跑同一日期不再写第二条
-     *   false    | 任意    | true       | SKIP   —— 已传成过（本项目补传的或外部系统的），不再入队
-     *   false    | true    | false      | SKIP   —— 任务行已在，重采集不重复建
-     *   false    | false   | false      | TASK   —— 建「等待上传」任务，由人补传
+     *   uploaded | hasTask | hasSuccess | buildTasks | 动作
+     *   ---------|---------|------------|------------|------------------------------------------
+     *   true     | 任意    | false      | 任意       | RECORD —— 写外部上传记录，**不建任务**
+     *   true     | 任意    | true       | 任意       | SKIP   —— 本地已有成功记录（不变量：同一 (company, djbh)
+     *                                                     最多一条成功记录），重跑同一日期不再写第二条
+     *   false    | 任意    | true       | 任意       | SKIP   —— 已传成过（本项目补传的或外部系统的），不再入队
+     *   false    | true    | false      | 任意       | SKIP   —— 任务行已在，重采集不重复建
+     *   false    | false   | false      | true       | TASK   —— 建「等待上传」任务，由人补传
+     *   false    | false   | false      | false      | COUNT_ONLY —— 快照：不建任务，只计数（见下）
      *
-     * 两处容易看漏的：
+     * 三处容易看漏的：
      *   - **已上传 + 有任务行**走 RECORD 而不是"顺手把那条任务翻掉"：任务行是本地待办痕迹，
      *     翻正是**状态闭环（票 03）**的事；采集只读源库、只按判据写新行，不回头改已有行
      *   - **未上传 + 有任务行**走 SKIP 而不是 UPDATE：重采集不该碰已有任务行的任何字段
+     *   - **`$buildTasks = false` 只改最后一格**：不能建任务 ≠ 什么都不写——已上传的照样写记录
+     *     （快照的用途就是"页面上有历史可看"），本地已有痕迹的照样跳过（幂等判据一个字没变）。
+     *     落到 COUNT_ONLY 的只有"未上传 **且** 本地一条痕迹都没有"的那些单：它们在本系统里
+     *     **不可见**，快照给不出任务行，只能留一个数（这就是票面那句"窗口内未上传 N 张，未建任务"）。
+     *     本地已有任务行的未上传单**不算**这个数——它在补传队列里看得见，不是欠账
      *
      * @param bool $uploaded   源库状态表里有该单号（采集 SQL 的 EXISTS 子查询给的标志）
      * @param bool $hasTask    本地已有该 (company, djbh) 的任务行
      * @param bool $hasSuccess 本地已有该 (company, djbh) 的成功记录（上传成功/单据重复）
+     * @param bool $buildTasks 是否建「等待上传」任务；`false` 只该由 `--all` 快照传
+     *                         （日常采集、闭环、手工建单都不传，走默认值）
      * @return string ACTION_* 之一
      */
-    public static function decide(bool $uploaded, bool $hasTask, bool $hasSuccess): string
+    public static function decide(bool $uploaded, bool $hasTask, bool $hasSuccess, bool $buildTasks = true): string
     {
         if ($uploaded) {
             return $hasSuccess ? self::ACTION_SKIP : self::ACTION_RECORD;
         }
-        return ($hasTask || $hasSuccess) ? self::ACTION_SKIP : self::ACTION_TASK;
+        if ($hasTask || $hasSuccess) {
+            return self::ACTION_SKIP;
+        }
+        return $buildTasks ? self::ACTION_TASK : self::ACTION_COUNT_ONLY;
+    }
+
+    /**
+     * 一轮采集的统计累加（纯函数）：把「这一单的动作 + 它的码数」并进计数，返回新的计数。
+     *
+     * `--dry-run` 打印的那句「**将写入 N 单 / M 码**」就是从这里来的，所以口径必须与"真跑写进去
+     * 的东西"逐字一致：
+     *   - `codes`（= M）**只累加真会落库的两种动作**（RECORD / TASK）的码数。被跳过与只计数的单据
+     *     一个码都不进 M——否则预演报出来的码数比真跑写进去的多，那份数字就不再是"将写入"了
+     *   - `records`（写记录）/ `tasks`（建任务）两者相加是 N；`count_only` 是快照里"未上传且本地
+     *     无痕"的张数（**不进 N**，它不写库）；`skipped` 是本地已有痕迹、这次一条都没写的单数
+     *   - 未知动作**抛异常**而不是静默丢弃：加一个 ACTION_* 却忘了在这里归类，统计就会悄悄少一块
+     *
+     * @param array<string,int> $counts 上一轮的计数（起手传空数组；`+=` 补齐缺失的键，故调用方不必先初始化）
+     * @param string $action ACTION_* 之一
+     * @param int    $codes  这一单的追溯码个数（去重后的，即真正会写进 `trace_codes` 的那些）
+     * @return array{records:int,tasks:int,count_only:int,skipped:int,codes:int}
+     * @throws \InvalidArgumentException 动作不在 ACTION_* 里
+     */
+    public static function tally(array $counts, string $action, int $codes): array
+    {
+        $counts += ['records' => 0, 'tasks' => 0, 'count_only' => 0, 'skipped' => 0, 'codes' => 0];
+
+        switch ($action) {
+            case self::ACTION_RECORD:
+                $counts['records']++;
+                $counts['codes'] += $codes;
+                break;
+            case self::ACTION_TASK:
+                $counts['tasks']++;
+                $counts['codes'] += $codes;
+                break;
+            case self::ACTION_COUNT_ONLY:
+                $counts['count_only']++;
+                break;
+            case self::ACTION_SKIP:
+                $counts['skipped']++;
+                break;
+            default:
+                throw new \InvalidArgumentException("未知动作: {$action}");
+        }
+
+        return $counts;
     }
 
     /**

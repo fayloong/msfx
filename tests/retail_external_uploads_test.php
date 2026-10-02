@@ -4,19 +4,21 @@
  *
  * 运行: php tests/retail_external_uploads_test.php
  *
- * 测试目标: 采集分流的两个纯逻辑 ＋ 状态闭环的动作分类——
+ * 测试目标: 采集分流的两个纯逻辑 ＋ 状态闭环的动作分类 ＋ 快照口径与统计口径——
  *   ① `decide()` 把「源库说已上传没有 × 本地已有哪种痕迹」翻译成落库动作；
  *   ② `buildRecord()` 把一条已上传的单落成什么形状的记录；
- *   ③ `closureActions()` 把「本地待办 × 源库判据 × 本地已有成功记录」翻译成翻正动作（票 03）。
+ *   ③ `closureActions()` 把「本地待办 × 源库判据 × 本地已有成功记录」翻译成翻正动作（票 03）；
+ *   ④ `decide(..., buildTasks: false)` 的快照口径 ＋ `tally()` 的统计口径（票 05）。
  *
  *   本文件真正钉的是三条**漏了就会出事**的性质：
  *   - **幂等**（用例 3）：同一 `(company, djbh)` 已有成功记录时必须 SKIP——否则每跑一轮采集
  *     就多一条成功记录，「同一张单只出现一行」这个统计口径随采集次数漂移
- *   - **不建任务**（用例 2）：已上传的单走 RECORD、落在 upload_tasks 之外——否则它会以
- *     「等待上传」出现在补传队列里，人对着一条已经传过的单再点一次补传（平台申报不可逆）
+ *   - **不建任务**（用例 2 与用例 8）：已上传的单走 RECORD、落在 upload_tasks 之外——否则它会以
+ *     「等待上传」出现在补传队列里，人对着一条已经传过的单再点一次补传（平台申报不可逆）；
+ *     快照（`--all`）多一条：**未上传的历史单也不建任务**（否则一次灌进约三万七千条）
  *   - **按 (company, djbh) 判据**（用例 7）：闭环的每一条判据都不能退化成裸单号——生产库里
  *     单号并不唯一，乙店的成功记录会把甲店的待办整条吞掉（对外表现为"这张单凭空消失"）
- *   其余用例钉形状：列取值、来源常量与词表的对应、说明出处的 JSON、表名常量。
+ *   其余用例钉形状：列取值、来源常量与词表的对应、说明出处的 JSON、表名常量、统计键。
  *
  * **辨别力**（去掉关键行为必须变红）：
  *   - 把 `decide()` 里已上传分支的 `$hasSuccess` 检查去掉 → 用例 3 红
@@ -27,6 +29,10 @@
  *   - 把 `closureActions()` 里 `$success` 的判据从 `(company, djbh)` 降成裸单号 → 用例 7 的
  *     "同名单号两家各自判"红
  *   - 把 `append_record` 的 `$hasSuccess` 检查去掉 → 用例 7 的"已有成功记录不追加"红
+ *   - 把 `decide()` 的 `$buildTasks` 分支去掉（快照照样建任务）→ 用例 8 的第一条红
+ *   - 把 `$buildTasks` 的默认值改成 false（日常也不建任务）→ 用例 8 最后那条护栏红
+ *   - 把 `tally()` 里 COUNT_ONLY/SKIP 也算进 codes（预演码数虚高）→ 用例 9 那两条红
+ *   - 把 `tally()` 的 default 分支从抛异常改成静默 return → 用例 9 最后那条红
  *
  * **闭环的编排（`closeLoop()`）不进本测试**：它读本地库、查源库、写本地库，三样都是真环境，
  * 断言得起劲也只是在测"SQLite 能不能写"。可测的判据全在 `closureActions()` 里，编排只负责
@@ -223,6 +229,75 @@ check('闭环：源库回小写、清单是大写 → 仍命中（不因大小�
 // ⑧ 清单为空 → 无动作（closeLoop 据此秒退，连源库都不连）
 check('闭环：清单为空 → 无动作',
     RetailExternalUploads::closureActions(pending: [], success: [], uploadedBills: []) === []);
+
+// ---------- 用例 8: 快照口径（票 05：`--all` 未上传的历史单不建任务） ----------
+// `--all` 与日常走同一条采集代码，只差 decide 的第四个参数。这一格错了两边都出事：
+// 漏传 → 一次快照灌进约三万七千条「等待上传」（人工处理不现实、待补传清单的信号被淹没）；
+// 传宽了 → 快照连已上传的记录都不写，"页面上有历史可看"这个用途直接落空。
+$C = RetailExternalUploads::ACTION_COUNT_ONLY;
+
+check('快照：未上传 + 本地无痕 → 只计数（**不建任务**）',
+    RetailExternalUploads::decide(false, false, false, buildTasks: false) === $C);
+check('快照：未上传 + 已有任务行 → 跳过（它在补传队列里看得见，不算欠账、不重复写）',
+    RetailExternalUploads::decide(false, true, false, buildTasks: false) === $S);
+check('快照：未上传 + 已有成功记录 → 跳过（已传成过，不再入队）',
+    RetailExternalUploads::decide(false, false, true, buildTasks: false) === $S);
+check('快照：已上传 + 本地无痕 → 照写外部上传记录（快照的用途就是"页面上有历史可看"）',
+    RetailExternalUploads::decide(true, false, false, buildTasks: false) === $R);
+check('快照：已上传 + 已有成功记录 → 跳过（幂等判据与日常同一套，没有第二份）',
+    RetailExternalUploads::decide(true, false, true, buildTasks: false) === $S);
+// 默认值这一条是**日常口径的护栏**：第四个参数忘了传时必须是"照常建任务"，不能是"静默不建"
+check('日常（默认参数）：未上传 + 本地无痕 → 照旧建任务',
+    RetailExternalUploads::decide(false, false, false) === $T);
+check('COUNT_ONLY 与另外三个动作取值都不同',
+    count(array_unique([$R, $T, $S, $C])) === 4, "{$R}/{$T}/{$S}/{$C}");
+
+// ---------- 用例 9: 统计口径（`--dry-run` 那句「将写入 N 单 / M 码」的算法） ----------
+// 预演报的数就是这里累加出来的，所以它必须与"真跑会写进去的东西"逐字一致：
+// 被跳过、被只计数的单据，一个码都不能进 M（否则预演的数字虚高，看量级的人就被骗了）。
+// 起手空数组：五个键一次补齐（调用方不必先初始化）——预演/采集都从 `$tally = []` 起手
+$keys = array_keys(RetailExternalUploads::tally([], RetailExternalUploads::ACTION_SKIP, 0));
+sort($keys);
+check('统计：起手空数组 → 五个键都补上',
+    $keys === ['codes', 'count_only', 'records', 'skipped', 'tasks'],
+    implode('/', $keys));
+
+$t1 = RetailExternalUploads::tally([], RetailExternalUploads::ACTION_RECORD, 5);
+check('统计：写一条记录 → records+1、码数进 M', $t1['records'] === 1 && $t1['codes'] === 5,
+    json_encode($t1, JSON_UNESCAPED_UNICODE));
+$t2 = RetailExternalUploads::tally([], RetailExternalUploads::ACTION_TASK, 3);
+check('统计：建一个任务 → tasks+1、码数同样进 M',
+    $t2['tasks'] === 1 && $t2['codes'] === 3, json_encode($t2, JSON_UNESCAPED_UNICODE));
+// 这两条是本用例的重点：**不写库的动作不许把码数算进来**
+check('统计：快照只计数的单 → count_only+1、**码数不进 M**',
+    ($c = RetailExternalUploads::tally([], RetailExternalUploads::ACTION_COUNT_ONLY, 7))['count_only'] === 1
+    && $c['codes'] === 0,
+    json_encode($c, JSON_UNESCAPED_UNICODE));
+check('统计：跳过的单 → skipped+1、**码数不进 M**',
+    ($s = RetailExternalUploads::tally([], RetailExternalUploads::ACTION_SKIP, 9))['skipped'] === 1
+    && $s['codes'] === 0,
+    json_encode($s, JSON_UNESCAPED_UNICODE));
+
+// 连续累加：各键各归各的（一轮采集就是这么一单一单并起来的）
+$sum = [];
+$sum = RetailExternalUploads::tally($sum, RetailExternalUploads::ACTION_RECORD, 5);
+$sum = RetailExternalUploads::tally($sum, RetailExternalUploads::ACTION_TASK, 2);
+$sum = RetailExternalUploads::tally($sum, RetailExternalUploads::ACTION_COUNT_ONLY, 100);
+$sum = RetailExternalUploads::tally($sum, RetailExternalUploads::ACTION_SKIP, 7);
+$sum = RetailExternalUploads::tally($sum, RetailExternalUploads::ACTION_RECORD, 1);
+check('统计：连续累加 → 写 2 单 / 6 码（5+1）、任务 1 单 / 2 码、只计数 1 单、跳过 1 单，码合计 8',
+    $sum === ['records' => 2, 'tasks' => 1, 'count_only' => 1, 'skipped' => 1, 'codes' => 8],
+    json_encode($sum, JSON_UNESCAPED_UNICODE));
+
+// 未知动作抛异常而不是静默丢弃：将来加一个 ACTION_* 却忘了在这里归类，统计会悄悄少一块，
+// 而"少一块"在页面上看不出来——只有变红才拦得住
+$threw = false;
+try {
+    RetailExternalUploads::tally([], 'action_that_does_not_exist', 1);
+} catch (\InvalidArgumentException $e) {
+    $threw = true;
+}
+check('统计：未知动作 → 抛异常（不静默丢弃）', $threw);
 
 echo "\n";
 if ($failures === 0) {
