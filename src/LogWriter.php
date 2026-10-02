@@ -14,7 +14,10 @@ class LogWriter
     /**
      * 写入上传日志到 JSONL + SQLite。
      *
-     * @param array{djbh: string, request_status: string, response_status: ?string, response: string, task_id?: int, ent_name?: string, trace_codes?: string, rq?: string, source?: string, company?: string, credential?: ?string} $entry
+     * `request_status` 允许 null：外部上传记录（App\RetailExternalUploads）用它表示
+     * **本项目没有发起任何请求**——写「请求成功」是失真（那会让它在详情弹窗里看起来像一次真实调用）。
+     *
+     * @param array{djbh: string, request_status: ?string, response_status: ?string, response: string, task_id?: int, ent_name?: string, trace_codes?: string, rq?: string, source?: string, company?: string, credential?: ?string} $entry
      */
     public function write(array $entry): void
     {

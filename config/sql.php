@@ -80,8 +80,9 @@ print_r($rows);
 //⚠️ 探测残留，**别照抄本段**：写死单一 bill_type='203'（真实口径是四种）、缺 physic_type 列
 // （补传装配要它）、按 bill_code 未去重（321 有完全重复行，会把追溯码放大最多 120 倍——现行脚本
 // 把去重挪到 PHP 侧）。
-// 它那句 NOT EXISTS(update_state) 的来龙去脉：ADR 0007（2026-09-29）曾判为去掉，2026-09-30 又因
-// 测试阶段口径临时加回——现行口径一律以 scripts/fetch_bills_retail.php 为准。
+// 它那句 NOT EXISTS(update_state) 的来龙去脉：ADR 0007（2026-09-29）曾判为去掉 → 2026-09-30 因
+// 测试阶段口径临时加回 → 2026-10-02 票 02 改成分流（同一条 SQL 里取 EXISTS 标志列，不再是整批过滤）
+// ——现行口径一律以 scripts/fetch_bills_retail.php 为准。
 $get_up_task_retail="
 select ls.bill_code,ls.bill_time,ls.bill_type,ls.from_user_id,ls.to_user_id,ls.ref_ent_id,ls.oper_ic_name,co.trace_codes
 from dyt.msfx.dbo.zsm_ls ls 

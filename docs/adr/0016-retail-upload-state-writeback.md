@@ -58,9 +58,15 @@ ADR 0007 自己把这条列为待办："手动补传是否导致外部系统重�
   对同一事实给出一致答案。
 - **回写只增不减**：本项目对 `update_state` 只有 `INSERT`，没有 `UPDATE`/`DELETE`。
   仓库里的写入路径仅 `UpdateStateWriter::markUploaded()` 与回填脚本两处，都走同一段 SQL。
-- **`fetch_bills_retail.php` 的过滤与回写形成闭环**：它读 `NOT EXISTS(update_state)` 采集，
-  补传成功后表里有了记录，同一单不会再被采回来——采集判重（`upload_logs`）是第二道，
-  两者互为冗余。
+- **`fetch_bills_retail.php` 的分流与回写形成闭环**：采集读同一张表把单据一分为二——已在表里的
+  写成「外部上传」记录、不在的才进补传队列（**2026-10-02 票 02 由 `NOT EXISTS` 过滤改为此，
+  见 [ADR 0007](0007-retail-no-platform-reconciliation.md) 修订注三**）；补传成功后表里有了记录，
+  同一单不会再被采回补传队列——采集判重（`upload_logs`）是第二道，两者互为冗余。
+- **读侧口径随之扩展（票 02 记）**：这张表原本只反映**外部系统**的进度；回写上线后它同时反映
+  **本项目**的进度。后果之一是采集侧那条记录的来源名「外部上传」（`retail_external`）说的是
+  **分流结果**——采集时该单号已在表里——**不保证一定是外部系统传的**，也可能是本项目补传后
+  回写的。要分清得看该单有没有本项目自己的 `retail_retry` / `manual` 日志（见 CONTEXT.md
+  「外部上传」词条的同一处说明）。
 - **MSDTC 这条约束写进了代码注释**：将来若有人想给回写加事务（或把 `markUploaded()` 挪进某个事务块），
   注释与 ADR 都会指出它会失败。
 - **告警出口只有 JSONL，但 JSONL 的写法只有一处**：`LogWriter::writeJsonlOnly()` 是"不写 `upload_logs`

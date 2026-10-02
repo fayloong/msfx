@@ -3,8 +3,10 @@
  * 回写零售源库的「外部系统上传状态」表 dyt.bs_msfx.dbo.update_state
  *
  * 写什么：一条门店单据**已经申报到平台**（上传成功或单据重复），外部系统不必再传它。
- * 为什么：外部系统拿这张表判断"哪些单还没传"，本项目采集侧也用它过滤
- * （scripts/fetch_bills_retail.php 的 NOT EXISTS）——补传成功后写这一行，两边认知才一致。
+ * 为什么：外部系统拿这张表判断"哪些单还没传"，本项目采集侧也读它分流
+ * （scripts/fetch_bills_retail.php 的 EXISTS 标志列 → 已上传的单落成「外部上传」记录，
+ * 见 App\RetailExternalUploads）——补传成功后写这一行，两边认知才一致。
+ * 表名常量收在 `RetailExternalUploads::TABLE`（全仓唯一一处）；本类是它的**写侧**。
  * 决策与探测证据见 docs/adr/0016。
  *
  * 三条硬约束（2026-10-02 探测实证）：
@@ -21,10 +23,7 @@ namespace App;
 
 class UpdateStateWriter
 {
-    /** 远程表名（4 段式链接服务器名；连接连的是本实例的 hyyy_zyscm，表在 dyt 那侧） */
-    private const TABLE = 'dyt.bs_msfx.dbo.update_state';
-
-    /** bill_state 的取值：与表内存量一致（存量 67,842 行全为 '1'，列是 varchar） */
+    /** bill_state 的取值：与表内存量一致（2026-10-02 实测 67,856 行全为 '1'，列是 varchar） */
     private const STATE_UPLOADED = '1';
 
     private ?array $config;
@@ -57,10 +56,11 @@ class UpdateStateWriter
         }
 
         try {
-            // 一条语句里判存在 + 插入：远程执行、自动提交，不需要（也不能有）本地事务
+            // 一条语句里判存在 + 插入：远程执行、自动提交，不需要（也不能有）本地事务。
+            // 表名取自 RetailExternalUploads::TABLE（读侧与写侧唯一的表名来源）
             $affected = $this->db()->execute(
-                'insert into ' . self::TABLE . ' (bill_code, bill_state)
-                 select ?, ? where not exists (select 1 from ' . self::TABLE . ' where bill_code = ?)',
+                'insert into ' . RetailExternalUploads::TABLE . ' (bill_code, bill_state)
+                 select ?, ? where not exists (select 1 from ' . RetailExternalUploads::TABLE . ' where bill_code = ?)',
                 [$billCode, self::STATE_UPLOADED, $billCode]
             );
 
