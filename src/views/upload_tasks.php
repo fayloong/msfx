@@ -523,8 +523,8 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
                 <td class="text-nowrap">${esc(r.rq)}</td>
                 <td><code>${esc(r.djbh)}</code></td>
                 <td>${billTypeLabels[r.bill_type] || '-'}</td>
-                <td class="text-truncate" style="max-width:200px" title="${esc(r.company || '')}">${companyCell(r, unidentified)}</td>
-                <td class="text-truncate" style="max-width:220px" title="${esc(r.ent_name || '')}">${esc(r.ent_name)}</td>
+                <td class="cell-longtext" style="max-width:200px" title="${esc(r.company || '')}">${companyCell(r, unidentified)}</td>
+                <td class="cell-longtext" style="max-width:220px" title="${esc(r.ent_name || '')}">${esc(r.ent_name)}</td>
                 <td>
                     ${r.trace_codes
                         ? `<button class="btn btn-sm btn-outline-secondary btn-trace" data-trace="${esc(r.trace_codes)}">查看追溯码</button>`

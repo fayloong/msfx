@@ -241,6 +241,19 @@ function layout(string $title, string $activeMenu = 'dashboard'): void
                 margin-left: var(--sidebar-collapsed-width);
             }
 
+            /* 长文本列（"所属企业"/"往来单位"，三个数据页共用这一份）：字号略小 + 允许换行，
+               尽量把企业名显示全。此前是 Bootstrap 的 text-truncate（nowrap + 省略号），
+               长名字只剩"XX大药房连锁有限…"——列表页恰恰是扫一眼的地方，逐行 hover 才认得出全名。
+               列宽仍由 td 自带的 max-width 兜着：**换行而不是把表格撑宽**，其余列一格不动。
+               `overflow-wrap:anywhere` 是给不含空格的长串（英文/数字混排的店名）留的：少了它，
+               那一串会把该列的 min-content 宽度撑住，浏览器只能给整张表加横向滚动条。 */
+            .cell-longtext {
+                font-size: 0.875em;
+                white-space: normal;
+                word-break: break-word;
+                overflow-wrap: anywhere;
+            }
+
             @media (max-width: 768px) {
                 .sidebar {
                     width: var(--sidebar-collapsed-width);
