@@ -4,7 +4,7 @@
 
 **Blocked by:** 02（记录形状与状态表判据来自它）
 
-**Status:** done（2026-10-02）
+**Status:** done（2026-10-02；提交 `3312bdc`、收口 `823c945`，gitee 与 origin 均已跟上）
 
 - [x] 待办清单 = 还在「等待上传」的门店任务 ＋ 零售企业的补传失败记录，按 `(company, djbh)` 取；按单号分批 `IN` 查状态表
   - 落点 `App\RetailExternalUploads::closeLoop()`：任务行 `WHERE source='retail' AND task_status='等待上传'`、失败记录 `WHERE request_status='请求失败' OR response_status IS NULL OR response_status NOT IN ('上传成功','单据重复')` 再按 `Enterprise::isRetail()` 筛企业类型。两条查询的结果合成一张 `company => djbh => 痕迹` 的清单（`??=` 保证同一键只留首次遇到的那行元数据）
