@@ -4,7 +4,7 @@
 
 **Blocked by:** None（可立即开始，与 01–05 完全并行）
 
-**Status:** done（2026-10-02）
+**Status:** done（2026-10-02；提交 `123b2f2`、收口 `73aa707`，gitee 与 origin 均已跟上）
 
 - [x] 取 `task_status='等待上传' AND source='retail'`，**排除 `company='未识别'`**；末尾打印"跳过未识别 N 条"与成功/失败统计
 - [x] 逐条走**现有补传实现**（三关 fail-closed、上传装配、日志、状态翻转、源库回写全部复用，不复制第二份上传逻辑）
