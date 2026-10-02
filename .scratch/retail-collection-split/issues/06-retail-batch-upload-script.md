@@ -4,13 +4,36 @@
 
 **Blocked by:** None（可立即开始，与 01–05 完全并行）
 
-**Status:** ready-for-agent
+**Status:** done（2026-10-02）
 
-- [ ] 取 `task_status='等待上传' AND source='retail'`，**排除 `company='未识别'`**；末尾打印"跳过未识别 N 条"与成功/失败统计
-- [ ] 逐条走**现有补传实现**（三关 fail-closed、上传装配、日志、状态翻转、源库回写全部复用，不复制第二份上传逻辑）
-- [ ] 文件锁防并发；空队列立即退出，不取锁空转
-- [ ] `--dry-run` 只列不传（**一次平台调用都不发**）；`--limit=N` 限量，便于首跑小步走
-- [ ] 不进 crontab；文档写明"能力已备、暂不启用"
-- [ ] 自包含测试：取数口径（只取门店等待上传、排除未识别）与 `--dry-run` 不产生平台调用
-- [ ] ADR 0011 补注：这条脚本一旦启用即反转"补传只能人工触发、没有自动重试"，记下**能力已备**与**暂不启用**两个事实
-- [ ] CLAUDE.md 文件树与常用命令同步；既有测试全部跑通
+- [x] 取 `task_status='等待上传' AND source='retail'`，**排除 `company='未识别'`**；末尾打印"跳过未识别 N 条"与成功/失败统计
+- [x] 逐条走**现有补传实现**（三关 fail-closed、上传装配、日志、状态翻转、源库回写全部复用，不复制第二份上传逻辑）
+- [x] 文件锁防并发；空队列立即退出，不取锁空转
+- [x] `--dry-run` 只列不传（**一次平台调用都不发**）；`--limit=N` 限量，便于首跑小步走
+- [x] 不进 crontab；文档写明"能力已备、暂不启用"
+- [x] 自包含测试：取数口径（只取门店等待上传、排除未识别）与 `--dry-run` 不产生平台调用
+- [x] ADR 0011 补注：这条脚本一旦启用即反转"补传只能人工触发、没有自动重试"，记下**能力已备**与**暂不启用**两个事实
+- [x] CLAUDE.md 文件树与常用命令同步；既有测试全部跑通
+
+## 交付记录（2026-10-02）
+
+**落点**（两个新文件，既有类一个字没动）：`App\RetailBatchUpload`——取数口径常量 `PENDING_SQL`（门店来源 + 等待上传）与主循环 `run($tasks, $upload, $dryRun, $limit, $report)`；`scripts/upload_pending_retail.php`（参数解析 / 取数 / 取锁 / 打印）；`tests/retail_batch_upload_test.php`。**`RetailRetransmit`、`RetailRequestAssembler`、三关、装配、`RetailExternalUploads`、批发链路与三个检查脚本一个字段未动**——上传逻辑只此一份，脚本逐条调它。
+
+**接缝怎么落的（用户拍板：抽纯函数、新建类）**：主循环收一个 `$upload` 回调，生产上就是 `fn($task) => $retransmit->retransmit($task, $db)`，测试注入"被调用就记一笔"的假回调——`--dry-run 不产生平台调用`因此是**可断言的事实**而不是人工观察（用例 2）。与 `RetailCollectionGate::guard()` 的注入同款。
+
+**取数口径的落点**：SQL 常量只写 `source='retail' AND task_status='等待上传'`，**刻意不把 `未识别` 筛进 SQL**——票面那句"跳过未识别 N 条"要从取回的行里数出来（筛进 SQL 就只剩一个不知道多少的数）。"能不能传"的判据是 `Enterprise::isRetail`（比 `company === '未识别'` 更严：批发主体、空名、被改错的企业名一并挡住）。两条都在 `run()` 的前半段，`tests/retail_batch_upload_test.php` 用例 1/3/4 钉着。
+
+**⚠️ 本票一次真申报都没发**（用户约束：门店申报不可逆，生产库当时挂着 6,247 条待办）：验证全部走离线等价路径，生产库与生产源库**零写入**。四步：
+
+1. **`--dry-run` 与本地库直查对账**：脚本列出 **6,196 单 / 21,989 码**、跳过未识别 **51 条**；拿 sqlite 直查（自写 SQL + 门店名单取自 `Enterprise::retailCredentialReady()`，不引用 `PENDING_SQL`，避免拿实现验实现）逐行比对——**单号/门店/码数逐行逐字相同**。
+2. **`--dry-run` 零副作用实测**：跑两次（全量与 `--limit=7`）前后，`upload_tasks`/`upload_logs`/`retail_retry`/`retail_external` 四个计数与库文件、JSONL 大小**完全未变**；锁文件不建。另有一条对照：不跑脚本时这些数字同样稳定（排除 cron 干扰）。
+3. **真传那条路（项目副本 + 本地离线桩）**：副本 `top_sdk/top/TopClient.php` 的 `gatewayUrl` 指向 `127.0.0.1:8899` 的桩（回平台信封 `SUCCESS`/`response_success=true`），副本 `.env` 的 SQL Server 指向不可达地址（挡住 `UpdateStateWriter` 回写生产源库）。跑 `--limit=2` ×2：桩日志显示 `method=…lsyd.uploadretail`、`bill_code` 与计划一致、`ref_user_id=有(32)`、321 不带 `client_type/phys_from/to`——**正是 `RetailRequestAssembler` 的装配规格**（这条路只此一份实现）；副本库里那 4 单翻 `已处理` + `上传成功`、`credential=main` 写回、`upload_logs` 增 4 条 `source='retail_retry'`、JSONL 同步 4 条 + 4 条 `update_state_write_failed` 警告（回写被挡住，**不影响上传结果**——顺带把这条既有性质也验了一遍）。
+4. **拒绝路径与空队列**：一条"凭据未配齐"门店的单被三关拒 → 桩**0 次调用**、任务行**一个字段未动**（`updated_at` 仍是 09-30 19:40:23）、算失败并继续（同一次跑的后面一条正常成功，逐条隔离成立）；队列清空后跑 → **0.049 秒**打印"没有等待上传的门店单据"、退出码 0、**锁文件压根不建**、0 次调用。
+
+**生产侧零影响（实测）**：源库 `update_state` 行数 68,055 → 68,055（真传前后各数一次）；生产库 `retail_retry` 记录仍 14 条、副本传过的那 5 个单号在生产库仍全是「等待上传」；生产项目 `logs/` 无 `upload_pending_retail.lock`。（生产库文件大小在验证期间有变——那是 13:00 的 `fetch_bills` cron，与本票无关。）
+
+**量级（实测，票面与开场约束的数字都对得上）**：`source='retail' AND task_status='等待上传'` 共 **6,247** 行，其中 `未识别` **51** 行 → 可传 **6,196 单 / 21,989 码**。**跑一次就是 6,196 张的真实申报**——这正是"不进 crontab + 先 `--dry-run` 小步走"的理由。
+
+**辨别力（六条逐条实测，改一处跑一遍再还原）**：dry-run 分支去掉 → 用例 2 红两条；门店判据恒真 → 用例 3/4/5 共 8 条红；`--limit` 截断挪到分流之前 → 用例 5 红两条；去掉 try/catch → PHP fatal（用例 6 断言没跑完，退出码 255）；`PENDING_SQL` 丢掉 `task_status` → 用例 1 红；子单 `failed>0` 判成成功 → 用例 7 红。
+
+**两处刻意的小决策**：① `--limit=0` **直接拒绝**（几乎必然是笔误；想看一眼队列该用 `--dry-run`），不让它成为一个"跑了一遍却什么都没传"的静默空操作；② `--dry-run` **不取锁**（它一个字节都不写，没有要互斥的东西），且排在取锁之前——所以"空队列秒退不取锁"对预演与真跑都成立。

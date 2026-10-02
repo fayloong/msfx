@@ -48,6 +48,7 @@ root/
 │   ├── EntDirectory.php          # 往来单位名录：人填的名称 → 平台认的 ent_id（ent_list 缓存按 (company, ent_name) 隔离 → 未命中才调平台、查到才回写）；批发链路与门店手工建单共用一份
 │   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 App\RetailRetransmit
 │   ├── RetailRetransmit.php      # 零售单据上传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态 → **全部子单成功后回写源库 update_state**）：单条补传（tasks_retry_retail）、批量重传里的零售那批（tasks_batch_retry 逐条调它，日志来源 retail_retry）、门店手工建单（App\RetailManualEntry，日志来源 manual）三处共用；装配仍走 RetailRequestAssembler
+│   ├── RetailBatchUpload.php     # 零售门店单据的**批量上传**（票 06；能力已备、暂不启用）：取数口径 `PENDING_SQL`（门店来源 + 等待上传；**刻意不把 `未识别` 筛进 SQL**——脚本末尾那句"跳过未识别 N 条"要靠它数出来）+ 主循环 `run($tasks, $upload, $dryRun, $limit, $report)`（**先跳过非门店、后限量**，未识别因此不占 `--limit` 额度；逐条 try/catch 隔离；**`--dry-run` 时 `$upload` 一次都不调**——主循环抽成收 callable 正是为了这条能自包含地断言）。上传逻辑一行不重写：逐条交给 RetailRetransmit
 │   ├── UpdateStateWriter.php     # 回写零售源库状态表（告诉外部系统"这单传过了"）：幂等靠 SQL 自身（`INSERT ... WHERE NOT EXISTS`——该表无主键、无唯一约束），写失败只记 JSONL 警告、不影响上传结果；**绝不能包本地事务**（写链接服务器起不了分布式事务，MSDTC 被禁），见 docs/adr/0016；表名取自 RetailExternalUploads::TABLE（**写侧不再自己写一遍表名**）
 │   ├── RetailExternalUploads.php # 「外部上传」：外部系统已上传的门店单据——`TABLE` 常量（源库状态表名，全仓唯一一处硬编码，采集/回写/门卫共用）、分流判定 `decide()`（已上传→写记录不建任务 / 未上传→建任务 / 本地已有→跳过，两条分支的幂等判据不同；**第四个参数 `buildTasks: false` 是 `--all` 快照**（票 05）——未上传 + 本地无痕 → `ACTION_COUNT_ONLY`"只计数不建任务"，日常不传、走默认 true）、记录形状 `buildRecord()`（source=retail_external、response_status=上传成功、task_id=0、request_status 留 NULL、response 写一段出处说明）、统计累加 `tally()`（动作 → 计数；**只有 RECORD/TASK 的码数进 M**——`--dry-run` 那句"将写入 N 单 / M 码"就是它累出来的，未知动作抛异常）。即采集口径从「过滤」改「分流」那件事（票 02）；**状态闭环**（票 03）也归它：纯函数 `closureActions()`（待办 × 源库判据 → 翻任务/追加记录，**判据按 (company, djbh)**）＋编排 `closeLoop()`（读本地待办 → IN 查状态表 → 翻任务行 / 追加记录 / 记 JSONL；源库查不通时一条都不翻）
 │   ├── RetailManualEntry.php     # 门店手工建单（在线新增 + xlsx 导入共用的唯一实现）：prepare() 校验/取凭据/查对手方（唯一一次平台往返，失败即拒建单）→ create() 落库 + 交 RetailRetransmit 上传；needsCounterparty/endpoints 是「哪两类要往来单位」「对手方落 from 还是 to」的纯规则，见 docs/adr/0015
@@ -140,6 +141,11 @@ root/
 │   │                             #  认领走 Enterprise::claim；未上传的落库 source=retail / task_status=等待上传——
 │   │                             #  与批发**共用一个状态值**（2026-10-01 统一，见 docs/adr/0014；拦住门店单
 │   │                             #  不被 cron 取走的是 company 白名单，不是状态值））
+│   ├── upload_pending_retail.php # 【**能力已备、暂不启用**，票 06】把「等待上传」的门店单逐条交给现有补传实现
+│   │                             #  （App\RetailRetransmit）：`--dry-run` 只列不传（单号/门店/码数）、`--limit=N` 限量；
+│   │                             #  空队列**不取锁**秒退，真跑取 logs/upload_pending_retail.lock、逐条隔离（被三关拒的算失败继续）。
+│   │                             #  **不进 crontab**——挂上去等于让不可逆的申报在人看不见的时候发出去（见 docs/adr/0011 补注）；
+│   │                             #  首次交付一次真申报都没发，验证走项目副本 + 本地离线桩（见票 06 的交付记录）
 │   ├── upload_pending.php        # cron 批量上传队列中等待中的任务（只取批发主体的"等待上传"）
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
@@ -200,6 +206,12 @@ root/
 │   │                             #   辨别力：write 挪到 collect 之前 / 计数失败改成跳过 / 不比对日期 / 坏基线抛异常 /
 │   │                             #   未变也照跑——五处各有用例变红（计数 SQL 本身不进测试，靠实测对账：门卫 total
 │   │                             #   必须等于采集脚本那句"拉取到 N 张单据"）
+│   ├── retail_batch_upload_test.php # App\RetailBatchUpload 自包含断言测试（票 06）：取数口径（只取门店等待上传、
+│   │                             #   `未识别` **不**筛在 SQL 里、按 id 升序）、**`--dry-run` 一次都不调上传回调**、
+│   │                             #   未识别/批发主体/空名一律跳过并计数、`--limit` 限的是上传条数（跳过的不占额度）、
+│   │                             #   逐条隔离（被拒算失败、后续照跑）、子单 failed>0 的一单计失败。
+│   │                             #   辨别力：六处各自变红（dry-run 分支去掉 / 门店判据恒真 / 限量挪到分流之前 /
+│   │                             #   去掉 try/catch（PHP fatal，断言没跑完）/ SQL 丢掉状态条件 / 子单失败判成成功）
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
@@ -322,6 +334,7 @@ root/
 - **进度里的"成功"按业务结果算，不照搬 `ApiClient::execute` 的 `success`**：后者是网关级（无 `code` 错误即 true），实测平台对"存在已出售的码"这类业务拒绝也返回 `success=true` + `msg_code=FAIL`，照搬会把真实失败显示成绿色 [成功]、汇总写成"成功 1"。口径与已上传页/失败页一致：`上传成功` 与 `单据重复` 都算成功（单据已在平台上），其余算失败
 - **实测（2026-09-30 首次真传）**：单条两单 + 批量一批四张（批量入口当时还在）。批量那次是新江分店 4 张 `321`，全部 `上传成功`（4 行 `upload_logs` 带 `source='retail_retry'`/门店/凭据/task_id，4 行任务翻 `已处理` + `上传成功`，该门店未处理单 24 → 20，已上传页按门店名可辨认）。**104/203 刻意未真传**：ADR 0010 的 `fromUserId`/`toUserId` 发货收货语义仍待外部系统工程师确认，传错方向会在平台上留下错误申报（装配正确性目前由工单 05 的纯函数断言兜着）。两个 lsyd 接口的响应都是同一套 TOP 信封（`result.msg_code` / `msg_info` / `response_success`），故 `ApiClient::resolveUploadResponseStatus` 两个接口族通用——`SUCCESS`+`response_success=true` → 上传成功；`msg_info` 含"该单据号已存在" → 单据重复；`msg_code=FAIL` → 上传失败。平台对**已被申报过的销售单**返回业务错误「存在已出售的码」（→ 上传失败），即补传不是"重放"而是真实申报
 - **失败也算"已处理"**（与批发链路一致）：任务表是待处理队列，`上传失败`/`未确定`/网络请求失败都翻 `已处理`，`等待上传` 队列不会无限堆积；"补传没成功"的出口是失败记录页（该页第一条条件 `response_status NOT IN ('上传成功','单据重复')` 挡住 `单据重复` 自身，实测零售的 `上传失败` 记录确实可见）。因此补传失败后要再试，是在任务页按"已处理"筛出该行重传，不是等它回到 `等待上传`
+- **批量上传脚本备而不用（票 06，2026-10-02）**：`scripts/upload_pending_retail.php` 把「等待上传」的门店单**逐条**交给本链路（取数口径、`--limit` 与 `--dry-run` 的判据都在 `App\RetailBatchUpload`），**默认不挂 cron**、由人手手动跑——它一旦进 crontab，ADR 0011 那条"补传只能人工触发、没有自动重试"即被反转，故**启用与否留给人**（见该 ADR 的补注）。它只扩"一次能走多少条"，不放松任何一关：三关 fail-closed 照旧、逐条隔离（被拒的算失败并继续下一条，与上传任务页"批量重传"里零售那批同口径）、日志来源仍是 `retail_retry`、回写与任务翻转全在 `RetailRetransmit` 里，本脚本一行上传逻辑都不重写。**首次交付一次真申报都没发**：验证在项目副本 + 本地离线桩上做（生产库与生产源库零写入已实测），生产环境的首次启用是另一个决定
 
 ### 批量查询上传状态（check_bill_status.php + check_failed_logs.php）
 
@@ -349,6 +362,8 @@ root/
 | cleanup_logs | `0 3 * * *` | 三条清理判据不同：日志 3 个月前（`created_at`）、已处理任务 3 个月前（`updated_at`）、**门店超期单据 2 年前（`rq` 单据日期）**——后者是"今天合法的单据两年后就不合法了"的唯一出口，见 `App\RetailRetention` |
 
 **注（2026-09-30 核对 root crontab 现状）**：`fetch_bills`、**`fetch_bills_retail`**（工单 03 交付的条目已人工装上，当日 08:05/08:35/… 的采集记录可见）、`check_bill_status` **都在跑**；`check_quantity` **未调度**、仅手动运行。改动本表前先 `crontab -l` 核对，别照抄文档。
+
+**注（票 06，2026-10-02）**：门店单据的批量上传脚本 `upload_pending_retail.php` **刻意不进本表**——它一旦进了 crontab，`docs/adr/0011` 那条"补传只能人工触发、没有自动重试"就被反转（申报不可逆，得有人在发起之前看得见清单）。**别把它加进去**：要用就手动跑，先 `--dry-run` 看清单、再 `--limit=N` 小步走。
 
 覆盖保证：任何单据最终都会被查到平台状态（等待上传 ≤30 分钟 / 失败记录 ≤24h / SQL Server 全量 ≤24h）。check_quantity 与 check_failed_logs 不得改到 8-20 点窗口内运行（与 check_bill_status 并发调同一 AppKey 立即触发平台限流）。
 
@@ -541,6 +556,16 @@ php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php --all
 # 即便口径被改错，UploadService 的守卫是第二道
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending.php
 
+# 门店单据的**批量上传**（票 06）：**能力已备、暂不启用**——由人手动跑，**别挂进 crontab**
+#    （挂上去等于让不可逆的申报在人看不见的时候发出去，见 docs/adr/0011 的补注）。
+#    逐条走现有补传实现（三关 fail-closed、日志来源 retail_retry、任务状态翻转、源库回写全照旧），
+#    排除「未识别」（判据是"是不是门店企业"）并在末尾计数；空队列**不取锁**秒退，
+#    真跑取 logs/upload_pending_retail.lock。取数口径与限量判据在 App\RetailBatchUpload
+#    ⚠️ **默认就是真传、不可逆**：先 --dry-run 看清单，再用 --limit=N 小步走
+php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --dry-run          # 只列不传（单号/门店/码数）
+php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --dry-run --limit=3 # 看前 3 条会传什么
+php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --limit=2          # 真传前 2 张（真实申报）
+
 # 批量查询单据上传状态（来源 1：等待上传任务；新鲜度门卫：距上次查询不足 30 分钟的单据自动跳过）
 # 注：日期参数仅打印在日志中，查询范围不受日期限制（按门卫规则扫描全部待查单据）；只查批发主体
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status.php
@@ -595,6 +620,7 @@ php /usr/share/nginx/mashangfangxin/tests/record_query_test.php
 php /usr/share/nginx/mashangfangxin/tests/log_source_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_external_uploads_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_collection_gate_test.php
+php /usr/share/nginx/mashangfangxin/tests/retail_batch_upload_test.php
 
 # 查询单号在码上放心平台的上传状态（searchbill.detail；输出 JSON + 另存 tests/searchbill_<单号>.json）
 php /usr/share/nginx/mashangfangxin/tests/search_bill_test.php XSOWMS00997501
