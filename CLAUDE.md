@@ -254,6 +254,8 @@ root/
 - ② **顶层限流判为可重试**：顶层 `code` 过去一律按「业务错误不重试」处理，于是限流（`code=7` / `App Call Limited`）被静默判成失败并翻「已处理」，只能人工去失败记录页重传。新增纯函数 `ApiClient::isRetryableTopError(code, msg)`（**code=7 或 msg 含 "App Call Limited"**，后者是 code 将来变了不失效的兜底），`execute()` 用它决定 `is_network_error`——限流于是走**既有重试通道**（3 次 / 30 秒；实测封禁只有一两秒）。将来若发现别的可重试顶层码，在**这一处**加。
 - ③ **`catch (\Exception)` → `catch (\Throwable)`**：`ApiClient::execute()` 与 `UploadService::uploadSingle()` 各一处。改动 ① 之后理论上不再抛，但 SDK 内部任何别的 `\Error` 也一样会抛穿，归为「网络错误（可重试）」比抛穿安全。
 
+**残留（review 发现，未修，留给运维决定）**：改动 ① 只把目录钉到了项目内，**文件级的同一故障仍可能重演**——本项目有**两套身份**写 `logs/`：**root 的 crontab**（`check_bill_status.php` 等，见下方 cron 时间表）与 **nginx 的 PHP-FPM**（Web 端手工上传/重传）。两者都用河药那一个 appkey，于是 root 先建出 `logs/top_biz_err_32367731_<日期>.log`（0644、属主 root）之后，nginx 侧同日再写同名文件时 `fopen(…, 'a')` **照样失败**——同一个 TypeError 按 appkey 逐文件重演。改动 ③ 之后它不再抛穿整条链路（被 `catch (\Throwable)` 归为可重试），代价是真实原因又被掩盖、且白重试 3×30 秒。**根治是让写这个库的进程同身份**（cron 条目改以 nginx 身份跑，或日志文件统一 chgrp/chmod），属运维决定——别只改一处，两套身份都要照顾到。
+
 ## Web 路由
 
 单入口 `public/index.php`，通过 `page` 参数分发：
