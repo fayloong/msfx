@@ -106,6 +106,14 @@
 - ADR 0006–0011：**补齐状态行**
 - 失败记录页 `quantity_check` 来源标签/下拉缺失：**只记欠账、代码不动**
 
+### 2026-10-02 修订注：上条欠账已还
+
+- 失败记录页 `quantity_check` 来源标签/下拉缺失 → 已由
+  [retail-collection-split 票 01](../retail-collection-split/issues/01-source-label-single-source.md) 还上：
+  来源标签/徽标/下拉收成 `src/LogSource.php` 一份（`quantity_check` 显示「数量对账」、可按它筛）。
+  上面"只记欠账、代码不动"是 09 票当时的处置，**不再代表现状**——本轮的行文里凡引用这条欠账处，
+  读到的都是"曾欠、已还"。
+
 ## code-review 收口（2026-09-30，fixed point `3690c07`）
 
 两轴（Standards / Spec）各出一个子代理并行审（纯文档 diff：10 个 `.md`、131 增 23 删）。逐条处理：

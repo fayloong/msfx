@@ -71,9 +71,16 @@ check(
 
 // ---------- 用例 2: 每个取值都有徽标色、标签非空（下拉与徽标都不出空档） ----------
 check('每个取值都有徽标色（顺序与标签表一一对应）', array_keys($badges) === array_keys($labels));
+// 键对齐还不够：MAP 某行少写一截（['零售采集'] 而非 ['零售采集', 'bg-dark']）时键仍在、值是 null，
+// 上面那条照样绿，徽标却渲染成空 class（只剩一条 PHP Warning，脚本不会因此变红）。故逐个数值本身。
+check(
+    '每个取值的徽标色非空（少写一小截会渲染成空 class）',
+    count(array_filter($badges, fn($b) => is_string($b) && trim($b) !== '')) === count($badges),
+    '空值: ' . implode(', ', array_keys(array_filter($badges, fn($b) => !is_string($b) || trim($b) === '')))
+);
 check(
     '每个取值的标签非空（下拉里不会出现空白选项）',
-    count(array_filter($labels, fn($l) => trim($l) !== '')) === count($labels)
+    count(array_filter($labels, fn($l) => is_string($l) && trim($l) !== '')) === count($labels)
 );
 
 // ---------- 用例 3: 标签是翻译过的中文、且互不重复 ----------
@@ -86,9 +93,13 @@ check(
     count(array_unique($labels)) === count($labels)
 );
 
-// ---------- 用例 4: 代码里的来源常量必须落在词表里 ----------
-// 这条是"词表漏一个取值"的真闸门：常量改名/改值而词表没跟上 → 红。
-// 直接写死 'retail_retry' 的话，改了常量本测试照样绿。
+// ---------- 用例 4: 以类常量声明来源的写入方，常量必须落在词表里 ----------
+// 引用常量本身（而不是写死 'retail_retry'）——常量改名/改值而词表没跟上 → 红。
+// **覆盖范围要说清**：这只钉得住用类常量声明来源的两个写入方。其余写入方是脚本里的字面量
+// （fetch_bills 的 'cron'、check_quantity 的 'quantity_check'、check_bill_status 的
+// 'batch_check'、两处 'batch_retry'、'retail' 等），改那些字面量**不会**让本测试变红——
+// 那一条靠的是"改取值就改 $known 与词表"的人工约定，不是断言（要真兜住得去扫源码解析字面量，
+// 那是另一类测试：本仓库的测试只断言外部行为，不解析 SQL/源码）。
 check('RetailRetransmit::SOURCE 在词表里', isset($labels[RetailRetransmit::SOURCE]), RetailRetransmit::SOURCE);
 check('RetailManualEntry::LOG_SOURCE 在词表里', isset($labels[RetailManualEntry::LOG_SOURCE]), RetailManualEntry::LOG_SOURCE);
 
