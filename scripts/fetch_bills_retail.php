@@ -54,6 +54,7 @@ use App\BillType;
 use App\Config;
 use App\Database;
 use App\Enterprise;
+use App\LogWriter;
 use App\RetailRetention;
 
 Config::load();
@@ -211,7 +212,9 @@ try {
                 'matched_by' => $claim['matched_by'],
                 'organ_name' => $organName,
             ];
-            writeRetailWarning($warning);
+            // 只进 JSONL、不进 upload_logs（后者是"上传结果"日志，写进去会在失败记录页冒出
+            // 既非上传也非失败的记录，污染唯一的告警出口，见 docs/adr/0007）
+            (new LogWriter())->writeJsonlOnly($warning);
             $reason = $claim['matched_by'] === 'id'
                 ? "按 ID 认到 {$company}，但源库机构名「{$organName}」对不上任何门店"
                 : "认领不到门店：源库机构名「{$organName}」未登记，ID 也未命中";
@@ -257,17 +260,4 @@ try {
 } catch (\Exception $e) {
     echo "[fetch_bills_retail] 错误: " . $e->getMessage() . "\n";
     exit(1);
-}
-
-/**
- * 写一条 JSONL 警告。
- *
- * 刻意**只进 JSONL、不进 upload_logs**：upload_logs 是"上传结果"日志，写进去会在失败记录页
- * 冒出一条既非上传也非失败的记录，污染那个唯一的告警出口（见 docs/adr/0007）。
- */
-function writeRetailWarning(array $record): void
-{
-    $line = ['timestamp' => date('Y-m-d H:i:s')] + $record;
-    $file = __DIR__ . '/../logs/api_' . date('Y-m-d') . '.jsonl';
-    file_put_contents($file, json_encode($line, JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND | LOCK_EX);
 }

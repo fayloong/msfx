@@ -57,11 +57,15 @@ ADR 0007 自己把这条列为待办："手动补传是否导致外部系统重�
 - **外部系统不再重传本项目已申报的门店单**：`update_state` 与 `upload_logs` 两个判重来源
   对同一事实给出一致答案。
 - **回写只增不减**：本项目对 `update_state` 只有 `INSERT`，没有 `UPDATE`/`DELETE`。
-  仓库里的写入路径仅 `UpdateStateWriter::mark()` 与回填脚本两处，都走同一段 SQL。
+  仓库里的写入路径仅 `UpdateStateWriter::markUploaded()` 与回填脚本两处，都走同一段 SQL。
 - **`fetch_bills_retail.php` 的过滤与回写形成闭环**：它读 `NOT EXISTS(update_state)` 采集，
   补传成功后表里有了记录，同一单不会再被采回来——采集判重（`upload_logs`）是第二道，
   两者互为冗余。
-- **MSDTC 这条约束写进了代码注释**：将来若有人想给回写加事务（或把 mark() 挪进某个事务块），
+- **MSDTC 这条约束写进了代码注释**：将来若有人想给回写加事务（或把 `markUploaded()` 挪进某个事务块），
   注释与 ADR 都会指出它会失败。
+- **告警出口只有 JSONL，但 JSONL 的写法只有一处**：`LogWriter::writeJsonlOnly()` 是"不写 `upload_logs`
+  的 JSONL 追加"的公共入口（`write()` 与它共用私有的 `appendJsonl()`），回写的
+  `update_state_write_failed` 与采集的 `retail_claim_name_unmatched` 都走它——code-review 指出这三处
+  曾各写一份同形状的追加代码（2026-10-02 收口）。
 - **探测留下的唯一痕迹已清除**：真写验证用 `__PROBE_` 假单号，验证后立即 DELETE，
   表内行数与探测前一致（0 残留）。

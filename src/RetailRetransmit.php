@@ -145,7 +145,7 @@ class RetailRetransmit
         // 写**原始单号**：子单号（单号_1）对 update_state 那张表没有意义。
         // 写失败只记 JSONL 警告、不改上面的任何结果（上传已不可逆，这是尽力而为的后续动作）
         if ($success > 0 && $failed === 0) {
-            ($this->stateWriter ??= new UpdateStateWriter())->mark($djbh);
+            ($this->stateWriter ??= new UpdateStateWriter())->markUploaded($djbh);
         }
 
         return ['total' => count($chunks), 'success' => $success, 'failed' => $failed];

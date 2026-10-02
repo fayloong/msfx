@@ -60,20 +60,24 @@
 | 幂等 | `INSERT ... SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM ... WHERE bill_code = ?)` | 探测已验证被链接服务器接受；表无约束，靠 SQL 自身保证幂等。**不先查后插**：两步之间有竞态，且多一次往返 |
 | `bill_state` 取值 | 字符串 `'1'`（与表内存量一致） | 列是 varchar，存量 67,842 行全是 `'1'`；用户给的格式也是 1 |
 | 写失败出口 | JSONL 警告（`type=update_state_write_failed`） | 与采集脚本的 `name_unmatched` 同款出口。**不进 `upload_logs`**——那是上传结果日志，写进去会在失败记录页冒出既非上传也非失败的记录，污染唯一告警出口（ADR 0007 已定的口径） |
-| 存量回填 | `scripts/backfill_update_state.php` 一次性脚本（幂等、可重跑） | 8 个历史单号（新江 5 / 宝源 2 / 埔前立信 1）已补传成功但表里没有；不回填则外部系统仍会重传它们。判据从 `upload_logs` 取（零售企业 + `上传成功`/`单据重复`），不另录清单 |
+| 存量回填 | `scripts/backfill_update_state.php` 一次性脚本（幂等、可重跑） | 8 个历史单号（新江 5 / 宝源 2 / 埔前立信 1）已补传成功但表里没有；不回填则外部系统仍会重传它们。判据从 `upload_logs` 取（`source IN ('retail_retry','manual')` + `上传成功`/`单据重复` + 零售企业——批发的手工上传日志来源同样是 `manual`，只能靠企业类型剔除），不另录清单 |
+| 连接登录超时 | 取 **5s**（`SqlSrvHelper` 默认 30s） | 这条回写在 Web 请求里（人点补传）：源库不可达时**每条成功单**都要卡一次连接超时，30s × 一屏单据会让操作者以为页面死了。源库在同一内网，5s 连不上就是不可用——写失败本就是尽力而为。副本实测：4 条场景从 ~90s 降到 ~17s |
+| 失败路径的连接重试 | **每条各试一次**（连接缓存只在建成后生效，不做熔断） | 熔断（首次失败后本批全跳过）能省掉 N×5s，但会让源库中途恢复时剩下的单**静默漏写**。宁可每条各等一次——漏写才是难发现的坏结果（可由重跑回填脚本补偿，但那要人记得）。缓存粒度 = 一个 `RetailRetransmit` 实例；手工导入逐条 `new`，故那里也是每条各试一次 |
 
 ## 范围
 
 ### 新增
 
-- `src/UpdateStateWriter.php`：`mark(string $billCode): bool`。
-  构造接受可选 `?array $config`（同 `TaskFetcher` 的风格），**不在构造时连库**——首次 `mark()` 才建
-  `SqlSrvHelper` 并缓存；失败记 JSONL 警告、返回 false，不抛。
+- `src/UpdateStateWriter.php`：`markUploaded(string $billCode): int|false`（受影响行数：1=新写入、
+  0=表里已有该单号、false=写失败**且已记警告**——回填脚本要按行数报"写入 N / 跳过 M"，
+  故不返回 bool；空单号也走 false+警告这一路，不静默）。
+  构造接受可选 `?array $config`（同 `TaskFetcher` 的风格），**不在构造时连库**——首次
+  `markUploaded()` 才建 `SqlSrvHelper` 并缓存；失败记 JSONL 警告、返回 false，不抛。
 - `scripts/backfill_update_state.php`：一次性回填，幂等可重跑，输出"写入 N / 跳过 M"。
 
 ### 连带
 
-- `src/RetailRetransmit.php`：chunks 循环后按 `$failed === 0 && $success > 0` 判定并调 `mark()`；
+- `src/RetailRetransmit.php`：chunks 循环后按 `$failed === 0 && $success > 0` 判定并调 `markUploaded()`；
   writer 实例惰性缓存在属性上（批量补传逐条调用时只连一次源库）
 - `docs/adr/0016-retail-upload-state-writeback.md`：新增（决定 + 被排除的方案 + 与 ADR 0007 的关系）
 - `docs/adr/0007`：加修订注（"从不回写"一条被本票推翻）
@@ -114,7 +118,7 @@
 `/tmp/verify18`（项目副本，网关地址改指本地桩 `127.0.0.1:8299`；`UpdateStateWriter` 首轮用同签名桩
 记录调用、次轮换回真实现并把源库地址指错以验失败路径），四场景 **0 失败**：
 
-| 场景 | retransmit 返回 | 任务行 | mark 调用 |
+| 场景 | retransmit 返回 | 任务行 | markUploaded 调用 |
 |---|---|---|---|
 | 桩返回上传成功 | `total=1 success=1 failed=0` | 已处理 / 上传成功 | **是**（原始单号） |
 | 桩返回单据重复 | `total=1 success=1 failed=0` | 已处理 / 单据重复 | **是** |
@@ -138,6 +142,22 @@
 
 首次：`待回填 8 个单号 → 写入 8, 已存在跳过 0, 失败 0`；重跑：`写入 0, 已存在跳过 8, 失败 0`；
 表内复查 8 个单号**各 1 行**。探测期真写验证用的 `__PROBE_` 假单号已 DELETE，表内无残留。
+
+### code-review 收口（两轴并行审查 `5862768...HEAD`）
+
+Spec 轴复核六项核心行为全部通过（写原始单号 / 两类结果同算成功 / 全子单成功才写 / 写失败不改结果 /
+幂等写法合探测 / `bill_state='1'`）。两轴指出的问题与处置：
+
+| 发现 | 轴 | 处置 |
+|---|---|---|
+| `warn()` 可能抛在 try/catch 之外——"写失败绝不抛"只兜住 SQL 那一句 | Spec | **修**：`markUploaded()` 的 catch 包住整个 try；`warn()` 自身整段吞异常（含 logs 目录不可写） |
+| 空单号返回 false 却不记警告，与 docblock 契约不一致 | Standards | **修**：空单号同样记警告再返回 false |
+| `mark()` 名不诚实（标的什么？） | Standards | **修**：改名 `markUploaded()`（调用点两处同步） |
+| JSONL 追加写在 `LogWriter` / 本类 / 采集脚本里是**三份同形状** | Standards | **修**：`LogWriter` 加 `writeJsonlOnly()`（`appendJsonl()` 成为 JSONL 唯一写入点），本类 `warn()` 与采集脚本的 `name_unmatched` 都改走它 |
+| 连接缓存失败路径下每条各重连一次，与"只连一次"的说法不符 | Spec | **讲清**（行为保留）：改注释与票面——这是刻意的重试语义，熔断会静默漏写 |
+| 5s 超时、回填判据的 `source` 限定没进票面决策表 | Spec | **修**：补进决策表 |
+| `spec.md` 票表第 18 行仍写"进行中" | 两轴 | **修**：改"✅ 已完成" |
+| 连接配置五字段第四次复制（既有债务：TaskFetcher / backfill_rq / fetch_bills_retail 各一份） | Standards | **不修**：本票沿用既有写法，收敛要动三个既有调用点，另开一票更合适 |
 
 ## Comments
 

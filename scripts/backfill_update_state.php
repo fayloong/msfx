@@ -71,7 +71,7 @@ $skipped = 0;
 $failed = 0;
 
 foreach (array_keys($codes) as $code) {
-    $affected = $writer->mark($code);
+    $affected = $writer->markUploaded($code);
     if ($affected === false) {
         $failed++;
         echo "[backfill_update_state] 写入失败: {$code}（原因见 logs/api_*.jsonl 的 update_state_write_failed）\n";
