@@ -4,7 +4,7 @@
 
 **Blocked by:** 01（新来源要有标签可放）
 
-**Status:** done（2026-10-02）
+**Status:** done（2026-10-02；提交 `31096ce`、收口 `320e61f`，gitee 与 origin 均已跟上）
 
 - [x] 采集查询去掉已上传过滤，改取一个「已上传」判据列；判据用 `EXISTS` 子查询——状态表无唯一约束、实测 82 个单号多行，`JOIN` 会把结果集放大
   - 落点 `scripts/fetch_bills_retail.php`：`case when exists(select 1 from <状态表> us where us.bill_code=ls.bill_code) then 1 else 0 end as uploaded`。SQL Server 不允许在**聚合**里套子查询（票 04 的门卫计数因此要换写法），非聚合的 `case when` 是允许的——脚本注释里记了这一点
