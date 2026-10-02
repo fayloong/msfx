@@ -4,7 +4,7 @@
 
 **Blocked by:** 02（改的是同一个采集脚本的流程）
 
-**Status:** done（2026-10-02）
+**Status:** done（2026-10-02；提交 `094ea9c`、收口 `5b25a71`，gitee 与 origin 均已跟上）
 
 - [x] 一条 SQL 取三个数，形状是「状态表去重成派生表 + `LEFT JOIN` + `count()`」：
 
