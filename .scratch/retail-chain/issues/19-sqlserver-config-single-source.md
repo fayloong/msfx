@@ -1,7 +1,7 @@
 # 19: SQL Server 连接配置收敛成单一来源
 
 - Type: task
-- Status: done（2026-10-02）
+- Status: done（2026-10-02；提交 `411f03c`、收口 `143f6cb`，gitee 与 origin 均已跟上）
 - Blocked by: 无（18 已完成）
 - 关联：**工单 18 的 code-review 遗留**（18 票「验证证据 → code-review 收口」表最后一行：
   "连接配置五字段第四次复制 → 不修：本票沿用既有写法，收敛要动三个既有调用点，另开一票更合适"）、
@@ -119,8 +119,8 @@ public static function sqlServer(): array   // ['server','port','database','user
 6. ✅ 文档同步：`CLAUDE.md`（文件树 `Config.php` 一行 + 「关键依赖」补一条）/ `spec.md`
    （票表第 19 行）与代码**同一次提交**
 7. ✅ 票面收尾：Status 改 `done`、验收项勾上（**提交号回填是另一次提交**，见 Comments）
-8. ⬜ 双推 gitee（优先）与 origin——**push 之后才能勾**，故本项留到第三次提交
-   （仓先例：工单 09/18 的"已推送"类条目一律晚于 push 勾选，不写下与事实不符的内容）
+8. ✅ 双推 gitee（优先）与 origin：`ff85521..143f6cb` 两个远端均已跟上——本项**在 push 之后
+   才勾**（第三次提交，见 Comments），不写下与事实不符的内容
 
 ## 验证证据
 
