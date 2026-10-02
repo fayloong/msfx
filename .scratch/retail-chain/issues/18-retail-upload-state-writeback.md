@@ -1,7 +1,7 @@
 # 18: 零售门店上传成功后回写源库 update_state
 
 - Type: task
-- Status: done（2026-10-02）
+- Status: done（2026-10-02；提交 `cce0984`、收口 `cd5f89c`，gitee 与 origin 均已跟上）
 - Blocked by: 无（17 已完成）
 - 关联：`docs/adr/0007`（本票**推翻**它的一条：从"从不回写"改为"上传成功后回写"）、
   `docs/adr/0016`（本票落下的决定）、`src/RetailRetransmit.php`（唯一落点）、
