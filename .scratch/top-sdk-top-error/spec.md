@@ -9,7 +9,7 @@
 
 **Blocked by:** None（可立即开始）
 
-**Status:** done
+**Status:** done——提交 `44040bb`、收口 `6388c8a`，gitee 与 origin 均已跟上
 
 ---
 
