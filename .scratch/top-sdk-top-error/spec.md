@@ -161,7 +161,7 @@ if (isset($resp->code) && $resp->code != 0) {
 **实现时发现、本票未修（2 处，记在这里备查）**：
 
 1. **`error` 存的是 SimpleXMLElement 对象**：顶层错误时 `$resp` 是 `SimpleXMLElement`，`'error' => $resp->msg` 存进去的是**对象**（票面说这一格"其余不动"，故保持原样）。后果：`json_encode($result)` 会写成 `{"error":{"0":"App Call Limited"}}` 而不是字符串——日志/`resp` 列里的形状不干净。下游不炸（`str_contains` 与字符串插值都走 `SimpleXMLElement::__toString`），要修就在那一行加 `(string)`，但那会改变 `resp` 列既有数据的形状，值得单独一票。
-2. **文件级残留：混合身份写同一个 appkey 的日志文件**（code-review 的 Spec 轴发现）。改动 1 只把**目录**钉进项目内，而写这个库的有两套身份——**root 的 crontab**（`check_bill_status.php` 等）与 **nginx 的 PHP-FPM**（Web 端上传），两者共用河药那一个 appkey：root 先建出 `logs/top_biz_err_32367731_<日期>.log`（0644 root）后，nginx 侧同日再写同名文件时 `fopen(…, 'a')` 依旧失败，同一个 TypeError 会**按 appkey 逐文件**重演（改动 3 之后不再抛穿链路，但真实原因被掩盖、白重试 3×30 秒）。**根治是统一写日志的身份**——把本项目的 cron 条目改以 nginx 身份跑（或日志文件统一 chgrp/chmod），属运维决定，留给用户；已记进 CLAUDE.md 同一节。
+2. **文件级残留：混合身份写同一个 appkey 的日志文件**（code-review 的 Spec 轴发现，**同日已随用户决定收口**）。改动 1 只把**目录**钉进项目内，而写这个库的有两套身份——**root 的 crontab**（`check_bill_status.php` 等）与 **nginx 的 PHP-FPM**（Web 端上传），两者共用河药那一个 appkey：root 先建出 `logs/top_biz_err_32367731_<日期>.log`（0644 root）后，nginx 侧同日再写同名文件时 `fopen(…, 'a')` 依旧失败，同一个 TypeError 会**按 appkey 逐文件**重演（改动 3 之后不再抛穿链路，但真实原因被掩盖、白重试 3×30 秒）。**收口（2026-10-02，用户拍板）**：root crontab 里本项目 9 条（含注释着的 4 条）全部包成 `su -s /bin/bash nginx -c '/usr/bin/php …'`（重定向留 root 侧，`/var/log/msfx_cron.log` 不必给 nginx 写权限），`logs/`、`data/` 下 40 个 root 属主文件（logs 37：35 个 `api_*.jsonl` + 2 个 `.lock`；data 3：两个门卫基线 json + `msfx.db.bak`）连同 `data/` 目录本身一起 `chown` 回 `nginx:nginx`，SELinux 上下文未变；改前 crontab 备份在 `/tmp/crontab-before-2026-10-02-1719.txt`。**手工跑脚本也必须同身份**（`find logs data -user root` 复查），已写进 CLAUDE.md 的 cron 时间表与环境配置两节。
 
 ## 注意事项
 

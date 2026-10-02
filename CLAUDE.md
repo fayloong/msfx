@@ -254,7 +254,13 @@ root/
 - ② **顶层限流判为可重试**：顶层 `code` 过去一律按「业务错误不重试」处理，于是限流（`code=7` / `App Call Limited`）被静默判成失败并翻「已处理」，只能人工去失败记录页重传。新增纯函数 `ApiClient::isRetryableTopError(code, msg)`（**code=7 或 msg 含 "App Call Limited"**，后者是 code 将来变了不失效的兜底），`execute()` 用它决定 `is_network_error`——限流于是走**既有重试通道**（3 次 / 30 秒；实测封禁只有一两秒）。将来若发现别的可重试顶层码，在**这一处**加。
 - ③ **`catch (\Exception)` → `catch (\Throwable)`**：`ApiClient::execute()` 与 `UploadService::uploadSingle()` 各一处。改动 ① 之后理论上不再抛，但 SDK 内部任何别的 `\Error` 也一样会抛穿，归为「网络错误（可重试）」比抛穿安全。
 
-**残留（review 发现，未修，留给运维决定）**：改动 ① 只把目录钉到了项目内，**文件级的同一故障仍可能重演**——本项目有**两套身份**写 `logs/`：**root 的 crontab**（`check_bill_status.php` 等，见下方 cron 时间表）与 **nginx 的 PHP-FPM**（Web 端手工上传/重传）。两者都用河药那一个 appkey，于是 root 先建出 `logs/top_biz_err_32367731_<日期>.log`（0644、属主 root）之后，nginx 侧同日再写同名文件时 `fopen(…, 'a')` **照样失败**——同一个 TypeError 按 appkey 逐文件重演。改动 ③ 之后它不再抛穿整条链路（被 `catch (\Throwable)` 归为可重试），代价是真实原因又被掩盖、且白重试 3×30 秒。**根治是让写这个库的进程同身份**（cron 条目改以 nginx 身份跑，或日志文件统一 chgrp/chmod），属运维决定——别只改一处，两套身份都要照顾到。
+**文件级残留：已收口（2026-10-02）**——改动 ① 当时只钉住了**目录**，而**文件级**的同一故障仍会重演：本项目曾有两套身份写 `logs/`（**root 的 crontab** 与 **nginx 的 PHP-FPM**），两者用河药那一个 appkey，root 先建出 `logs/top_biz_err_32367731_<日期>.log`（0644 root）后 nginx 侧同日 `fopen(…, 'a')` 照样失败（改动 ③ 兜住不抛穿，但真实原因被掩盖、白重试 3×30 秒）。**收口做法（root crontab 里本项目 9 条全部改掉，含注释着的 4 条）**：
+
+```
+<原调度> su -s /bin/bash nginx -c '/usr/bin/php /usr/share/nginx/mashangfangxin/scripts/xxx.php' >> /var/log/msfx_cron.log 2>&1
+```
+
+重定向留在 root 那侧的 shell 里（`/var/log/msfx_cron.log` 仍是 root:root，不必给 nginx 写权限）；并把 `logs/`、`data/` 下历史 root 属主文件（38 个 jsonl、两个 `.lock`、两个门卫基线 json）`chown` 回 `nginx:nginx`——SELinux 上下文 `httpd_sys_rw_content_t` 不受影响。**手工跑脚本必须同样以 nginx 身份**（`su -s /bin/bash nginx -c 'php …'`）：以 root 直跑会再造 root 属主文件，此后 nginx 侧（含 Web 端）写不进去——`logs/api_<日期>.jsonl` 尤其致命，它一天只有一个文件。
 
 ## Web 路由
 
@@ -403,6 +409,8 @@ root/
 
 **注（票 06，2026-10-02）**：门店单据的批量上传脚本 `upload_pending_retail.php` **刻意不进本表**——它一旦进了 crontab，`docs/adr/0011` 那条"补传只能人工触发、没有自动重试"就被反转（申报不可逆，得有人在发起之前看得见清单）。**别把它加进去**：要用就手动跑，先 `--dry-run` 看清单、再 `--limit=N` 小步走。
 
+**注（2026-10-02 起：本项目所有 cron 条目以 nginx 身份跑）**：root crontab 里本项目的 9 条（5 条在跑 + 4 条注释着的）全部包成 `su -s /bin/bash nginx -c '/usr/bin/php …'`，重定向留在 root 那侧（`/var/log/msfx_cron.log` 仍 root:root）。**为什么**：root 与 nginx 双身份写 `logs/`、`data/` 会造出对方写不进去的文件（`logs/api_<日期>.jsonl` 一天一个文件，被 root 建出来当天就废；SDK 的 `top_*.log` 同理，见上方 TopLogger 一节）。**加新条目照此办理**；**手工跑脚本也必须同身份**（`su -s /bin/bash nginx -c 'php …'`），跑完用 `find logs data -user root` 复查——有输出就说明又造出了 root 属主文件，`chown nginx:nginx` 归位。
+
 覆盖保证：任何单据最终都会被查到平台状态（等待上传 ≤30 分钟 / 失败记录 ≤24h / SQL Server 全量 ≤24h）。check_quantity 与 check_failed_logs 不得改到 8-20 点窗口内运行（与 check_bill_status 并发调同一 AppKey 立即触发平台限流）。
 
 ### 数量对账（check_quantity.php，两级流水线）
@@ -535,7 +543,7 @@ root/
 - **PHP-FPM**: 池名 `mashangfangxin`，监听 `127.0.0.1:9008`
 - **防火墙**: firewalld 需开放 `8188/tcp`（`firewall-cmd --add-port=8188/tcp --permanent`）
 - **SELinux**: `data/` 和 `logs/` 需设 `httpd_sys_rw_content_t` 上下文
-- **文件权限**: `data/msfx.db` 和 `logs/` 及内容必须属主为 `nginx:nginx`（PHP-FPM 运行用户），否则 Web 端将报 "readonly database" 错误导致空响应
+- **文件权限**: `data/msfx.db` 和 `logs/` 及内容必须属主为 `nginx:nginx`（PHP-FPM 运行用户），否则 Web 端将报 "readonly database" 错误导致空响应。**推论（2026-10-02 起照此执行）**：本项目脚本**一律以 nginx 身份跑**——cron 条目用 `su -s /bin/bash nginx -c '/usr/bin/php …'` 包着（见 cron 时间表那节的注），手工跑同样如此；以 root 直跑会造出 root 属主文件，同名文件此后 nginx 侧写不进去（`msfx.db` 本身不因写入改属主，但 WAL 的 `-wal`/`-shm` 边文件是**谁开的归谁**——混身份照样卡住，别在这条上找例外）
 
 ## 关键依赖
 
@@ -552,6 +560,11 @@ root/
 ## 常用命令
 
 ```bash
+# ⚠️ 本项目脚本一律以 **nginx 身份**跑（cron 条目已如此，手工跑同办）——它们要写 logs/ 与 data/，
+#    以 root 直跑会造出 root 属主文件，此后 nginx 侧（含 Web 端）写不进去，见"环境配置 → 文件权限"：
+#      su -s /bin/bash nginx -c '/usr/bin/php /usr/share/nginx/mashangfangxin/scripts/xxx.php'
+#    下面的命令为便于阅读仍写成 `php …`，实际执行请套上 su；跑完用 find logs data -user root 复查。
+
 # 采集当天单据到上传队列
 php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php
 
