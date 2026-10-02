@@ -1,4 +1,4 @@
-**Status:** ready-for-agent
+**Status:** done（票 01–06 已完成并各自双推；07 为文档收尾——四个决定合并记入 [ADR 0017](../../docs/adr/0017-retail-collection-split-gate-closure-snapshot.md)，全仓口径复核完毕）
 
 # 零售采集由「过滤」改「分流」（外部已上传可见 + 计数门卫 + 状态闭环 + 备而不用的上传脚本）
 

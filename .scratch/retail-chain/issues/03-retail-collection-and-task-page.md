@@ -79,6 +79,8 @@
 
 ## 2026-09-30 测试阶段口径变更（票面外，用户指定；本票的验收记录仍然有效，但描述的是变更前的口径）
 
+> ⚠️ **2026-10-02 结案（票 07 复核补记）**：本节那条 `NOT EXISTS(update_state)` **过滤已于 2026-10-02 改为「分流」**（[ADR 0017](../../../docs/adr/0017-retail-collection-split-gate-closure-snapshot.md)、[ADR 0007](../../../docs/adr/0007-retail-no-platform-reconciliation.md) 修订注三）——下面的描述是**当时**的口径，现行口径以 CLAUDE.md 的"零售单据采集"为准。`LEFT JOIN`、PHP 侧去重、`physic_type` 三列的结论**仍然成立**。
+
 采集 SQL 改成**单条** `zsm_ls LEFT JOIN zsm_ls_code` + **`NOT EXISTS(update_state)` 过滤** + **默认 `bill_time` 限当日**——
 票面写的"两步 SQL（先头后码）"与 ADR 0007 的"去掉 update_state 过滤"**双双被推翻，仅限测试阶段**（回收条件见 ADR 0007 修订注）。日期维度分两个入口：cron 走当日；外部系统的历史欠账走 **`--all` 一次性全量快照**（不带日期条件，跑一次即可、不挂 cron）。
 

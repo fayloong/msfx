@@ -48,7 +48,7 @@ root/
 │   ├── EntDirectory.php          # 往来单位名录：人填的名称 → 平台认的 ent_id（ent_list 缓存按 (company, ent_name) 隔离 → 未命中才调平台、查到才回写）；批发链路与门店手工建单共用一份
 │   ├── RetailRequestAssembler.php # 零售补传的请求装配（纯函数：不发起平台调用、不读数据库、不写日志）：请求类与追溯码上限取自 Enterprise::route()，refUserId 取凭据 ref_ent_id，装配完调 SDK 的 check() fail-closed；调用方是 App\RetailRetransmit
 │   ├── RetailRetransmit.php      # 零售单据上传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态 → **全部子单成功后回写源库 update_state**）：单条补传（tasks_retry_retail）、批量重传里的零售那批（tasks_batch_retry 逐条调它，日志来源 retail_retry）、门店手工建单（App\RetailManualEntry，日志来源 manual）三处共用；装配仍走 RetailRequestAssembler
-│   ├── RetailBatchUpload.php     # 零售门店单据的**批量上传**（票 06；能力已备、暂不启用）：取数口径 `PENDING_SQL`（门店来源 + 等待上传；**刻意不把 `未识别` 筛进 SQL**——脚本末尾那句"跳过未识别 N 条"要靠它数出来）+ 主循环 `run($tasks, $upload, $dryRun, $limit, $report)`（**先跳过非门店、后限量**，未识别因此不占 `--limit` 额度；逐条 try/catch 隔离；**`--dry-run` 时 `$upload` 一次都不调**——主循环抽成收 callable 正是为了这条能自包含地断言）。上传逻辑一行不重写：逐条交给 RetailRetransmit
+│   ├── RetailBatchUpload.php     # 零售门店单据的**批量上传**（票 06；能力已备、暂不启用）：取数口径 `PENDING_SQL`（门店来源 + 等待上传；**刻意不把 `未识别` 筛进 SQL**——脚本末尾那句"跳过非门店企业（含未识别）N 条"要靠它数出来）+ 主循环 `run($tasks, $upload, $dryRun, $limit, $report)`（**先跳过非门店、后限量**，未识别因此不占 `--limit` 额度；逐条 try/catch 隔离；**`--dry-run` 时 `$upload` 一次都不调**——主循环抽成收 callable 正是为了这条能自包含地断言）。上传逻辑一行不重写：逐条交给 RetailRetransmit
 │   ├── UpdateStateWriter.php     # 回写零售源库状态表（告诉外部系统"这单传过了"）：幂等靠 SQL 自身（`INSERT ... WHERE NOT EXISTS`——该表无主键、无唯一约束），写失败只记 JSONL 警告、不影响上传结果；**绝不能包本地事务**（写链接服务器起不了分布式事务，MSDTC 被禁），见 docs/adr/0016；表名取自 RetailExternalUploads::TABLE（**写侧不再自己写一遍表名**）
 │   ├── RetailExternalUploads.php # 「外部上传」：外部系统已上传的门店单据——`TABLE` 常量（源库状态表名，全仓唯一一处硬编码，采集/回写/门卫共用）、分流判定 `decide()`（已上传→写记录不建任务 / 未上传→建任务 / 本地已有→跳过，两条分支的幂等判据不同；**第四个参数 `buildTasks: false` 是 `--all` 快照**（票 05）——未上传 + 本地无痕 → `ACTION_COUNT_ONLY`"只计数不建任务"，日常不传、走默认 true）、记录形状 `buildRecord()`（source=retail_external、response_status=上传成功、task_id=0、request_status 留 NULL、response 写一段出处说明）、统计累加 `tally()`（动作 → 计数；**只有 RECORD/TASK 的码数进 M**——`--dry-run` 那句"将写入 N 单 / M 码"就是它累出来的，未知动作抛异常）。即采集口径从「过滤」改「分流」那件事（票 02）；**状态闭环**（票 03）也归它：纯函数 `closureActions()`（待办 × 源库判据 → 翻任务/追加记录，**判据按 (company, djbh)**）＋编排 `closeLoop()`（读本地待办 → IN 查状态表 → 翻任务行 / 追加记录 / 记 JSONL；源库查不通时一条都不翻）
 │   ├── RetailManualEntry.php     # 门店手工建单（在线新增 + xlsx 导入共用的唯一实现）：prepare() 校验/取凭据/查对手方（唯一一次平台往返，失败即拒建单）→ create() 落库 + 交 RetailRetransmit 上传；needsCounterparty/endpoints 是「哪两类要往来单位」「对手方落 from 还是 to」的纯规则，见 docs/adr/0015
@@ -65,7 +65,8 @@ root/
 │   ├── LogSource.php             # 「来源」词表（upload_tasks/upload_logs 的 source 列）——中文标签与徽标色的
 │   │                             #   **唯一事实源**：labels()/badges() 供页面 JS map 与筛选下拉、label() 供导出与
 │   │                             #   任务页按值取；两个日志页的下拉直接 foreach labels() 渲染（天然覆盖全部取值），
-│   │                             #   任务页下拉只列任务表会出现的五个值、成员名单留在视图里。收口前三份 JS map
+│   │                             #   任务页下拉另写一份五个值的名单（含两个来自日志表的取值，见下方「来源」那条）、
+│   │                             #   成员名单留在视图里。收口前三份 JS map
 │   │                             #   各写各的且键集互不相同，quantity_check 三份都没有——数量对账告警因此在失败
 │   │                             #   记录页直出机器值、按来源也筛不出来（见 .scratch/retail-collection-split/）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
@@ -80,7 +81,7 @@ root/
 │   │   ├── tasks_batch_delete.php # 批量删除上传任务
 │   │   ├── tasks_batch_retry.php  # 批量重传（工单 15 起**按行分流**：source='retail' 的逐条走
 │   │   │                          #   App\RetailRetransmit，其余原样走 UploadService；混批不再被守卫整批拒绝）
-│   │   ├── uploaded.php          # 已上传记录列表（upload_logs success=1）
+│   │   ├── uploaded.php          # 已上传记录列表（筛选条件构造在 App\RecordQuery，与另两页及导出共用一份）
 │   │   ├── failed.php            # 失败记录列表（排除**同一企业内**该单号已有上传成功/单据重复记录的日志行——去重键是 (company, djbh)，裸 djbh 会让零售失败记录被同号批发成功单顶掉；quantity_check 来源记录豁免——数量对账仅查已上传成功单，若不豁免会被 NOT EXISTS 全隐藏，告警出口失效；来源列与来源下拉取自 `App\LogSource`，`quantity_check` 显示「数量对账」、也能按它筛——此前"直出机器值、筛不出来"的已知缺口 2026-10-02 已消）
 │   │   ├── logs_delete.php       # 删除单条日志记录
 │   │   ├── logs_batch_delete.php # 批量删除日志记录
@@ -116,7 +117,10 @@ root/
 │                                 #  **别照抄本文件，以脚本为准**）
 ├── public/
 │   ├── index.php                 # Web 单入口（page 参数分发路由）
-│   └── favicon.svg               # SVG 网站图标
+│   ├── favicon.svg               # SVG 网站图标
+│   └── assets/                   # 前端资源**本地自托管**（无外网依赖）：css/（Bootstrap 5.3.3、
+│                                 #   Bootstrap Icons 1.11.3、flatpickr 4.6.9）+ js/（含 flatpickr 中文 locale
+│                                 #   zh.js）+ fonts/（bootstrap-icons.woff/woff2），由 layout.php 按 /assets/… 引用
 ├── scripts/
 │   ├── fetch_bills.php           # cron 从 SQL Server 采集**批发**单据写入上传任务表
 │   ├── fetch_bills_retail.php    # cron 从 dyt 链接服务器采集**零售门店**单据，按源库状态表**分流**（票 02，2026-10-02：
@@ -146,7 +150,8 @@ root/
 │   │                             #  空队列**不取锁**秒退，真跑取 logs/upload_pending_retail.lock、逐条隔离（被三关拒的算失败继续）。
 │   │                             #  **不进 crontab**——挂上去等于让不可逆的申报在人看不见的时候发出去（见 docs/adr/0011 补注）；
 │   │                             #  首次交付一次真申报都没发，验证走项目副本 + 本地离线桩（见票 06 的交付记录）
-│   ├── upload_pending.php        # cron 批量上传队列中等待中的任务（只取批发主体的"等待上传"）
+│   ├── upload_pending.php        # 批量上传队列中等待中的任务（只取批发主体的"等待上传"）；**crontab 里那三条条目当前全部注释着**
+│   │                             #  （注释写的是"暂不启用"）——眼下只能手动跑，别照文档以为它在定时跑
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
 │   ├── check_quantity.php        # 数量对账两级流水线（第 1 级 shl 粗筛嫌疑单 → 第 2 级 singlerelation 码级精查，双差异才写"数量不符"）
@@ -155,12 +160,15 @@ root/
 │   │                             #  单据，见 App\RetailRetention——这条判"单据本身多老"，前两条判"记录存了多久"）
 │   ├── backfill_rq.php           # 回填 upload_logs 的单据日期（rq 列；按 djbh 关联处一律限定批发主体——djbh 不是跨企业唯一的）
 │   ├── backfill_update_state.php # 【一次性回填，2026-10-02 已执行】把回写功能上线前已补传成功的 8 个零售单号补进
-│   │                             #  dyt.bs_msfx.dbo.update_state（判据取自 upload_logs：零售企业 + 已上传成功/单据重复）；
+│   │                             #  dyt.bs_msfx.dbo.update_state（判据取自 upload_logs：`source IN ('retail_retry','manual')`
+│   │                             #  + 已上传成功/单据重复，再按企业类型剔掉批发的 manual 行）；
 │   │                             #  幂等可重跑（重跑即 0 写入、N 跳过），见 docs/adr/0016
 │   ├── init_db.php               # 初始化/迁移 SQLite 数据库及表结构（幂等；含 company/credential 列、历史回填、
 │   │                             #  ent_list 唯一键重建、三列补传元数据、任务状态取值归一 待补传→等待上传）
 │   ├── sqlite_query.php          # 调试工具：直接传 SQL 查询/操作 SQLite（表格输出）
 │   ├── migrate_status_fields.php # 【一次性迁移，2026-07-29 已执行】旧 status/success 两列拆为 task_status/request_status/response_status
+│   │                             #  （**旧列没删掉**：本机 SQLite 3.7.17 不支持 DROP COLUMN，那一步只打印 SKIP——列还在，
+│   │                             #   见下方两张表的字段说明，别去读它们）
 │   ├── fix_response_status.php   # 【一次性修复，2026-07-29 已执行】按 resp/response 重解析，修正映射错误、显示为"未确定"的记录
 │   └── cron_handle.php           # 空文件（0 字节、全仓无引用）——归档残留，无用途，别指望它有行为
 ├── data/
@@ -214,8 +222,17 @@ root/
 │   │                             #   去掉 try/catch（PHP fatal，断言没跑完）/ SQL 丢掉状态条件 / 子单失败判成成功）
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
-│   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
+│   ├── searchbill_*.json         # search_bill_test.php 的查询结果存档
+│   ├── singlerelation_*.json     # singlerelation_test.php（码级对账探针）的查询结果存档
+│   └── company.txt               # 门店凭据草稿（**本地文件，不入 git**——.gitignore 里点名排除的明文凭据）
 ├── logs/                         # API 日志 JSONL 文件
+├── docs/                         # adr/（ADR 0001–0017）、agents/（issue-tracker / triage-labels / domain 约定）、
+│                                 #   python-client/（桌面版工程提示词）、quantity-check 假阳性报告
+├── .scratch/                     # 本地工单与 spec（issue tracker 的落点，见 docs/agents/issue-tracker.md）
+├── CONTEXT.md                    # 领域词汇表（单上下文布局）
+├── composer.json / composer.lock # 依赖 phpoffice/phpspreadsheet；src/SqlSrvHelper.php 走 classmap 加载
+├── .gitignore                    # 排除 vendor/、data/*.db*、data/fetch_bill_counter*.json、logs/*.jsonl、logs/*.lock、
+│                                 #   config/.env、config/enterprises.local.php、top_sdk_retail.zip、tests/company.txt、.DS_Store
 ├── upload_test.php               # 原始上传脚本（旧版，保留参考；**勿运行**——include 路径失效、连的是旧库、ent_list 读写早于多企业改动）
 ├── get_ent_list_test.php         # 原始往来单位同步脚本（旧版，保留参考；**勿运行**——ent_list 唯一键已改为 (company, ent_name)）
 └── bill_info_test.php            # 原始单据查询脚本（旧版）
@@ -254,12 +271,14 @@ root/
 - **`未识别` 的呈现三页并不相同**：只有上传任务页另加红色徽标 + 整行标红（它是操作页，那批单等着人处置）；已上传/失败两个日志页只作普通文字——工单 06 定的就是日志页不标红，本票未改
 - **"企业下拉不算关键词"**：三页都有"输入关键词时丢掉默认 7 天日期范围"的逻辑，那里的关键词**只算单号与往来单位**。企业下拉是筛选维度，算进来会让"选了企业"顺手把默认日期范围也丢掉，日期行为被无声改变
 - **三页的默认 7 天维度不同**（上传任务页＝单据日期 `date_from/to`；已上传/失败页＝任务创建时间 `date_from/to`，单据日期改用 `rq_from/to`），映射写在 `RecordQuery::addRange` 的调用处，改参数名时别搞混
-- **「来源」列与下拉的单一事实源 `App\LogSource`（2026-10-02 收口，见 `.scratch/retail-collection-split/issues/01-source-label-single-source.md`）**：取值 → 中文标签 / 徽标色 / 下拉选项收在一个类里，两个日志页的视图与 xlsx 导出都从它取；**下拉由它 foreach 渲染**，故天然覆盖全部取值——`quantity_check` 曾因三份标签表都没有它而直出机器值、按来源也筛不出来，这笔欠账本轮还上（标签「数量对账」，徽标红）。新增一个来源取值只改那一处。两处刻意的不统一：① **任务页下拉的成员名单留在视图里**，只列任务表会出现的五个值（`retail_retry` / `retail_external` / `quantity_check` 只写日志表，列在那儿只会筛出空结果），标签文本仍取自同一份词表；② **未知取值回落成原值**（历史空串因此仍导成空单元格）——显示机器值总比显示一列空白强，漏配标签时还认得出数据是从哪来的
+- **「来源」列与下拉的单一事实源 `App\LogSource`（2026-10-02 收口，见 `.scratch/retail-collection-split/issues/01-source-label-single-source.md`）**：取值 → 中文标签 / 徽标色 / 下拉选项收在一个类里，两个日志页的视图与 xlsx 导出都从它取；**下拉由它 foreach 渲染**，故天然覆盖全部取值——`quantity_check` 曾因三份标签表都没有它而直出机器值、按来源也筛不出来，这笔欠账本轮还上（标签「数量对账」，徽标红）。新增一个来源取值只改那一处。两处刻意的不统一：① **任务页下拉的成员名单留在视图里**（写死 `cron` / `manual` / `batch_check` / `batch_retry` / `retail` 五个值），标签文本仍取自同一份词表——`retail_retry` / `retail_external` / `quantity_check` 只写日志表，列在那儿只会筛出空结果；名单里那两个取自日志表的 `batch_check` / `batch_retry` 是历史遗留（前者在任务表里只剩 2026-07-29~30 的 40 行旧数据——默认近 7 天窗口下筛出来是 0 条，放宽日期才有；后者一条也没有）；② **未知取值回落成原值**（历史空串因此仍导成空单元格）——显示机器值总比显示一列空白强，漏配标签时还认得出数据是从哪来的
 - **筛选构造单一事实源 `App\RecordQuery`**：`tasks/uploaded/failed/export` 四个入口都调它，原先那 4 份拷贝已删。已知的一处漂移顺带消失——`export.php` 的失败记录分支曾无条件走 NOT EXISTS、缺了页面版那句 `source = 'quantity_check' OR` 豁免，结果是失败记录页看得见的数量对账告警、导出的 xlsx 里没有。**仪表盘那张卡片仍是第 5 份拷贝**（`views/dashboard.php`，其 NOT EXISTS 既没限定 `company` 也没有该豁免），本轮明确不动，等零售接入稳定后再统一
 
 ## 核心数据流
 
 ### 定时上传（fetch_bills.php + upload_pending.php）
+
+> ⚠️ **现状（2026-10-02 票 07 核对 `crontab -l`）：本节的"定时"只对 `fetch_bills` 成立**——`upload_pending.php` 的三条 crontab 条目**全部被注释**（「暂不启用」），批发"等待上传"的任务眼下靠 Web 端手动传（`upload_pending_retail.php` 亦然，见下）。本节描述的是这两个脚本**各自的职责与口径**，不是"它们此刻都在定时跑"。
 
 采集和上传解耦为两个独立脚本，可分别设 cron 规则。
 
@@ -348,7 +367,7 @@ root/
 
 **零售记录刻意留在失败记录页**（`api/failed.php` **不加** company 过滤）：零售的 `upload_logs` 只可能由人工补传产生（三个检查脚本写不出零售日志），所以失败页上出现的零售记录必然是人工补传失败——那是操作者唯一能看见"补传没成功"的聚合出口。见 `docs/adr/0007`。页面与导出（`api/export.php` 的 `type=failed`）的判重口径一致，都限定同一企业。
 
-`last_checked_at` 更新规则（两脚本一致）：API 查询成功（含"信息不存在"）和"已确认在平台跳过"（标记任务已处理时）都会 touch；仅 API 异常不 touch，下次 cron 自动重查。新采集/新建任务的 `last_checked_at` 为 NULL，天然立即查。
+`last_checked_at` 更新规则（**两个脚本在"已确认在平台跳过"那一格刻意不同**，别把它们当同一条规则）：API 查询成功（含"信息不存在"）**都会 touch**；"已确认在平台跳过"时 `check_bill_status` 会把任务标记 `已处理` 并 touch（任务目标已达成，避免停在"等待上传"被反复拉取），而 `check_failed_logs` 一个字都不写（历史记录不动，见上一段）——**因此它也不 touch**；仅 API 异常不 touch，下次 cron 自动重查。新采集/新建任务的 `last_checked_at` 为 NULL，天然立即查。
 
 ### cron 时间表（全部检查类脚本错峰，8-20 点窗口只跑 check_bill_status）
 
@@ -362,6 +381,8 @@ root/
 | cleanup_logs | `0 3 * * *` | 三条清理判据不同：日志 3 个月前（`created_at`）、已处理任务 3 个月前（`updated_at`）、**门店超期单据 2 年前（`rq` 单据日期）**——后者是"今天合法的单据两年后就不合法了"的唯一出口，见 `App\RetailRetention` |
 
 **注（2026-09-30 核对 root crontab 现状）**：`fetch_bills`、**`fetch_bills_retail`**（工单 03 交付的条目已人工装上，当日 08:05/08:35/… 的采集记录可见）、`check_bill_status` **都在跑**；`check_quantity` **未调度**、仅手动运行。改动本表前先 `crontab -l` 核对，别照抄文档。
+
+**注（2026-10-02 票 07 核对，`crontab -l` 只读）**：**`upload_pending.php` 也不在跑**——它的三条条目（12:05 / 18:05 / 22:30）在 crontab 里**全部被 `#` 注释着**，上方注释写的是「上传等待中的任务(暂不启用)」。**本表因此不列它**，而"定时上传"那节描述的是**该脚本的行为**，不是"它现在正在定时跑"——批发"等待上传"的任务眼下只能从 Web 端手动传。另：`upload_pending_retail.php` 同样不进本表（见下一注）。
 
 **注（票 06，2026-10-02）**：门店单据的批量上传脚本 `upload_pending_retail.php` **刻意不进本表**——它一旦进了 crontab，`docs/adr/0011` 那条"补传只能人工触发、没有自动重试"就被反转（申报不可逆，得有人在发起之前看得见清单）。**别把它加进去**：要用就手动跑，先 `--dry-run` 看清单、再 `--limit=N` 小步走。
 
@@ -421,8 +442,8 @@ root/
 | djbh | TEXT | 单号（去重键是 `(company, djbh)`，不是裸 `djbh`） |
 | ent_name | TEXT | 往来单位名称。**采集来的零售行恒为空**（对手方 ID 直接来自源表 `from_user_id`/`to_user_id`）；**门店手工建的 `104`/`203` 会写**（人填的名称，用它查出 `from`/`to` 两个 ID；上传任务页对零售行隐藏这一格，改名称不会重解析 ID），`321`/`116` 仍为空 |
 | trace_codes | TEXT | 追溯码（逗号分隔） |
-| task_status | TEXT | 等待上传（批发：cron 会取；**零售采集落库也用这个值**——2026-10-01 统一，见 `docs/adr/0014`）/ 已处理。**门店单的"等待上传"不承诺 cron 会取走它**：`upload_pending.php` 按 company 白名单取数，门店单根本进不去，补传始终由人点 |
-| source | TEXT | **retail**（门店单据：`fetch_bills_retail` 采集的与手动上传页手工建的**共用这一个值**——上传任务页的补传按钮、门店徽标、`cleanup_logs` 的 2 年清理都认它，见 `docs/adr/0015`；要分辨采集与手工看日志的 `source`）/ cron（批发采集）/ manual / batch_check / batch_retry |
+| task_status | TEXT | 等待上传（批发：`upload_pending.php` 会取——但它当前**没挂 cron**，见上方注；**零售采集落库也用这个值**——2026-10-01 统一，见 `docs/adr/0014`）/ 已处理。**门店单的"等待上传"不承诺 cron 会取走它**：`upload_pending.php` 按 company 白名单取数，门店单根本进不去，补传始终由人点 |
+| source | TEXT | **retail**（门店单据：`fetch_bills_retail` 采集的与手动上传页手工建的**共用这一个值**——上传任务页的补传按钮、门店徽标、`cleanup_logs` 的 2 年清理都认它，见 `docs/adr/0015`；要分辨采集与手工看日志的 `source`）/ cron（批发采集）/ manual / **batch_check**（只在旧数据里有：任务表里那 40 行全是 2026-07-29~30 的，现行三个检查脚本都不 INSERT 任务行）。**`batch_retry` 只写日志表**（本表一条也没有，页面按它筛只会得到空结果），详见 upload_logs 的 source 行 |
 | company | TEXT | 所属企业中文全名（页面"所属企业"列的值与筛选键；`未识别` 表示门店认领失败） |
 | credential | TEXT | 该企业那套凭据的键（如 `main`，门店与凭据 1:1）；只作审计，不参与任何键；零售待配凭据时为 NULL；零售补传成功后写回**这次实际用的那套**（单套时代即同一取值）；编辑任务把所属企业改成不在配置中的企业时也写 NULL（守卫届时明确拒传，不静默换主体）。**只在企业真的改了时才重设**——页面只在该情形才把 `company` 送上来，改个日期不会把审计值重置 |
 | from_user_id | TEXT | 零售专用（补传装配的 `fromUserId`，仅 104/203 用）。**采集来的行**＝源表 `zsm_ls.from_user_id` 照搬；**手工建的行**＝按发货/收货语义现算（入库＝对方 ent_id，见 `RetailManualEntry::endpoints`）。批发行、321/116 行、工单 06 之前采的零售行为空 |
@@ -435,6 +456,7 @@ root/
 | created_at | TEXT | 任务创建时间（写入 SQLite 的时间） |
 | updated_at | TEXT | 最后更新时间 |
 | last_checked_at | TEXT | 距上次 check_bill_status 成功查询的时间（新鲜度门卫用，NULL=从未查过） |
+| status | TEXT | **遗留列，勿读勿写**：`task_status` 的前身（旧值如 `任务失败`/`已上传` 都不在现行词表里）。2026-07-29 的拆分本要删掉它，但本机 SQLite 是 **3.7.17**（< 3.35，不支持 `ALTER TABLE … DROP COLUMN`），迁移脚本那一步只打印 `SKIP` —— 列与旧数据都还在，取值早与 `task_status` 不是一回事（旧值 `任务失败`/`已上传` 都不在现行词表里；只有从未被后写覆盖的历史行上两列还相同）。读状态一律读 `task_status` |
 
 ### upload_logs（上传日志）
 | 字段 | 类型 | 说明 |
@@ -454,6 +476,7 @@ root/
 | created_at | TEXT | 任务创建时间（API 调用时间） |
 | updated_at | TEXT | 最后更新时间 |
 | last_checked_at | TEXT | 距上次 check_bill_status 成功查询的时间（新鲜度门卫用，NULL=从未查过） |
+| success | INTEGER | **遗留列，勿读勿写**：0/1 两值，与 `upload_tasks.status` 同一批（2026-07-29 拆分后本应删除，SQLite 3.7.17 不支持 DROP COLUMN 而留下）。成功与否一律看 `response_status`（`上传成功`/`单据重复`） |
 
 ### ent_list（往来单位缓存）
 | 字段 | 类型 | 说明 |
@@ -491,7 +514,7 @@ root/
 
 ## 环境配置
 
-- **Web 服务器**: Nginx，监听 `192.168.2.189:8188`，root `public/`
+- **Web 服务器**: Nginx，`listen 8188`（server_name `192.168.2.189`），root `public/`；站点配置另有**访问白名单** `allow 192.168.2.0/24; allow 127.0.0.1; deny all;`（`/etc/nginx/conf.d/mashangfangxin.conf`）
 - **PHP-FPM**: 池名 `mashangfangxin`，监听 `127.0.0.1:9008`
 - **防火墙**: firewalld 需开放 `8188/tcp`（`firewall-cmd --add-port=8188/tcp --permanent`）
 - **SELinux**: `data/` 和 `logs/` 需设 `httpd_sys_rw_content_t` 上下文
@@ -500,7 +523,7 @@ root/
 ## 关键依赖
 
 - Composer 依赖：`phpoffice/phpspreadsheet`（xlsx 导入/导出）
-- 前端 CDN：Bootstrap 5.3.3 + Bootstrap Icons 1.11.3 + flatpickr 4.6.9（日期范围选择器 + 中文 locale）
+- 前端资源**本地自托管**（`public/assets/`，随仓库分发、无外网依赖）：Bootstrap 5.3.3 + Bootstrap Icons 1.11.3 + flatpickr 4.6.9（日期范围选择器 + 中文 locale `zh.js`），由 `src/views/layout.php` 按 `/assets/…` 引用
 - `db.php`（不在仓库内，位于 Web PHP include_path），提供 `info_log()`、`hht()` 等函数
   - CLI 环境下 `db.php` 不可用，CLI 脚本内部定义了 `info_log()` 桩函数输出到 stderr
 - `src/SqlSrvHelper.php` 通过 composer `classmap` 自动加载（非 namespace 类）
@@ -554,6 +577,7 @@ php /usr/share/nginx/mashangfangxin/scripts/fetch_bills_retail.php --all
 # 批量上传队列中等待上传的任务（只取批发主体的记录：task_status='等待上传' AND company=批发主体）
 # 门店单据的状态值也是'等待上传'，但本脚本取不到它们——挡住的是 company 白名单（不是状态值）；
 # 即便口径被改错，UploadService 的守卫是第二道
+# ⚠️ 它的三条 crontab 条目当前**全部注释着**（"暂不启用"）——现在只能这样手动跑
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending.php
 
 # 门店单据的**批量上传**（票 06）：**能力已备、暂不启用**——由人手动跑，**别挂进 crontab**
