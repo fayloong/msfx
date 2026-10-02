@@ -3,6 +3,7 @@
 /data/*.db-*
 /data/*.db.*
 /data/fetch_bill_counter.json
+/data/fetch_bill_counter_retail.json
 /logs/*.jsonl
 /logs/*.lock
 /config/.env

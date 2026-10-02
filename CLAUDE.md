@@ -50,6 +50,12 @@ root/
 │   ├── RetailManualEntry.php     # 门店手工建单（在线新增 + xlsx 导入共用的唯一实现）：prepare() 校验/取凭据/查对手方（唯一一次平台往返，失败即拒建单）→ create() 落库 + 交 RetailRetransmit 上传；needsCounterparty/endpoints 是「哪两类要往来单位」「对手方落 from 还是 to」的纯规则，见 docs/adr/0015
 │   ├── BillSheetParser.php       # xlsx 导入表的解析：读表 → 按单号分组成「一单一条」（同单号多行合并、一行一个码也认）；批发与门店两个导入端点共用，只管「读成什么」、不管「合不合法」
 │   ├── RetailRetention.php       # 门店数据保留期（平台硬性规定 2 年，不接受 2 年前的单据）：YEARS + cutoffDate() 是采集下限与清理下限的**唯一来源**；两个调用点必须共用，各写各的会让超期数据滞留
+│   ├── RetailCollectionGate.php  # 零售采集的**计数门卫**（票 04，2026-10-02）：数三个数（当日总数/已上传/未上传，
+│   │                             #   一条只读 SQL，**两张表各自去重成派生表** + LEFT JOIN + count()）与基线比对，
+│   │                             #   三个数都没变就跳过整轮采集并打印原因；`guard()` 把「基线只在整轮采集成功后写」
+│   │                             #   变成构造上的性质（采集从闭包注入，抛异常则基线不写）；计数失败**照常采集**
+│   │                             #   （与批发相反——门卫跳过的是一整轮，方向必须朝"宁可多跑一轮"）。
+│   │                             #   基线 data/fetch_bill_counter_retail.json；`--all`（date=null）绕过
 │   ├── TraceSplitter.php         # 追溯码两种拆法：splitByCount 按码数拆单（上传用，上限取自 Enterprise::route()，批发 3500 / 零售 10000·3500）、splitByCharLimit 按字符数拆行（导出用，每行 ≤32000 字符）；countCodes 数码——页面"码数"列、追溯码弹窗、导出共用这一个口径（空串算 0）；normalizeInput 把人粘的一串码（一行一个）归一成逗号分隔，两条建单路径与 xlsx 解析共用
 │   ├── RecordQuery.php           # 数据页筛选条件单一事实源（build(类型, 参数) → WHERE/SELECT/ORDER/params，三类：tasks/uploaded/failed）：列表 API 与导出**共用同一段代码**，「导出的行数与页面一致」是构造上的性质。曾经四处各写一份，export 的失败分支因此漏过 quantity_check 豁免（第 4 类 retail_tasks 随门店补传清单撤销，见 docs/adr/0015）
 │   ├── LogSource.php             # 「来源」词表（upload_tasks/upload_logs 的 source 列）——中文标签与徽标色的
@@ -116,6 +122,10 @@ root/
 │   │                             #  零售企业的补传失败记录）按单号 IN 查状态表，外部系统**后来**才传成的
 │   │                             #  痕迹就地翻正——放采集之前是因为它不依赖本批采到什么（跨日有效），
 │   │                             #  且采集失败/空批次都不该让它漏跑一轮；
+│   │                             #  **再跑计数门卫**（票 04）：三个数（当日总数/已上传/未上传）与基线一致就跳过
+│   │                             #  整轮并打印原因——**必须插在闭环之后**（门卫跳的是整轮采集，闭环不在它的
+│   │                             #  覆盖范围里）；计数失败视为无基线照常采；判定与基线读写见
+│   │                             #  App\RetailCollectionGate；
 │   │                             #  默认当日，`--all` 为一次性快照入口（**下限 2 年**，超期采进来也补传不出去；
 │   │                             #  ⚠️ 当前别跑，新语义待票 05）；去重在 PHP 侧，走 queryEach 逐行消费；
 │   │                             #  认领走 Enterprise::claim；未上传的落库 source=retail / task_status=等待上传——
@@ -140,7 +150,10 @@ root/
 │   └── cron_handle.php           # 空文件（0 字节、全仓无引用）——归档残留，无用途，别指望它有行为
 ├── data/
 │   ├── msfx.db                   # SQLite 本地数据库（3 张表 + 索引）
-│   └── fetch_bill_counter.json   # fetch_bills 变化检测门卫基线（当天单据计数）
+│   ├── fetch_bill_counter.json   # fetch_bills（批发）变化检测门卫基线（当天单据计数）
+│   └── fetch_bill_counter_retail.json # fetch_bills_retail（零售）计数门卫基线（date + 总数/已上传/未上传）。
+│                                 #   **与批发那份各一个**——两个脚本共写一个文件会互相踩（形状不同、彼此都会
+│                                 #   把对方的内容读成"格式非法"，门卫时灵时不灵），见 App\RetailCollectionGate
 ├── tests/
 │   ├── trace_splitter_test.php   # TraceSplitter 自包含断言测试（php tests/trace_splitter_test.php；用例 16 是工单 07 验收第 3 条的离线口径——2000 码的 104 在 10000 上限下不拆、4000 码的 321 在 3500 上限下拆 3500+500）
 │   ├── quantity_check_test.php   # ApiClient::isBillFound 自包含断言测试（php tests/quantity_check_test.php）
@@ -165,6 +178,14 @@ root/
 │   │                             #   已有成功记录时不追加、源库回小写照样命中、**同名单号跨企业不串号**）。
 │   │                             #   辨别力：去掉 hasSuccess 检查 → 幂等用例变红；success 判据降成裸单号
 │   │                             #   → "同名单号两家各自判"变红；去掉 uploadedCodes 检查 → "源库没标已上传"变红
+│   ├── retail_collection_gate_test.php # App\RetailCollectionGate 自包含断言测试：三个数的比对与判定（三数各自变化、
+│   │                             #   日期不符、手工改成字符串）、基线读写（落盘形状恰为 date+三个数、缺失/半截 JSON/缺键/
+│   │                             #   日期非法一律"无基线"）、以及 guard() 的全部分支——**失败不写基线**（落库中途失败时
+│   │                             #   旧基线一字未动、新文件压根不建）、**未变就不采集**（采集闭包一次都不跑）、
+│   │                             #   **计数失败照常采集**（不写基线）、`--all` 绕过、基线文件与批发那个不是同一个。
+│   │                             #   辨别力：write 挪到 collect 之前 / 计数失败改成跳过 / 不比对日期 / 坏基线抛异常 /
+│   │                             #   未变也照跑——五处各有用例变红（计数 SQL 本身不进测试，靠实测对账：门卫 total
+│   │                             #   必须等于采集脚本那句"拉取到 N 张单据"）
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
@@ -229,7 +250,7 @@ root/
 
 手动上传保持立即上传不变，两套上传路径并存：批发两个端点（`manual_create` / `manual_import`）落库主体取 `Enterprise::wholesaleSubject()`；门店两个（`manual_create_retail` / `manual_import_retail`）落库主体是入参里那家门店、凭据由服务端按门店取，上传走 lsyd（`App\RetailManualEntry` → `App\RetailRetransmit`）。
 
-### 零售单据采集（fetch_bills_retail.php，工单 03 建；**2026-10-02 票 02 由「过滤」改「分流」**）
+### 零售单据采集（fetch_bills_retail.php，工单 03 建；**2026-10-02 票 02 由「过滤」改「分流」**、**票 04 加计数门卫**）
 
 零售单据由外部系统上传，本项目只做"**可见** + 人工补传"（见 `docs/adr/0007`）：本脚本**只采集入库、不上传**，不调任何平台接口，故不受 8-20 点限流窗口约束（cron 与 fetch_bills 同频、错开 5 分钟，见下方 cron 时间表）。
 
@@ -242,13 +263,14 @@ root/
 > **2 年下限（2026-09-30 用户定，平台硬性规定）**：采集 SQL **始终**带 `bill_time >= 截止日`（`App\RetailRetention`，今天是 2026-09-30 则 2024-09-30）——`--all` 靠它截断，故其语义是"**最近 2 年**的快照"而非全部历史（票 03 回填的首跑数字是旧口径，重跑会变小）；cron 的当日采集天然满足。**显式指定一个超期日期时直接拒绝并退出 1**（在连源库之前）：静默采回 0 条会被读成"那天真没单据"，而真相是那天即使有单也补传不出去。依据是平台的原话——补传 2023 年的单会返回 `FAIL_BIZ_PARAM_BILL_TIME_BEFORE_ERROR`「系统不支持上传2年前单据」。决策与代价见 `docs/adr/0013`。
 
 - **源**：dyt 链接服务器（`dyt.msfx.dbo.zsm_ls` 单据头 + `zsm_ls_code` 追溯码，**一码一行**；状态表见 `App\RetailExternalUploads::TABLE`，**本脚本只读、仅用于分流**——本项目对该表唯一的写入在补传链路，见 `App\UpdateStateWriter`），复用 `SqlSrvHelper` 同一条连接直接查 4 段式名；**采集全程只读 SELECT**
-- **单条 SQL（票 02 口径）**：`LEFT JOIN` + 一个 **EXISTS 子查询**给出的已上传标志列（`case when exists(...) then 1 else 0 end as uploaded`）+ `bill_time >= ?`（保留下限，始终在）+ `bill_time = ?`（默认当日；`--all` 时不加这一段）。**必须 LEFT JOIN 而非内连接**——没码的单也要采（它是补传队列里值得看见的一条）。**判据必须 EXISTS 不能用 JOIN**：状态表无主键无唯一约束（实测 82 个单号多行），JOIN 会把结果集放大。（SQL Server 不允许在**聚合**里套子查询——票 04 的门卫计数因此要换写法；这里是非聚合的 `case when`，允许。）
+- **单条 SQL（票 02 口径）**：`LEFT JOIN` + 一个 **EXISTS 子查询**给出的已上传标志列（`case when exists(...) then 1 else 0 end as uploaded`）+ `bill_time >= ?`（保留下限，始终在）+ `bill_time = ?`（默认当日；`--all` 时不加这一段）。**必须 LEFT JOIN 而非内连接**——没码的单也要采（它是补传队列里值得看见的一条）。**判据必须 EXISTS 不能用 JOIN**：状态表无主键无唯一约束（实测 82 个单号多行），JOIN 会把结果集放大。（SQL Server 不允许在**聚合**里套子查询——票 04 的门卫计数因此换了写法，见 `App\RetailCollectionGate::counts()`；这里是非聚合的 `case when`，允许。）
 - **状态闭环**（票 03，判定全在 `App\RetailExternalUploads::closureActions()`、编排在 `closeLoop()`）：**每轮采集开跑前**先跑一遍，拿**本地待办清单**去状态表核对——清单＝还挂着「等待上传」的门店任务（按 `source='retail'` 筛）＋ 零售企业的补传失败记录（按企业类型筛，`Enterprise::isRetail`），按单号 IN 分块（500/块）查源库（**只读**）。命中后：**任务行**翻 `已处理` + `上传成功`（`request_status` 刻意不动——本项目从没为这张单发起过请求，写「请求成功」是失真；`resp` 写一段出处 JSON）；**失败记录不改写历史**，改为**追加**一条「外部上传」记录（失败页那条随后被既有的同单号判重自动隐藏）；**本地已有成功记录时只翻任务行**。每次翻转记一条 JSONL（`type=retail_status_closure`，含企业/单号/原痕迹类型），**不进 `upload_logs`**（那条追加的记录就是上传结果日志，再写说明会在已上传页重复）。四处刻意：① **按清单查、不按日期扫源库**——待办是跨日的，昨天的单今天才被传成一样要能翻；② **不受计数门卫约束**（票 04 那套），它不扫源库大表；③ **源库查不通时一条都不翻**（"不知道"不等于"没上传"），只记 JSONL 警告（`type=retail_status_closure_failed`）；④ 调用点在采集**之前**——采集失败/空批次都不该让它漏跑一轮，而它追加的成功记录会让同轮采集的 `decide()` 判 SKIP（两条路径对"已上传"给同一个结论）。**红线**：定位一律用 `(company, djbh)`（生产库里裸单号并不唯一，乙店的成功记录会把甲店的待办整条吞掉），批发行一个字段不动
 - **分流**（票 02，判定全在 `App\RetailExternalUploads::decide()`）：**已上传的只写成一条「外部上传」记录**——`source='retail_external'`、`response_status='上传成功'`、`task_id=0`、`request_status` 留 NULL（本项目没发起请求，写「请求成功」是失真）、`company`/`credential` 取认领结果、`rq` 取源表、`trace_codes` 照写、`response` 写一段出处 JSON（详情弹窗里看得见它为什么在这儿），**不建任务行**；**未上传的建任务逻辑与改动前逐字段一致**。幂等两条分支判据不同：已上传的单只看"有没有**成功记录**"（已有任务行**不拦**它——那条任务是本地待办痕迹，翻正是票 03 的闭环），未上传的单是"任务行**或**成功记录任一存在"就跳过
 - **去重在 PHP 侧收口**：`321` 存在 14 列值全同的完全重复行（同一单号最多 120 行），连接结果随之放大最多 120 倍——追溯码用关联数组去重（保序），单据头字段（含已上传标志）取首次出现的行（重复行各列本就相同）。`--all` 时行数可能到数十万，走 `SqlSrvHelper::queryEach` **逐行消费**而非 `query()` 攒数组（后者会撞上 CLI 的 `memory_limit=128M`）
 - **`physic_type` 必须显式取**：老 SQL 里没有这列，但补传装配要它（ADR 0010）——漏掉它，`104`/`203` 那些单会被 SDK 的 `check()` 拒掉且**永远补不出去**
 - **单据类型写死四种** `104`/`203`/`321`/`116`（`bill_type` 是 int；第五种 `999` 语义未明，用户判定不采）；`bill_time` 是 `varchar(10)` 纯日期
-- **无计数门卫**（`fetch_bill_counter.json` 那套是为"重视图查询空转"设计的，零售是幂等去重，门卫只省一次扫描却多一份状态文件；票 04 会给零售加**独立**的门卫）；**不需要拆单**（实测单张单据码数上限 1,718 < 3500）
+- **计数门卫**（票 04，2026-10-02；判定、基线读写与"只在采集成功后才写"的顺序铁律全在 `App\RetailCollectionGate`）：**闭环之后、采集之前**先数三个数（当日总数 / 已上传 / 未上传）与基线比对，**三个数都没变就跳过整轮并打印原因**——交付给运维的是**日志从此能区分"今天真没新单"与"脚本压根没跑"**（源库那一趟扫描省不掉：门卫计数 47–59ms、采集查询 80–153ms，门卫省的是本地那段空转——去重、认领、写库）。六处刻意：① **必须插在状态闭环之后**（门卫跳的是整轮采集，而闭环不在它的覆盖范围里——票 03 的铁律）；② **两张表都要去重成派生表**（票面示例那段 SQL 漏了左表：`zsm_ls` **自己**就有完全重复行——321 平均 **2.08 行/单**、最多 120 行、14 列值全同，见 `.scratch/retail-chain/probe-findings-2026-09-29.md` 第 3 条；不去重数出来的是**行数**，首跑实测 111 行 vs 采集的 55 张单，去重后 `total` 与采集脚本那句"拉取到 N 张单据"**逐字相等**）；③ **计数查询失败 = 无基线、照常采集**（门卫跳过的是一整轮采集，"宁可多跑一轮"；与批发那边"计数失败即跳过本次"刻意相反——零售没有第二道兜底，漏采就是整天单据在页面上不存在）；④ **基线只在整轮采集成功后写**（落库中途失败、源库读取失败都不更新，否则一次中途失败会被记成"没变化"从此永久跳过；采集整轮包成闭包交给 `guard()`，这条因此是构造上的性质）；⑤ **基线文件独立**（`data/fetch_bill_counter_retail.json`——与批发的 `fetch_bill_counter.json` 各一个，共写一个文件两个脚本会互相踩）；⑥ 缺失 / 损坏 / 日期不符一律视为"无基线"照常采集；`--all` 绕过（快照的计数口径是两年窗口，不是当日；票 05 的 `--dry-run` 同样要绕）
+- **不需要拆单**（实测单张单据码数上限 1,718 < 3500）
 - **认领**走 `App\Enterprise::claim()`（不另写一套匹配）：`321`/`116` 取 `from_user_id`、`104`/`203` 取 `to_user_id` 命中门店登记过的任一平台 ID，ID 缺失才回退 `oper_ic_name`；都不命中 → `company='未识别'` **照常入库**（丢单比错标更危险；已上传的未识别单同样写成记录）。`name_unmatched`（ID 认到、源库名字对不上任何门店）记一条 JSONL 警告，**只进 JSONL 不进 `upload_logs`**（后者是上传结果日志，写进去会在失败记录页冒出既非上传也非失败的记录，污染唯一告警出口），不改判定
 - **落库**：`task_status='等待上传'`——**与批发共用一个状态值**（2026-10-01 统一，见 `docs/adr/0014`）。曾用 `待补传` 独占一个值，代价是上传任务页按门店筛选默认恒为空（"等待上传"+默认近 7 天两条默认叠加）；**拦住门店单不被 cron 取走的是 `upload_pending.php` 的 company 白名单，不是状态值**。其余：`source='retail'`、`company` 取认领结果、`credential` 取 `claim()` 返回的该门店凭据键（**待配凭据的门店同样预填键**，页面据 `credentialConfigured()` 禁用补传）、`ent_name` 留空（零售对手方 ID 直接来自源表，不用 `ent_list`）
 - **补传要用的元数据一并落库**（工单 06）：`from_user_id` / `to_user_id` / `physic_type` 照搬源表同名列（单据头字段取该单首次出现的行）。补传装配要这三列，缺一列这条单就永远补不出去——**没有历史回填**（那三列对批发行无意义，零售的值只能从源表现采），工单 06 之前采的零售行已删除并按日期重采；将来遇到缺列的旧行，办法同样是重采（`(company, djbh)` 去重会跳过已存在的行，不重采就补不上值）
@@ -257,6 +279,8 @@ root/
 - **页面**（`views/upload_tasks.php`）：表格加"所属企业"列，`未识别` 行标红 + 红色徽标；零售行（`source='retail'`）走**补传按钮**（工单 06 落地，取代工单 03 里那个被关掉的重传按钮）；来源下拉补 `零售采集`（任务状态与批发共用 `等待上传`/`已处理` 两个值，故**选门店 + 默认状态即能看到门店单据**）。**已上传的单不在这一页**（它们没建任务），在**已上传记录页**、来源显示「外部上传」（`App\LogSource` 词表里的 `retail_external`）
 - **实测（2026-10-02 首跑，票 02）**：当日 45 张门店单 → **4 条外部上传记录 + 41 条跳过**（41 张是此前已采进队列的未上传单）+ 0 条新任务；原地重跑 → 45 条全跳过、0 新增（幂等）；源库核对：那 4 张在状态表里都是 `bill_state=1`、抽样的未上传单都不在表里；页面核对：4 张已上传的单按单号在**任务页搜不到**（0 条）、在**已上传页搜得到**（来源「外部上传」）
 - **实测（闭环，2026-10-02 票 03；在项目副本上跑，未动生产库与源库）**：副本库里造 6 条待办痕迹（任务行 / 失败记录 / 两种都有 / 已有成功记录 / 批发对照 / `未识别`）→ 跑一轮：**清单 6252 条（真实积压量，不是几十条）→ 翻正 12 行任务、追加 13 条记录**（其中 4 行 4 条是我造的，另外 8 行 9 条是真实积压里被外部系统新传成的——8 个单号逐一回源库核对过，都在状态表里）；逐条核对：任务行翻 `已处理`+`上传成功` 且 `request_status` 仍为 NULL、**已有成功记录的那个键不追加**、**批发那条失败记录一个字段未动**（企业维度筛掉了）、失败页按真页面口径（`App\RecordQuery::TYPE_FAILED`）对三条失败记录**全部 0 行**（被同单号判重隐藏）而批发那条**照样看得见**、已上传页能看见追加的记录（`request_status=NULL`、`task_id=0`）；**原地重跑 → 翻正 0 行、追加 0 条**（幂等）。性能：清单 6252 条 → 13 个 IN 块，**单独跑闭环 6.3 秒**（首块冷启动那次 2.3 秒，之后每块百毫秒级）——每 30 分钟一次的 cron 里可忽略
+
+- **实测（计数门卫，2026-10-02 票 04；在项目副本上跑、连真源库只读，未动生产库与源库）**：**首跑**（副本无基线）→ 照常采集 55 张 → 落基线 `{"date":"2026-10-02","total":55,"uploaded":4,"unuploaded":51}`（`total` 与脚本自己那句"拉取到 55 张单据"**逐字相等**、`uploaded=4` 与票 02 记的 4 条外部上传记录一致——**这一步顺带揪出票面示例 SQL 的一个坑**：`count(*)` 数的是 `zsm_ls` 的**行数**，当日实测 111 行 vs 55 张单（321 平均 2.08 行/单），左表不去重数字就翻倍）；**二跑** → `计数门卫: 总数 55 / 已上传 4 / 未上传 51，与基线一致，跳过本轮采集`，**退出码 0**，且那行**排在状态闭环之后**（"核对 6245 条待办"先出现——顺序红线成立）；**动基线**（total 55→54）→ 重新采并翻正基线；**基线损坏** → 视为无基线照常采、被合法内容覆盖；**采集失败**（副本里把采集 SQL 的列名改错，门卫计数不受影响）→ 退出码 1、**基线一字未动**（旧值 `total=10` 原样留着，下一轮据此自动重采）
 
 ### 零售单据上传（补传 + 手工新增，App\RetailRetransmit / App\RetailManualEntry）
 
@@ -296,7 +320,7 @@ root/
 | 脚本 | cron | 说明 |
 |------|------|------|
 | fetch_bills（批发采集） | `0,30 0,1,2,3,8-23 * * *` | 写库与检查脚本的 SQLite 锁冲突由 busyTimeout(30s) 兜底 |
-| fetch_bills_retail（零售采集） | `5,35 0,1,2,3,8-23 * * *` | 与 fetch_bills 同频、**错开 5 分钟**（同为写 SQLite 的进程，同刻写会撞上 `Database::__construct` 里 `PRAGMA journal_mode=WAL` 那道无 busyTimeout 的既有竞态窗口 → Web 端 500 "database is locked"）。**不调平台 API，不受 8-20 点限流窗口约束**，故时段照抄 fetch_bills（含 8-20 点） |
+| fetch_bills_retail（零售采集） | `5,35 0,1,2,3,8-23 * * *` | 与 fetch_bills 同频、**错开 5 分钟**（同为写 SQLite 的进程，同刻写会撞上 `Database::__construct` 里 `PRAGMA journal_mode=WAL` 那道无 busyTimeout 的既有竞态窗口 → Web 端 500 "database is locked"）。**不调平台 API，不受 8-20 点限流窗口约束**，故时段照抄 fetch_bills（含 8-20 点）。**每轮先跑状态闭环（票 03，不受门卫约束）再跑计数门卫（票 04）**——三个数没变就跳过整轮并打印原因，日志里因此分得清"真没新单"与"脚本没跑" |
 | check_bill_status（来源 1） | `*/30 8-20 * * *` | 高频确认新单（与门卫阈值 30 分钟一致） |
 | check_failed_logs（来源 2） | `40 20 * * *` | 20:40，fetch_bills 20:30 轮已结束、21:00 轮未到 |
 | check_quantity（数量对账） | `10 21 * * *` | **当前未调度**（手动运行）；下表值仅为恢复调度时的建议时间——21:10，fetch_bills 21:00/21:30 两轮之间；数量对比（shl vs min_pkg_count 求和），~650 单约 13 分钟 |
@@ -463,6 +487,10 @@ php /usr/share/nginx/mashangfangxin/scripts/fetch_bills.php 2026-07-28
 # 开跑前先跑**状态闭环**（票 03）：拿本地待办清单（等待上传的门店任务 + 零售企业的补传失败
 #    记录）按单号查状态表，外部系统**后来**才传成的痕迹就地翻正（任务翻「已处理」+「上传成功」，
 #    失败记录追加一条「外部上传」记录使其从失败页消失）——跨日有效、只读源库、每轮都跑
+# 闭环之后是**计数门卫**（票 04）：数三个数（当日总数/已上传/未上传）与基线比对，三个数都没变
+#    就跳过整轮并打印原因（日志从此分得清"真没新单"与"脚本没跑"）；判定与基线读写见
+#    App\RetailCollectionGate，基线 data/fetch_bill_counter_retail.json。**顺序不能反**——门卫跳的
+#    是整轮采集，而闭环不在它的覆盖范围里（票 03 的铁律：闭环每轮都跑）
 # 未上传的落库 task_status='等待上传'（与批发共用一个状态值，见 docs/adr/0014）/ source='retail'，
 # 需要 nginx 或跑完 chown（同 init_db 的属主注意事项）
 # 2 年下限（平台硬性规定，App\RetailRetention）：超期日期会被**拒绝并退出 1**；
@@ -532,6 +560,7 @@ php /usr/share/nginx/mashangfangxin/tests/retail_manual_test.php
 php /usr/share/nginx/mashangfangxin/tests/record_query_test.php
 php /usr/share/nginx/mashangfangxin/tests/log_source_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_external_uploads_test.php
+php /usr/share/nginx/mashangfangxin/tests/retail_collection_gate_test.php
 
 # 查询单号在码上放心平台的上传状态（searchbill.detail；输出 JSON + 另存 tests/searchbill_<单号>.json）
 php /usr/share/nginx/mashangfangxin/tests/search_bill_test.php XSOWMS00997501

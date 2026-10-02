@@ -18,6 +18,15 @@
  * 日期扫源库，故**跨日有效**；同样只读源库、不调平台接口。判定与动作全在
  * App\RetailExternalUploads::closeLoop() / closureActions()。
  *
+ * 计数门卫（2026-10-02 票 04）：**闭环之后、采集之前**先数三个数（当日总数 / 已上传 / 未上传），
+ * 与上次基线一致就跳过整轮采集并打印原因——日志从此能区分"今天真没新单"与"脚本压根没跑"，
+ * 顺带省掉本地那段空转（去重、认领、写库；源库那一趟计数查询省不掉，它只有百毫秒级）。
+ * 判定、基线读写与"只在采集成功后才写基线"的顺序铁律都在 App\RetailCollectionGate，
+ * 基线文件 `data/fetch_bill_counter_retail.json`（**与批发的 fetch_bill_counter.json 各一个**）。
+ * 三处刻意：① 计数查询失败 = 无基线、照常采集（门卫跳过的是一整轮采集，方向必须朝"宁可多跑一轮"，
+ * 与批发那边相反——零售没有第二道兜底）；② `--all` 绕过（快照的计数口径是两年窗口，不是当日）；
+ * ③ 插在闭环**之后**（见下方接力注释）。
+ *
  * 只采集入库、不上传——零售单据由外部系统上传，本项目只做"可见 + 人工补传"（见 docs/adr/0007）。
  * 未上传的落库 task_status='等待上传'、source='retail'——**与批发共用一个状态值**（2026-10-01 统一，
  * 见 docs/adr/0014）。门店单的"等待上传"**不代表 cron 会来取走它**：自动上传链路对它们零动作
@@ -30,8 +39,8 @@
  *   dyt.msfx.dbo.zsm_ls           单据头（bill_time 是 varchar(10) 纯日期 'YYYY-MM-DD'）
  *   dyt.msfx.dbo.zsm_ls_code      追溯码，**一码一行**（列名误导），无排序列、bs 恒为 1
  *   状态表（表名见 App\RetailExternalUploads::TABLE）
- *                                 外部系统的上传状态（单号 + 状态两列）——**只读**，用来分流；
- *                                 本项目对该表唯一的写入在补传链路（回写，见 ADR 0016）
+ *                                 外部系统的上传状态（单号 + 状态两列）——**只读**，用来分流、
+ *                                 闭环核对与计数；本项目对该表唯一的写入在补传链路（回写，见 ADR 0016）
  *
  * 四条沿途保留的口径（改动前什么样、现在还是什么样）：
  *   1. **单条 SQL**：zsm_ls LEFT JOIN zsm_ls_code，不分"先头后码"两步。
@@ -48,7 +57,8 @@
  * ⚠️ `--all` **当前别跑**：去掉 NOT EXISTS 后它是"按分流规则全量落库"，会把最近两年窗口内约
  *   三万七千张未上传的历史单**全建成「等待上传」任务**（规模见 spec §1 实测）——人工处理不现实，
  *   还会把待补传这份工作清单的信号淹没。"只写已上传记录、不写历史未上传任务"的新语义由**票 05**
- *   落地；在那之前只跑 cron 那条（当日或指定日期）。
+ *   落地；在那之前只跑 cron 那条（当日或指定日期）。票 05 的 `--dry-run` 同样要绕开门卫
+ *   （它不落库，写了基线会让下一轮误判"没变化"而少采一轮）——绕法同 `--all`。
  *
  * 采集口径见 .scratch/retail-collection-split/spec.md；建议 cron: 与 fetch_bills.php 同频
  * （零售采集不调平台 API，不受 8-20 点限流窗口约束）
@@ -70,12 +80,15 @@ use App\Config;
 use App\Database;
 use App\Enterprise;
 use App\LogWriter;
+use App\RetailCollectionGate;
 use App\RetailExternalUploads;
 use App\RetailRetention;
 
 Config::load();
 
-/** 采集的四种单据类型（写死）。`999` 语义未明，用户判定不采（见探测结论） */
+/** 采集的四种单据类型（写死）。`999` 语义未明，用户判定不采（见探测结论）。
+ *  门卫数的也是这四种（`RetailCollectionGate::counts()` 由这里传进去）——**两边必须是同一份
+ *  清单**：门卫数窄了会跳过"有单要采"的那一轮，多出来的单要等到别的单挪动计数才被采到。 */
 const RETAIL_BILL_TYPES = [104, 203, 321, 116];
 
 $arg = $argv[1] ?? null;
@@ -86,7 +99,8 @@ if ($arg !== null && !$snapshotAll && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $arg)
     exit(1);
 }
 
-// 采集日期：--all 为 null（不加等值日期条件，全量快照）；否则缺省当天
+// 采集日期：--all 为 null（不加等值日期条件，全量快照）；否则缺省当天。
+// 这个 null 同时也是门卫的"不适用"信号（快照没有"当日"这个口径，见 App\RetailCollectionGate）
 $date = $snapshotAll ? null : ($arg ?? date('Y-m-d'));
 
 // 平台硬性规定不接受 2 年前的单据（见 App\RetailRetention）。显式指定一个超期日期时直接拒绝：
@@ -117,8 +131,10 @@ try {
     // decide() 判 SKIP——两条路径对"已上传"给同一个结论，不会一边写记录一边又建任务。
     // 全程只读源库、不调平台接口，故不受 8-20 点限流窗口约束；也不受计数门卫约束（票 04 那套），
     // 它不扫源库大表。翻正哪些痕迹、为什么这么判，见 App\RetailExternalUploads::closeLoop()
-    // ⚠️ 票 04 的计数门卫要插在**本段之后**：门卫的"三个数都没变就直接跳过"跳的是整轮采集，
-    //    而闭环不在它的覆盖范围里（票 03 验收项：每轮都跑、不受门卫约束）
+    //
+    // ⚠️ 门卫必须插在**本段之后**（票 04 就是这么接的，见下面那段）：门卫的"三个数都没变就
+    //    直接跳过"跳的是**整轮采集**，而闭环不在它的覆盖范围里（票 03 验收项：每轮都跑、
+    //    不受门卫约束）。插到前面，外部系统后来传成的单就不会被翻正了。
     $closure = RetailExternalUploads::closeLoop($source);
     if ($closure['error'] !== null) {
         echo "[fetch_bills_retail] 状态闭环: 源库查询失败，本轮未翻正任何痕迹（{$closure['error']}）\n";
@@ -127,197 +143,221 @@ try {
             . ", 追加外部上传记录 {$closure['recorded']} 条\n";
     }
 
-    // ── 单条 SQL：单据头 LEFT JOIN 追溯码，外加拿一个"已上传"标志列 ──
-    // 必须 LEFT JOIN 而非内连接：没码的单也要采——它要么是待补传的一条、要么是一份外部上传记录。
-    // physic_type 不在"顺手拷来的老 SQL"里，但补传装配要它（ADR 0010），故显式补上；
-    // ref_ent_id 取回来只为与源表列对齐，**本轮不使用**（那是全表单一值的总部主体，见 ADR 0010）。
-    //
-    // 已上传标志用 **EXISTS 子查询**：状态表无主键、无唯一约束（实测 82 个单号多行），JOIN 会把
-    // 结果集放大。SQL Server 不允许在**聚合**里套子查询（票 04 的门卫 SQL 因此要换写法），
-    // 但这里是非聚合的 case when——允许。
-    $sql = "select ls.bill_code,ls.bill_time,ls.bill_type,ls.physic_type,
-                   ls.from_user_id,ls.to_user_id,ls.ref_ent_id,ls.oper_ic_name,co.trace_codes,
-                   case when exists(select 1 from " . RetailExternalUploads::TABLE . " us
-                                    where us.bill_code=ls.bill_code) then 1 else 0 end as uploaded
-            from dyt.msfx.dbo.zsm_ls ls
-            left join dyt.msfx.dbo.zsm_ls_code co on co.bill_code=ls.bill_code
-            where bill_type in (" . implode(', ', RETAIL_BILL_TYPES) . ")";
+    // ── 计数门卫（票 04）＋ 采集整轮（票 02/03 的口径，原样搬进这个闭包）──
+    // 采集整轮包成一个闭包交给门卫，是为了让"基线只在整轮采集成功之后才写"成为**构造上的性质**：
+    // 闭包里抛出的任何异常都会穿过 guard() 且不写基线（源库读取失败、落库中途失败都算），
+    // 而那句话只出现在闭包返回之后。别把它拆开写成"先采集、后手动写基线"——那正是这条铁律失效的写法。
+    $gate = RetailCollectionGate::guard(
+        stateFile: RetailCollectionGate::stateFile(),
+        date: $date,
+        count: static fn(string $d): array => RetailCollectionGate::counts($source, $d, RETAIL_BILL_TYPES),
+        collect: static function () use ($source, $date, $retentionCutoff): void {
+            // ── 单条 SQL：单据头 LEFT JOIN 追溯码，外加拿一个"已上传"标志列 ──
+            // 必须 LEFT JOIN 而非内连接：没码的单也要采——它要么是待补传的一条、要么是一份外部上传记录。
+            // physic_type 不在"顺手拷来的老 SQL"里，但补传装配要它（ADR 0010），故显式补上；
+            // ref_ent_id 取回来只为与源表列对齐，**本轮不使用**（那是全表单一值的总部主体，见 ADR 0010）。
+            //
+            // 已上传标志用 **EXISTS 子查询**：状态表无主键、无唯一约束（实测 82 个单号多行），JOIN 会把
+            // 结果集放大。SQL Server 不允许在**聚合**里套子查询（门卫的计数 SQL 因此换了写法，见
+            // App\RetailCollectionGate），但这里是非聚合的 case when——允许。
+            $sql = "select ls.bill_code,ls.bill_time,ls.bill_type,ls.physic_type,
+                           ls.from_user_id,ls.to_user_id,ls.ref_ent_id,ls.oper_ic_name,co.trace_codes,
+                           case when exists(select 1 from " . RetailExternalUploads::TABLE . " us
+                                            where us.bill_code=ls.bill_code) then 1 else 0 end as uploaded
+                    from dyt.msfx.dbo.zsm_ls ls
+                    left join dyt.msfx.dbo.zsm_ls_code co on co.bill_code=ls.bill_code
+                    where bill_type in (" . implode(', ', RETAIL_BILL_TYPES) . ")";
 
-    // 日期条件走参数绑定（bill_time 是 varchar(10) 纯日期，等值比较即日期比较）。
-    // **保留下限始终参与查询**：`--all` 靠它把超期单据挡在队列外；显式日期在上面已拒绝过更早的，
-    // 这里是纵深；cron 的当日采集天然满足。参数顺序与占位符出现顺序一致（下限在前、等值在后）。
-    $params = [$retentionCutoff];
-    $sql .= "\n            AND ls.bill_time >= ?";
-    if ($date !== null) {
-        $sql .= "\n            AND ls.bill_time = ?";
-        $params[] = $date;
+            // 日期条件走参数绑定（bill_time 是 varchar(10) 纯日期，等值比较即日期比较）。
+            // **保留下限始终参与查询**：`--all` 靠它把超期单据挡在队列外；显式日期在上面已拒绝过更早的，
+            // 这里是纵深；cron 的当日采集天然满足。参数顺序与占位符出现顺序一致（下限在前、等值在后）。
+            $params = [$retentionCutoff];
+            $sql .= "\n                    AND ls.bill_time >= ?";
+            if ($date !== null) {
+                $sql .= "\n                    AND ls.bill_time = ?";
+                $params[] = $date;
+            }
+
+            echo "[fetch_bills_retail] 正在从源库拉取单据与追溯码...\n";
+
+            // ── PHP 侧收口：LEFT JOIN 的重复行在此合并 ──
+            // 结构：bill_code => [单据头字段..., 'uploaded' => bool, 'codes' => [码 => true]]
+            // 码用关联数组去重（保序）；单据头字段取首次出现的行——重复行各列本就完全相同
+            $bills = [];
+            $rawRows = 0;
+
+            $ok = $source->queryEach($sql, $params, function (array $row) use (&$bills, &$rawRows): void {
+                $rawRows++;
+                $billCode = trim((string)($row['bill_code'] ?? ''));
+                if ($billCode === '') {
+                    return;
+                }
+                if (!isset($bills[$billCode])) {
+                    $bills[$billCode] = [
+                        'bill_time'    => (string)($row['bill_time'] ?? ''),
+                        'bill_type'    => (string)($row['bill_type'] ?? ''),
+                        'physic_type'  => (string)($row['physic_type'] ?? ''),
+                        'from_user_id' => (string)($row['from_user_id'] ?? ''),
+                        'to_user_id'   => (string)($row['to_user_id'] ?? ''),
+                        'oper_ic_name' => (string)($row['oper_ic_name'] ?? ''),
+                        // 单据头属性：EXISTS 只看单号，同单号各行取值相同
+                        'uploaded'     => (int)($row['uploaded'] ?? 0) === 1,
+                        'codes'        => [],
+                    ];
+                }
+                $code = trim((string)($row['trace_codes'] ?? ''));
+                if ($code !== '') {
+                    $bills[$billCode]['codes'][$code] = true; // 关联数组去重（保序）
+                }
+            });
+
+            // 查询失败与"真没单据"必须分开：前者非零退出且不写库
+            // （queryEach 返回 false 即 SQL 出错，错误另存在 lastError 里）
+            // 这一抛会穿过门卫 → 基线不写 → 下一轮计数仍不等，自动重采
+            if ($ok === false) {
+                throw new \RuntimeException('单据查询失败: ' . $source->getErrorMessage());
+            }
+
+            if (empty($bills)) {
+                // 源库读通了、只是这天没单——算**采集成功**（与批发采集同口径）：返回而不是 exit，
+                // 好让门卫把基线写上，下一轮直接"跳过"而不是每轮都去问一次源库。
+                // 这里若写成 exit(0)，空日会永远重跑，且日志上永远看不出脚本跑没跑
+                echo "[fetch_bills_retail] 没有需要采集的单据\n";
+                return;
+            }
+
+            echo "[fetch_bills_retail] 拉取到 " . count($bills) . " 张单据（原始 {$rawRows} 行，已按单号去重收口）\n";
+
+            // ── 认领 + 分流 + 落库 ──
+            // 源库已全部读完（queryEach 已消费完语句并释放），之后的失败不会再产生"读一半写一半"的采集残缺
+            $db = Database::getInstance();
+
+            // 本地已有痕迹**分两张查**：两条分支的幂等判据不同（见 RetailExternalUploads::decide）——
+            // 已上传的单只看"有没有成功记录"（已有任务行不拦它：那条任务行是本地待办痕迹，由状态闭环翻正），
+            // 未上传的单则是"任务行或成功记录任一存在"就跳过。合成一个集合会让已上传分支误跳过、记录写不出来。
+            // 判据键均为 (company, djbh)：别家企业的同名单号不算"已有"（生产库里裸单号并不唯一）。
+            $taskSet = [];
+            $successSet = [];
+            foreach (array_chunk(array_keys($bills), RetailExternalUploads::IN_CHUNK_SIZE) as $chunk) {
+                $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                foreach ($db->query(
+                    "SELECT company, djbh FROM upload_tasks WHERE djbh IN ({$placeholders})",
+                    $chunk
+                ) as $row) {
+                    $taskSet[$row['company']][$row['djbh']] = true;
+                }
+                foreach ($db->query(
+                    "SELECT company, djbh FROM upload_logs WHERE djbh IN ({$placeholders}) AND response_status IN ('上传成功', '单据重复')",
+                    $chunk
+                ) as $row) {
+                    $successSet[$row['company']][$row['djbh']] = true;
+                }
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $taskCount = 0;
+            $recordCount = 0;
+            $skipCount = 0;
+            $unidentifiedCount = 0;
+
+            foreach ($bills as $djbh => $bill) {
+                $billType = BillType::normalize($bill['bill_type'], $djbh);
+                $organName = trim($bill['oper_ic_name']);
+                $claim = Enterprise::claim($billType, $bill['from_user_id'], $bill['to_user_id'], $organName);
+                $company = $claim['company'];
+
+                // 源库写了机构名、却对不上任何门店（ID 认到但名字不符，或名字与 ID 都不命中）→
+                // 疑似错名/改名/已关店：只记 JSONL 警告，**不改判定**（照常按认领结果落库）
+                if ($claim['name_unmatched']) {
+                    $warning = [
+                        'type' => 'retail_claim_name_unmatched',
+                        'djbh' => $djbh,
+                        'bill_type' => $billType,
+                        'company' => $company,
+                        'company_key' => $claim['company_key'],
+                        'matched_by' => $claim['matched_by'],
+                        'organ_name' => $organName,
+                    ];
+                    // 只进 JSONL、不进 upload_logs（后者是"上传结果"日志，写进去会在失败记录页冒出
+                    // 既非上传也非失败的记录，污染唯一的告警出口，见 docs/adr/0007）
+                    (new LogWriter())->writeJsonlOnly($warning);
+                    $reason = $claim['matched_by'] === 'id'
+                        ? "按 ID 认到 {$company}，但源库机构名「{$organName}」对不上任何门店"
+                        : "认领不到门店：源库机构名「{$organName}」未登记，ID 也未命中";
+                    echo "[fetch_bills_retail] 警告: 单号 {$djbh} {$reason}\n";
+                }
+
+                if ($claim['matched_by'] === 'none') {
+                    $unidentifiedCount++;
+                }
+
+                // 分流决定（判据与幂等规则见 App\RetailExternalUploads::decide）
+                // 按名传参：后两个都是同型的 bool，位置传参写反了没有任何东西会拦
+                $action = RetailExternalUploads::decide(
+                    uploaded: $bill['uploaded'],
+                    hasTask: isset($taskSet[$company][$djbh]),
+                    hasSuccess: isset($successSet[$company][$djbh])
+                );
+
+                if ($action === RetailExternalUploads::ACTION_SKIP) {
+                    $skipCount++;
+                    continue;
+                }
+
+                if ($action === RetailExternalUploads::ACTION_RECORD) {
+                    // 外部系统已上传：只留一条记录进已上传记录页，**不建任务**——这张单没有要人做的事。
+                    // 记录里 request_status 留空、task_id=0、response 写明出处（见 buildRecord 的注释）
+                    RetailExternalUploads::record([
+                        'djbh'        => $djbh,
+                        'rq'          => $bill['bill_time'],
+                        'trace_codes' => implode(',', array_keys($bill['codes'])),
+                        'company'     => $company,
+                        'credential'  => $claim['credential'],
+                    ]);
+                    $recordCount++;
+                    continue;
+                }
+
+                // ACTION_TASK：建「等待上传」任务，由人补传。
+                // ent_name（往来单位）零售链路用不到，留空——对手方 ID 直接来自源表的 from_user_id/to_user_id，
+                // 不查 ent_list（那是批发 kyt 接口把往来单位名换成 ent_id 才需要的缓存）。
+                // from_user_id / to_user_id / physic_type 照搬源表同名列：补传装配要用（见 ADR 0010），
+                // 除认领外不参与任何判定——三列都是单据头属性，与追溯码一样是"补传时不能现问源库"的输入。
+                $db->execute(
+                    "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential,
+                                               from_user_id, to_user_id, physic_type, created_at, updated_at)
+                     VALUES (?, ?, '', ?, ?, '等待上传', 'retail', ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        $bill['bill_time'],
+                        $djbh,
+                        implode(',', array_keys($bill['codes'])),
+                        $billType,
+                        $company,
+                        $claim['credential'],
+                        trim($bill['from_user_id']),
+                        trim($bill['to_user_id']),
+                        trim($bill['physic_type']),
+                        $now,
+                        $now,
+                    ]
+                );
+                $taskCount++;
+            }
+
+            // "本批未识别"的范围是**拉取到的整批**（含被跳过与写成记录的），不只是新增任务那一部分
+            echo "[fetch_bills_retail] 采集完成: 新增任务 {$taskCount} 条, 外部上传记录 {$recordCount} 条"
+                . ", 跳过 {$skipCount} 条（本批认领不到门店的共 {$unidentifiedCount} 条）\n";
+        }
+    );
+
+    // 门卫的结论（无论跳过还是采集，都原样打印它的一句话说明——运维靠这行区分"没新单"与"没跑"）
+    echo "[fetch_bills_retail] 计数门卫: {$gate['reason']}\n";
+    if ($gate['warning'] !== null) {
+        echo "[fetch_bills_retail] 警告: {$gate['warning']}\n";
     }
-
-    echo "[fetch_bills_retail] 正在从源库拉取单据与追溯码...\n";
-
-    // ── PHP 侧收口：LEFT JOIN 的重复行在此合并 ──
-    // 结构：bill_code => [单据头字段..., 'uploaded' => bool, 'codes' => [码 => true]]
-    // 码用关联数组去重（保序）；单据头字段取首次出现的行——重复行各列本就完全相同
-    $bills = [];
-    $rawRows = 0;
-
-    $ok = $source->queryEach($sql, $params, function (array $row) use (&$bills, &$rawRows): void {
-        $rawRows++;
-        $billCode = trim((string)($row['bill_code'] ?? ''));
-        if ($billCode === '') {
-            return;
-        }
-        if (!isset($bills[$billCode])) {
-            $bills[$billCode] = [
-                'bill_time'    => (string)($row['bill_time'] ?? ''),
-                'bill_type'    => (string)($row['bill_type'] ?? ''),
-                'physic_type'  => (string)($row['physic_type'] ?? ''),
-                'from_user_id' => (string)($row['from_user_id'] ?? ''),
-                'to_user_id'   => (string)($row['to_user_id'] ?? ''),
-                'oper_ic_name' => (string)($row['oper_ic_name'] ?? ''),
-                // 单据头属性：EXISTS 只看单号，同单号各行取值相同
-                'uploaded'     => (int)($row['uploaded'] ?? 0) === 1,
-                'codes'        => [],
-            ];
-        }
-        $code = trim((string)($row['trace_codes'] ?? ''));
-        if ($code !== '') {
-            $bills[$billCode]['codes'][$code] = true; // 关联数组去重（保序）
-        }
-    });
-
-    // 查询失败与"真没单据"必须分开：前者非零退出且不写库
-    // （queryEach 返回 false 即 SQL 出错，错误另存在 lastError 里）
-    if ($ok === false) {
-        throw new \RuntimeException('单据查询失败: ' . $source->getErrorMessage());
-    }
-
-    if (empty($bills)) {
-        echo "[fetch_bills_retail] 没有需要采集的单据\n";
+    if ($gate['skipped']) {
         exit(0);
     }
-
-    echo "[fetch_bills_retail] 拉取到 " . count($bills) . " 张单据（原始 {$rawRows} 行，已按单号去重收口）\n";
-
-    // ── 认领 + 分流 + 落库 ──
-    // 源库已全部读完（queryEach 已消费完语句并释放），之后的失败不会再产生"读一半写一半"的采集残缺
-    $db = Database::getInstance();
-
-    // 本地已有痕迹**分两张查**：两条分支的幂等判据不同（见 RetailExternalUploads::decide）——
-    // 已上传的单只看"有没有成功记录"（已有任务行不拦它：那条任务行是本地待办痕迹，由状态闭环翻正），
-    // 未上传的单则是"任务行或成功记录任一存在"就跳过。合成一个集合会让已上传分支误跳过、记录写不出来。
-    // 判据键均为 (company, djbh)：别家企业的同名单号不算"已有"（生产库里裸单号并不唯一）。
-    $taskSet = [];
-    $successSet = [];
-    foreach (array_chunk(array_keys($bills), RetailExternalUploads::IN_CHUNK_SIZE) as $chunk) {
-        $placeholders = implode(',', array_fill(0, count($chunk), '?'));
-        foreach ($db->query(
-            "SELECT company, djbh FROM upload_tasks WHERE djbh IN ({$placeholders})",
-            $chunk
-        ) as $row) {
-            $taskSet[$row['company']][$row['djbh']] = true;
-        }
-        foreach ($db->query(
-            "SELECT company, djbh FROM upload_logs WHERE djbh IN ({$placeholders}) AND response_status IN ('上传成功', '单据重复')",
-            $chunk
-        ) as $row) {
-            $successSet[$row['company']][$row['djbh']] = true;
-        }
-    }
-
-    $now = date('Y-m-d H:i:s');
-    $taskCount = 0;
-    $recordCount = 0;
-    $skipCount = 0;
-    $unidentifiedCount = 0;
-
-    foreach ($bills as $djbh => $bill) {
-        $billType = BillType::normalize($bill['bill_type'], $djbh);
-        $organName = trim($bill['oper_ic_name']);
-        $claim = Enterprise::claim($billType, $bill['from_user_id'], $bill['to_user_id'], $organName);
-        $company = $claim['company'];
-
-        // 源库写了机构名、却对不上任何门店（ID 认到但名字不符，或名字与 ID 都不命中）→
-        // 疑似错名/改名/已关店：只记 JSONL 警告，**不改判定**（照常按认领结果落库）
-        if ($claim['name_unmatched']) {
-            $warning = [
-                'type' => 'retail_claim_name_unmatched',
-                'djbh' => $djbh,
-                'bill_type' => $billType,
-                'company' => $company,
-                'company_key' => $claim['company_key'],
-                'matched_by' => $claim['matched_by'],
-                'organ_name' => $organName,
-            ];
-            // 只进 JSONL、不进 upload_logs（后者是"上传结果"日志，写进去会在失败记录页冒出
-            // 既非上传也非失败的记录，污染唯一的告警出口，见 docs/adr/0007）
-            (new LogWriter())->writeJsonlOnly($warning);
-            $reason = $claim['matched_by'] === 'id'
-                ? "按 ID 认到 {$company}，但源库机构名「{$organName}」对不上任何门店"
-                : "认领不到门店：源库机构名「{$organName}」未登记，ID 也未命中";
-            echo "[fetch_bills_retail] 警告: 单号 {$djbh} {$reason}\n";
-        }
-
-        if ($claim['matched_by'] === 'none') {
-            $unidentifiedCount++;
-        }
-
-        // 分流决定（判据与幂等规则见 App\RetailExternalUploads::decide）
-        // 按名传参：后两个都是同型的 bool，位置传参写反了没有任何东西会拦
-        $action = RetailExternalUploads::decide(
-            uploaded: $bill['uploaded'],
-            hasTask: isset($taskSet[$company][$djbh]),
-            hasSuccess: isset($successSet[$company][$djbh])
-        );
-
-        if ($action === RetailExternalUploads::ACTION_SKIP) {
-            $skipCount++;
-            continue;
-        }
-
-        if ($action === RetailExternalUploads::ACTION_RECORD) {
-            // 外部系统已上传：只留一条记录进已上传记录页，**不建任务**——这张单没有要人做的事。
-            // 记录里 request_status 留空、task_id=0、response 写明出处（见 buildRecord 的注释）
-            RetailExternalUploads::record([
-                'djbh'        => $djbh,
-                'rq'          => $bill['bill_time'],
-                'trace_codes' => implode(',', array_keys($bill['codes'])),
-                'company'     => $company,
-                'credential'  => $claim['credential'],
-            ]);
-            $recordCount++;
-            continue;
-        }
-
-        // ACTION_TASK：建「等待上传」任务，由人补传。
-        // ent_name（往来单位）零售链路用不到，留空——对手方 ID 直接来自源表的 from_user_id/to_user_id，
-        // 不查 ent_list（那是批发 kyt 接口把往来单位名换成 ent_id 才需要的缓存）。
-        // from_user_id / to_user_id / physic_type 照搬源表同名列：补传装配要用（见 ADR 0010），
-        // 除认领外不参与任何判定——三列都是单据头属性，与追溯码一样是"补传时不能现问源库"的输入。
-        $db->execute(
-            "INSERT INTO upload_tasks (rq, djbh, ent_name, trace_codes, bill_type, task_status, source, company, credential,
-                                       from_user_id, to_user_id, physic_type, created_at, updated_at)
-             VALUES (?, ?, '', ?, ?, '等待上传', 'retail', ?, ?, ?, ?, ?, ?, ?)",
-            [
-                $bill['bill_time'],
-                $djbh,
-                implode(',', array_keys($bill['codes'])),
-                $billType,
-                $company,
-                $claim['credential'],
-                trim($bill['from_user_id']),
-                trim($bill['to_user_id']),
-                trim($bill['physic_type']),
-                $now,
-                $now,
-            ]
-        );
-        $taskCount++;
-    }
-
-    // "本批未识别"的范围是**拉取到的整批**（含被跳过与写成记录的），不只是新增任务那一部分
-    echo "[fetch_bills_retail] 采集完成: 新增任务 {$taskCount} 条, 外部上传记录 {$recordCount} 条"
-        . ", 跳过 {$skipCount} 条（本批认领不到门店的共 {$unidentifiedCount} 条）\n";
 
 } catch (\Exception $e) {
     echo "[fetch_bills_retail] 错误: " . $e->getMessage() . "\n";
