@@ -51,6 +51,12 @@ root/
 │   ├── RetailRetention.php       # 门店数据保留期（平台硬性规定 2 年，不接受 2 年前的单据）：YEARS + cutoffDate() 是采集下限与清理下限的**唯一来源**；两个调用点必须共用，各写各的会让超期数据滞留
 │   ├── TraceSplitter.php         # 追溯码两种拆法：splitByCount 按码数拆单（上传用，上限取自 Enterprise::route()，批发 3500 / 零售 10000·3500）、splitByCharLimit 按字符数拆行（导出用，每行 ≤32000 字符）；countCodes 数码——页面"码数"列、追溯码弹窗、导出共用这一个口径（空串算 0）；normalizeInput 把人粘的一串码（一行一个）归一成逗号分隔，两条建单路径与 xlsx 解析共用
 │   ├── RecordQuery.php           # 数据页筛选条件单一事实源（build(类型, 参数) → WHERE/SELECT/ORDER/params，三类：tasks/uploaded/failed）：列表 API 与导出**共用同一段代码**，「导出的行数与页面一致」是构造上的性质。曾经四处各写一份，export 的失败分支因此漏过 quantity_check 豁免（第 4 类 retail_tasks 随门店补传清单撤销，见 docs/adr/0015）
+│   ├── LogSource.php             # 「来源」词表（upload_tasks/upload_logs 的 source 列）——中文标签与徽标色的
+│   │                             #   **唯一事实源**：labels()/badges() 供页面 JS map 与筛选下拉、label() 供导出与
+│   │                             #   任务页按值取；两个日志页的下拉直接 foreach labels() 渲染（天然覆盖全部取值），
+│   │                             #   任务页下拉只列任务表会出现的五个值、成员名单留在视图里。收口前三份 JS map
+│   │                             #   各写各的且键集互不相同，quantity_check 三份都没有——数量对账告警因此在失败
+│   │                             #   记录页直出机器值、按来源也筛不出来（见 .scratch/retail-collection-split/）
 │   ├── LogWriter.php             # JSONL + SQLite 双写日志
 │   ├── SqlSrvHelper.php          # SQL Server 数据库操作封装（根命名空间，classmap 加载；queryEach 为逐行消费大结果集的
 │   │                             #  回调式接口，供"结果集可能有数十万行、不能攒进内存"的场景用）
@@ -64,7 +70,7 @@ root/
 │   │   ├── tasks_batch_retry.php  # 批量重传（工单 15 起**按行分流**：source='retail' 的逐条走
 │   │   │                          #   App\RetailRetransmit，其余原样走 UploadService；混批不再被守卫整批拒绝）
 │   │   ├── uploaded.php          # 已上传记录列表（upload_logs success=1）
-│   │   ├── failed.php            # 失败记录列表（排除**同一企业内**该单号已有上传成功/单据重复记录的日志行——去重键是 (company, djbh)，裸 djbh 会让零售失败记录被同号批发成功单顶掉；quantity_check 来源记录豁免——数量对账仅查已上传成功单，若不豁免会被 NOT EXISTS 全隐藏，告警出口失效；**已知缺口**：该页"来源"列的标签表与来源下拉都没有 `quantity_check`，数量对账告警因此在页面上直出机器值、也按来源筛不出来——本轮未动）
+│   │   ├── failed.php            # 失败记录列表（排除**同一企业内**该单号已有上传成功/单据重复记录的日志行——去重键是 (company, djbh)，裸 djbh 会让零售失败记录被同号批发成功单顶掉；quantity_check 来源记录豁免——数量对账仅查已上传成功单，若不豁免会被 NOT EXISTS 全隐藏，告警出口失效；来源列与来源下拉取自 `App\LogSource`，`quantity_check` 显示「数量对账」、也能按它筛——此前"直出机器值、筛不出来"的已知缺口 2026-10-02 已消）
 │   │   ├── logs_delete.php       # 删除单条日志记录
 │   │   ├── logs_batch_delete.php # 批量删除日志记录
 │   │   ├── manual_create.php     # 手动创建任务并立即上传（批发主体，服务端取 wholesaleSubject）
@@ -140,6 +146,10 @@ root/
 │   │                             #   （按发货/收货语义）、prepare() 触网前的全部拒绝分支（含 2 年下限）、手工 104 的端到端装配形状
 │   ├── record_query_test.php     # App\RecordQuery 自包含断言测试：三页固定口径（失败页的 quantity_check 豁免与同企业判重）、
 │   │                             #   日期参数名→列的映射、`?` 与 params 数量恒等
+│   ├── log_source_test.php       # App\LogSource 自包含断言测试：已知取值清单与词表**互为子集**（加一个取值就得写下
+│   │                             #   它的出处）、每个取值都有非空标签与徽标色、标签不是机器值也不重复、
+│   │                             #   RetailRetransmit::SOURCE 与 RetailManualEntry::LOG_SOURCE 落在词表里、
+│   │                             #   未知取值回落原值 / 历史空串回落空串（漏一个取值即变红）
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   └── searchbill_*.json         # search_bill_test.php 的查询结果存档
@@ -174,7 +184,7 @@ root/
 
 三个数据页面（upload-tasks / uploaded / failed）均支持筛选：单号、往来单位、状态、**单据日期**（`rq`）、**任务创建时间**（`created_at`）。日期筛选使用 flatpickr 范围选择器，一个输入框同时选起止日期，默认最近 7 天（含当天）。**关键词检索（单号/往来单位）不受默认日期范围限制**：输入关键词时若日期选择器仍是默认 7 天（用户未手动改过），前端自动不传日期参数实现全库检索；用户手动改过日期则关键词+日期正常组合过滤。分页最多显示 10 个页码，超出用省略号。
 
-三个数据页工具栏均有"导出 xlsx"按钮：按当前生效筛选条件全量导出（前端已计算关键词忽略默认日期后的参数）。导出走 `page=api&action=export`（`api/export.php`），**流式生成**（sheet XML 逐行写临时文件 + ZipArchive 打包，不用 PhpSpreadsheet 避免全量驻留内存）；追溯码按字符数拆行（`App\TraceSplitter::splitByCharLimit`，每行 ≤32000 字符 ≈ 1523 码，超限时一单多行、单号加 `_N` 后缀，命名对齐上传拆分、已带后缀的单号追加后缀），拆行兜底（单条码自身超 32000 字符的极端情况）仍截断并追加 `…(共N个码)`，其余列超限追加 `…(已截断)`；无匹配数据时前端拦截提示、后端仍输出带表头的空文件。导出列与页面表格对齐（来源列导出机器值 cron/manual/...，单据类型导出归一化 3 位码），文件名 `上传任务/已上传/失败记录_YYYY-MM-DD.xlsx`。（第 4 类 `type=retail_tasks`（门店补传清单导出）随门店分支撤销，见 `docs/adr/0015`。）
+三个数据页工具栏均有"导出 xlsx"按钮：按当前生效筛选条件全量导出（前端已计算关键词忽略默认日期后的参数）。导出走 `page=api&action=export`（`api/export.php`），**流式生成**（sheet XML 逐行写临时文件 + ZipArchive 打包，不用 PhpSpreadsheet 避免全量驻留内存）；追溯码按字符数拆行（`App\TraceSplitter::splitByCharLimit`，每行 ≤32000 字符 ≈ 1523 码，超限时一单多行、单号加 `_N` 后缀，命名对齐上传拆分、已带后缀的单号追加后缀），拆行兜底（单条码自身超 32000 字符的极端情况）仍截断并追加 `…(共N个码)`，其余列超限追加 `…(已截断)`；无匹配数据时前端拦截提示、后端仍输出带表头的空文件。导出列与页面表格对齐（**「来源」列导出中文标签**——与页面同一份 `App\LogSource`，2026-10-02 前是机器值；单据类型导出归一化 3 位码），文件名 `上传任务/已上传/失败记录_YYYY-MM-DD.xlsx`。（第 4 类 `type=retail_tasks`（门店补传清单导出）随门店分支撤销，见 `docs/adr/0015`。）
 
 **三数据页的"所属企业"筛选与导出列（工单 08；下拉字体区分见工单 16/17）**：三页表格都有"所属企业"列（上传任务页工单 03 加、已上传页工单 06 加、失败记录页工单 08 补齐）。筛选栏都有"所属企业"下拉，选项由 `Enterprise::selectableOptions()` 给出（**企业名 => 凭据就绪态**，另含 `未识别` => `unidentified`；已配 16 家企业共 17 项。`未识别` 不是一个企业，但确实是 `company` 列的一个取值——门店认领失败的那批，必须能单独筛出来）。**按 `company` 去重**——每家恰一套凭据（1:1，见 `docs/adr/0012`），故"一门店多套凭据时显示 `门店名（label）`"这类问题已不存在。xlsx 三类导出都含"所属企业"列（位置与页面表格一致，在"单据类型"之后）。
 
@@ -182,6 +192,7 @@ root/
 - **`未识别` 的呈现三页并不相同**：只有上传任务页另加红色徽标 + 整行标红（它是操作页，那批单等着人处置）；已上传/失败两个日志页只作普通文字——工单 06 定的就是日志页不标红，本票未改
 - **"企业下拉不算关键词"**：三页都有"输入关键词时丢掉默认 7 天日期范围"的逻辑，那里的关键词**只算单号与往来单位**。企业下拉是筛选维度，算进来会让"选了企业"顺手把默认日期范围也丢掉，日期行为被无声改变
 - **三页的默认 7 天维度不同**（上传任务页＝单据日期 `date_from/to`；已上传/失败页＝任务创建时间 `date_from/to`，单据日期改用 `rq_from/to`），映射写在 `RecordQuery::addRange` 的调用处，改参数名时别搞混
+- **「来源」列与下拉的单一事实源 `App\LogSource`（2026-10-02 收口，见 `.scratch/retail-collection-split/issues/01-source-label-single-source.md`）**：取值 → 中文标签 / 徽标色 / 下拉选项收在一个类里，两个日志页的视图与 xlsx 导出都从它取；**下拉由它 foreach 渲染**，故天然覆盖全部取值——`quantity_check` 曾因三份标签表都没有它而直出机器值、按来源也筛不出来，这笔欠账本轮还上（标签「数量对账」，徽标红）。新增一个来源取值只改那一处。两处刻意的不统一：① **任务页下拉的成员名单留在视图里**，只列任务表会出现的五个值（`retail_retry` / `retail_external` / `quantity_check` 只写日志表，列在那儿只会筛出空结果），标签文本仍取自同一份词表；② **未知取值回落成原值**（历史空串因此仍导成空单元格）——显示机器值总比显示一列空白强，漏配标签时还认得出数据是从哪来的
 - **筛选构造单一事实源 `App\RecordQuery`**：`tasks/uploaded/failed/export` 四个入口都调它，原先那 4 份拷贝已删。已知的一处漂移顺带消失——`export.php` 的失败记录分支曾无条件走 NOT EXISTS、缺了页面版那句 `source = 'quantity_check' OR` 豁免，结果是失败记录页看得见的数量对账告警、导出的 xlsx 里没有。**仪表盘那张卡片仍是第 5 份拷贝**（`views/dashboard.php`，其 NOT EXISTS 既没限定 `company` 也没有该豁免），本轮明确不动，等零售接入稳定后再统一
 
 ## 核心数据流
@@ -496,6 +507,7 @@ php /usr/share/nginx/mashangfangxin/tests/retail_upload_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_retention_test.php
 php /usr/share/nginx/mashangfangxin/tests/retail_manual_test.php
 php /usr/share/nginx/mashangfangxin/tests/record_query_test.php
+php /usr/share/nginx/mashangfangxin/tests/log_source_test.php
 
 # 查询单号在码上放心平台的上传状态（searchbill.detail；输出 JSON + 另存 tests/searchbill_<单号>.json）
 php /usr/share/nginx/mashangfangxin/tests/search_bill_test.php XSOWMS00997501

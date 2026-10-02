@@ -78,11 +78,12 @@ layout('上传任务', 'upload-tasks');
                 <label class="form-label small text-muted">来源</label>
                 <select class="form-select" id="filter-source">
                     <option value="">全部</option>
-                    <option value="cron">定时采集</option>
-                    <option value="manual">手动上传</option>
-                    <option value="batch_check">批量核查</option>
-                    <option value="batch_retry">批量重传</option>
-                    <option value="retail">零售采集</option>
+                    <?php // 成员名单是这一页的事，故不取词表全量（两个日志页才 foreach 全量）：retail_retry /
+                          // retail_external / quantity_check 只写日志表——补传、外部上传、数量对账都不建任务行，
+                          // 列在这儿只会筛出空结果。标签文本仍取自共用词表 App\LogSource，一份都没抄 ?>
+                    <?php foreach (['cron', 'manual', 'batch_check', 'batch_retry', 'retail'] as $source): ?>
+                        <option value="<?= htmlspecialchars($source) ?>"><?= htmlspecialchars(App\LogSource::label($source)) ?></option>
+                    <?php endforeach; ?>
                 </select>
             </div>
             <div class="col-md-2">
@@ -377,20 +378,10 @@ const retailConfigError = <?= json_encode($configError, JSON_UNESCAPED_UNICODE) 
         '往来单位缺失': 'bg-dark',
         '未确定': 'bg-secondary',
     };
-    const sourceLabels = {
-        'cron': '定时采集',
-        'manual': '手动上传',
-        'batch_check': '批量核查',
-        'batch_retry': '批量重传',
-        'retail': '零售采集',
-    };
-    const sourceBadges = {
-        'cron': 'bg-primary',
-        'manual': 'bg-success',
-        'batch_check': 'bg-info',
-        'batch_retry': 'bg-warning text-dark',
-        'retail': 'bg-dark',
-    };
+    // 来源标签/徽标色取自 App\LogSource——该口径的唯一事实源（两个日志页 + 本页 + 导出共用）。
+    // 本页的下拉另说：只列任务表会出现的取值（见下拉那里的注释）。
+    const sourceLabels = <?= json_encode(App\LogSource::labels(), JSON_UNESCAPED_UNICODE) ?>;
+    const sourceBadges = <?= json_encode(App\LogSource::badges(), JSON_UNESCAPED_UNICODE) ?>;
     const billTypeLabels = {
         '102': '采购入库', '103': '退货入库', '104': '调拨入库', '107': '供应入库', '108': '召回入库',
         '110': '赠品入库', '111': '盘盈入库', '112': '报废入库', '113': '其他入库',

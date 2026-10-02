@@ -50,11 +50,11 @@ layout('失败记录', 'failed');
                 <label class="form-label small text-muted">来源</label>
                 <select class="form-select" id="filter-source">
                     <option value="">全部</option>
-                    <option value="cron">定时采集</option>
-                    <option value="manual">手动上传</option>
-                    <option value="batch_check">批量核查</option>
-                    <option value="batch_retry">批量重传</option>
-                    <option value="retail_retry">零售补传</option>
+                    <?php // 选项直接来自来源词表（App\LogSource）：数量对账（quantity_check）的告警
+                          // 曾因本页标签表里没有它而直出机器值、也按来源筛不出来，本轮起有中文标签 ?>
+                    <?php foreach (App\LogSource::labels() as $source => $label): ?>
+                        <option value="<?= htmlspecialchars($source) ?>"><?= htmlspecialchars($label) ?></option>
+                    <?php endforeach; ?>
                 </select>
             </div>
             <div class="col-md-1">
@@ -265,23 +265,11 @@ layout('失败记录', 'failed');
         locale: "zh",
     });
 
-    // 零售补传（retail_retry）的失败记录只可能出现在本页——那是操作者唯一能看见"补传没成功"的出口
-    // （见 docs/adr/0007），故本页也要认得这个来源值，否则显示成机器值、筛选也筛不到。
-    // 只补来源标签/下拉，**本页的判定口径（哪些行该显示）一字未动**。
-    const sourceLabels = {
-        'cron': '定时采集',
-        'manual': '手动上传',
-        'batch_check': '批量核查',
-        'batch_retry': '批量重传',
-        'retail_retry': '零售补传',
-    };
-    const sourceBadges = {
-        'cron': 'bg-primary',
-        'manual': 'bg-success',
-        'batch_check': 'bg-info',
-        'batch_retry': 'bg-warning text-dark',
-        'retail_retry': 'bg-dark',
-    };
+    // 来源标签/徽标色取自 App\LogSource——该口径的唯一事实源（本页下拉也由它渲染，故覆盖全部取值，
+    // 含数量对账 quantity_check）。零售补传（retail_retry）的失败记录只可能出现在本页：那是操作者
+    // 唯一能看见"补传没成功"的出口（见 docs/adr/0007）。**本页的判定口径（哪些行该显示）一字未动**。
+    const sourceLabels = <?= json_encode(App\LogSource::labels(), JSON_UNESCAPED_UNICODE) ?>;
+    const sourceBadges = <?= json_encode(App\LogSource::badges(), JSON_UNESCAPED_UNICODE) ?>;
     const billTypeLabels = {
         '102': '采购入库', '103': '退货入库', '104': '调拨入库', '107': '供应入库', '108': '召回入库',
         '110': '赠品入库', '111': '盘盈入库', '112': '报废入库', '113': '其他入库',

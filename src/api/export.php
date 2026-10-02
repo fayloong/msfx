@@ -10,6 +10,7 @@
 use App\Auth;
 use App\BillType;
 use App\Database;
+use App\LogSource;
 use App\RecordQuery;
 use App\TraceSplitter;
 
@@ -41,7 +42,7 @@ $query = RecordQuery::build($type, $_GET);
 $sql = $query['select'] . ' ' . $query['where'] . ' ' . $query['order'];
 $params = $query['params'];
 
-// ---------- 导出列定义（与页面表格列对齐，来源列导出机器值 cron/manual/...） ----------
+// ---------- 导出列定义（与页面表格列对齐；「来源」列与页面同一份中文标签，见 App\LogSource） ----------
 if ($type === 'tasks') {
     $columns = [
         '单据日期' => fn($r) => $r['rq'] ?? '',
@@ -50,7 +51,7 @@ if ($type === 'tasks') {
         '所属企业' => fn($r) => $r['company'] ?? '',
         '往来单位' => fn($r) => $r['ent_name'] ?? '',
         '追溯码' => fn($r) => truncateTraceCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
-        '来源' => fn($r) => $r['source'] ?? '',
+        '来源' => fn($r) => LogSource::label((string)($r['source'] ?? '')),
         '任务状态' => fn($r) => $r['task_status'] ?? '',
         '响应状态' => fn($r) => $r['response_status'] ?? '',
         '任务创建时间' => fn($r) => $r['created_at'] ?? '',
@@ -69,7 +70,7 @@ if ($type === 'tasks') {
         '往来单位' => fn($r) => $r['ent_name'] ?? '',
         '追溯码' => fn($r) => truncateTraceCodes((string)($r['_piece_trace_codes'] ?? ($r['trace_codes'] ?? ''))),
         '关联任务ID' => fn($r) => ($r['task_id'] ?? 0) ?: '',
-        '来源' => fn($r) => $r['source'] ?? '',
+        '来源' => fn($r) => LogSource::label((string)($r['source'] ?? '')),
         '任务创建时间' => fn($r) => $r['created_at'] ?? '',
         '最后更新时间' => fn($r) => $r['updated_at'] ?? '',
         '状态' => $statusFn,
