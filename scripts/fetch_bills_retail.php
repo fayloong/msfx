@@ -207,7 +207,6 @@ try {
     }
 
     $now = date('Y-m-d H:i:s');
-    $externalUploads = new RetailExternalUploads();
     $taskCount = 0;
     $recordCount = 0;
     $skipCount = 0;
@@ -245,10 +244,11 @@ try {
         }
 
         // 分流决定（判据与幂等规则见 App\RetailExternalUploads::decide）
+        // 按名传参：后两个都是同型的 bool，位置传参写反了没有任何东西会拦
         $action = RetailExternalUploads::decide(
-            $bill['uploaded'],
-            isset($taskSet[$company][$djbh]),
-            isset($successSet[$company][$djbh])
+            uploaded: $bill['uploaded'],
+            hasTask: isset($taskSet[$company][$djbh]),
+            hasSuccess: isset($successSet[$company][$djbh])
         );
 
         if ($action === RetailExternalUploads::ACTION_SKIP) {
@@ -259,7 +259,7 @@ try {
         if ($action === RetailExternalUploads::ACTION_RECORD) {
             // 外部系统已上传：只留一条记录进已上传记录页，**不建任务**——这张单没有要人做的事。
             // 记录里 request_status 留空、task_id=0、response 写明出处（见 buildRecord 的注释）
-            $externalUploads->record([
+            RetailExternalUploads::record([
                 'djbh'        => $djbh,
                 'rq'          => $bill['bill_time'],
                 'trace_codes' => implode(',', array_keys($bill['codes'])),
@@ -296,8 +296,9 @@ try {
         $taskCount++;
     }
 
-    echo "[fetch_bills_retail] 采集完成: 新增任务 {$taskCount} 条（其中未识别 {$unidentifiedCount} 条）"
-        . ", 外部上传记录 {$recordCount} 条, 跳过 {$skipCount} 条\n";
+    // "本批未识别"的范围是**拉取到的整批**（含被跳过与写成记录的），不只是新增任务那一部分
+    echo "[fetch_bills_retail] 采集完成: 新增任务 {$taskCount} 条, 外部上传记录 {$recordCount} 条"
+        . ", 跳过 {$skipCount} 条（本批认领不到门店的共 {$unidentifiedCount} 条）\n";
 
 } catch (\Exception $e) {
     echo "[fetch_bills_retail] 错误: " . $e->getMessage() . "\n";

@@ -41,14 +41,6 @@ class RetailExternalUploads
     public const ACTION_TASK   = 'task';   // 建「等待上传」任务，由人补传
     public const ACTION_SKIP   = 'skip';   // 本地已有这条单的痕迹，整条跳过（幂等）
 
-    private LogWriter $writer;
-
-    /** @param LogWriter|null $writer 注入点；生产走默认（JSONL + SQLite 双写） */
-    public function __construct(?LogWriter $writer = null)
-    {
-        $this->writer = $writer ?? new LogWriter();
-    }
-
     /**
      * 分流决定：这一单该怎么落库。
      *
@@ -123,9 +115,13 @@ class RetailExternalUploads
      *
      * **记录的"已有成功记录"这个判据由调用方给**（见 `decide()` 的 `$hasSuccess`）：采集按批
      * 取本地痕迹时顺带就有了，在这里再查一次等于每条单据多一次往返。本方法不做去重查询。
+     *
+     * 与类里其余方法一样是静态的：这个类不带状态（判定与形状都是纯函数）——注入一个
+     * LogWriter 的构造参数曾经在这儿，但全仓无人传，纯属给将来准备的钩子，删了。
+     * 需要写入行为可替换时（真要 mock 它）再引入不迟。
      */
-    public function record(array $bill): void
+    public static function record(array $bill): void
     {
-        $this->writer->write(self::buildRecord($bill));
+        (new LogWriter())->write(self::buildRecord($bill));
     }
 }
