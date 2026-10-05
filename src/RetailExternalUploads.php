@@ -292,14 +292,9 @@ class RetailExternalUploads
 
         // ── 3. 源库核对：按单号 IN 分块查状态表（**只读**）──
         // DISTINCT 不能省：那张表无主键无唯一约束（82 个单号多行），不然同一个单号会回传多行。
-        $djbhs = [];
-        foreach ($pending as $byDjbh) {
-            foreach ($byDjbh as $djbh => $_) {
-                $djbhs[$djbh] = true;
-            }
-        }
+        $djbhs = self::pendingDjbhList($pending);
         $uploadedBills = [];
-        foreach (self::chunkedIn(array_keys($djbhs)) as [$chunk, $placeholders]) {
+        foreach (self::chunkedIn($djbhs) as [$chunk, $placeholders]) {
             $ok = $source->queryEach(
                 'SELECT DISTINCT bill_code FROM ' . self::TABLE . " WHERE bill_code IN ({$placeholders})",
                 $chunk,
@@ -325,7 +320,7 @@ class RetailExternalUploads
         }
 
         // ── 4、5. 判定与落库（与平台核查共用，见 successKeys() / applyActions()）──
-        $success = self::successKeys(array_keys($djbhs));
+        $success = self::successKeys($djbhs);
         $applied = self::applyActions(
             self::closureActions($pending, $success, $uploadedBills),
             $pending,
@@ -393,6 +388,26 @@ class RetailExternalUploads
     }
 
     /**
+     * 待办清单里的全部单号（扁平、去重）——两处 `IN` 查询的输入形状。
+     *
+     * 状态闭环与平台核查都要它（各自写一遍 3 行 foreach 时，改了一处另一处不会报错，
+     * 只会有一边悄悄少查几个单号）。
+     *
+     * @param array<string,array<string,array>> $pending 待办清单（企业 => 单号 => 痕迹）
+     * @return array<int,string>
+     */
+    public static function pendingDjbhList(array $pending): array
+    {
+        $djbhs = [];
+        foreach ($pending as $byDjbh) {
+            foreach ($byDjbh as $djbh => $_) {
+                $djbhs[$djbh] = true;
+            }
+        }
+        return array_keys($djbhs);
+    }
+
+    /**
      * 本地已有的成功记录（企业 => 单号 => true），只查给定单号里的那些。
      *
      * 判据是 `(company, djbh)` 两维：生产库里裸单号并不唯一，乙店的成功记录会把甲店的待办
@@ -447,10 +462,12 @@ class RetailExternalUploads
         $turned = 0;
         $recorded = 0;
 
-        $reason = (string)($provenance['reason'] ?? '');
-        $checker = (string)($provenance['checker'] ?? '');
-        $logType = (string)($provenance['log_type'] ?? 'retail_status_closure');
-        $judgedBy = (string)($provenance['judged_by'] ?? self::TABLE);
+        // 四个键**直接取**（不给静默默认）：docblock 说必传就必传——缺一个键会拼出
+        // "本行任务由翻正"这样的残句，或让 judged_by 指错出处；缺键时在这里报 warning 更显眼
+        $reason = (string)$provenance['reason'];
+        $checker = (string)$provenance['checker'];
+        $logType = (string)$provenance['log_type'];
+        $judgedBy = (string)$provenance['judged_by'];
 
         foreach ($actions as $company => $byDjbh) {
             foreach ($byDjbh as $djbh => $action) {

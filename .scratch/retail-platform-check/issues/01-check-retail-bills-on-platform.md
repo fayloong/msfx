@@ -21,7 +21,7 @@
   - 落点 `RetailPlatformCheck::actionsByCompany()`；辨别力实测：改成"一次喂全量集合"→ 2 条断言变红
 - [x] `scripts/check_bill_status_retail.php`：两个来源、flock、`--dry-run`、`--limit`、`--company`、进度与统计输出
   - 新鲜度门卫与 touch **刻意不做**（手动跑的脚本，理由与代价见 `spec.md`「开销与边界」）
-- [x] `tests/retail_platform_check_test.php` 自包含断言：**27 条全绿**
+- [x] `tests/retail_platform_check_test.php` 自包含断言：**25 条全绿**
   - 分组跳过判据（未识别/待配凭据/未声明凭据位/批发主体）、企业隔离（含反向与"已有成功记录时只翻任务行"）、dry-run 一次都不调平台、三种结果归类与收集（error 不冒充未上传）、逐条隔离、限量（跳过的门店不占额度）、事件回调
 - [x] 既有全部测试跑绿（离线，不调平台）
   - 13 个离线测试逐个退出码 0、「全部通过」；`search_bill_test` / `singlerelation_test` 两个探针不跑（会调平台）
@@ -75,10 +75,21 @@
 | `error` 非空并进 `absent` | 2 条（异常被当成"未上传"） |
 | 限量截断去掉 | 2 条（限不住） |
 
-还原后逐字一致（`diff` 空）+ 27 条全绿。
+还原后逐字一致（`diff` 空）+ 25 条全绿。
 
 ## Comments
 
 - **开工时用户拍了三个决策**（探测 / 调度 / 覆盖范围），见 `spec.md` 决策表。
 - **实现中改了 spec 的一条口径**：门卫从"照批发做 30 分钟"改成"**不做**"——手动跑的脚本没有那个场景，且清单随翻正自然收敛；代价（被翻正的失败记录每次仍会被重查一次）写进了 spec 与 CLAUDE.md。
-- **`--company` 是开工后加的**（票面最初没列）：排查单店是真实需求（"只看大湖那 627 条"），与 `upload_pending_retail.php` 的 `--company` 同语义（取回之后过滤）。
+- **`--company` 是开工后加的**（票面最初没列）：排查单店是真实需求（"只看大湖那 627 条"），与 `upload_pending_retail.php` 的 `--company` 同样"取回之后过滤"。⚠️ **取值不同**：那边收企业 **key**（`dyt-baoyuan`），这边收企业**全名**——参数名一样、含义不同，两处都写明了。
+- **code-review 收口（2026-10-05，两轴并行）**——四条已修、四条记明不修：
+  - ✅ **`usleep` 参数化失效**（两轴都抓到，硬违反）：主路径写死 `self::QUERY_INTERVAL_US`、只有异常分支用了形参 `$intervalUs`——测试传 0 仍睡 3.5 秒，那个"可测接缝"是坏的。已修：两处都走 `$intervalUs`，测试耗时 3.54s → **0.028s**
+  - ✅ **`--company` 未知企业名静默变成空集**：与 `upload_pending_retail` 那条 fail-closed 立场不一致（写错店名会让"核查了一整轮"看起来像"本来就没有待办"）。已修：参数解析后、**取锁之前**逐个校验 `Enterprise::find()`，未知即退出 1 并说明收的是全名
+  - ✅ **`applyActions()` 的 `$provenance` 四键给了静默默认**（docblock 说必传、代码却兜底）：缺键会拼出"本行任务由翻正"这样的残句。已修：四个键直接取，缺键即 warning
+  - ✅ **`spec` 承诺的"每条写 JSONL"未实现**（Spec 轴抓到的文档-实现不符）：口径收窄为"只有翻正才写"，与批发的两个检查脚本一致——spec 那一条已改写并标明"初稿 vs 实现"
+  - ✅ **断言数写错**：票面与 CLAUDE.md 都写"27 条"，实际 **25 条**（`grep -c '^PASS'` 实测）。已订正三处
+  - ⏸️ **不修：参数解析/flock 与 `upload_pending_retail` 逐字重复**——抽一份公共 CLI 解析超出本票范围（本仓多脚本各自解析有先例：两个检查脚本也各写一份 flock）；语义漂移那一半已按上面那条修掉
+  - ⏸️ **不修：`closeLoop()` 传的 reason 与 `buildRecord()` 默认值同句**——"显式说明"与"默认"是两种情形，同句不构成第二份判据
+  - ⏸️ **不修：`groupByCompany` 内联组合凭据判据**——它调的就是 `Enterprise::credentialFor()` 与 `credentialConfigured()` 两个既有方法（`credentialReady()` 内部同样调后者），是组合不是重写判据；且它要的是"有凭据数组可传"，与三态标签是两回事
+  - ⏸️ **不修：三名并存**（脚本 `check_bill_status_retail` / 类 `RetailPlatformCheck` / log_type `retail_platform_check`）——三者面向的读者不同（运维 / 代码 / 日志），脚本名刻意与 `check_bill_status` 成对
+  - ✅ **顺带抽取**：`pendingDjbhList()`（待办清单展平成单号）原先在 `closeLoop()` 与脚本里各写一份，已收成 `RetailExternalUploads` 的一个静态方法

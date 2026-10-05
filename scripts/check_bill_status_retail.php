@@ -42,6 +42,7 @@ if (!function_exists('info_log')) {
 
 use App\ApiClient;
 use App\Config;
+use App\Enterprise;
 use App\RetailExternalUploads;
 use App\RetailPlatformCheck;
 
@@ -77,6 +78,19 @@ foreach (array_slice($argv, 1) as $arg) {
     }
 }
 
+// --company 的未知企业名**直接退出 1**（在取锁与任何查询之前）：与 upload_pending_retail 的
+// 同名参数同一个立场（那边记的是"打错一个字母与队列本来就是空的在日志上长得一样"）——这里
+// 更糟：写错店名会让"核查了一整轮"看起来像"本来就没有待办"。注意两处的取值不同：那边是企业
+// **key**（`dyt-baoyuan`），这边是企业**全名**（页面下拉里那个）
+if ($companies !== null) {
+    foreach ($companies as $name) {
+        if (Enterprise::find($name) === null) {
+            echo "[check_bill_status_retail] 未知企业名: {$name}（config/enterprises.php 里没有这家；--company 收的是企业全名）\n";
+            exit(1);
+        }
+    }
+}
+
 // flock 防并发：真跑才取锁（--dry-run 一个字节都不写，没有要互斥的东西）
 $lockFp = null;
 if (!$dryRun) {
@@ -97,10 +111,9 @@ try {
     // ── 待办清单：与状态闭环同一份取数口径 ──
     $pending = RetailExternalUploads::pendingItems();
 
-    // --company：取回之后过滤（口径本身不变）——留空的键一并去掉，免得留下"零条待办"的假门店
+    // --company：取回之后过滤（取数口径本身不变）；未知名在参数解析后已拦掉
     if ($companies !== null) {
-        $wanted = array_flip($companies);
-        $pending = array_intersect_key($pending, $wanted);
+        $pending = array_intersect_key($pending, array_flip($companies));
     }
 
     $total = 0;
@@ -157,13 +170,7 @@ try {
     $turned = 0;
     $recorded = 0;
     if (!$dryRun && $stats['uploaded'] > 0) {
-        $djbhs = [];
-        foreach ($pending as $byDjbh) {
-            foreach ($byDjbh as $djbh => $_) {
-                $djbhs[$djbh] = true;
-            }
-        }
-        $success = RetailExternalUploads::successKeys(array_keys($djbhs));
+        $success = RetailExternalUploads::successKeys(RetailExternalUploads::pendingDjbhList($pending));
         $actions = RetailPlatformCheck::actionsByCompany($pending, $stats['uploaded_by_company'], $success);
         $applied = RetailExternalUploads::applyActions($actions, $pending, [
             'reason' => '平台查询确认该单据已上传（lsyd.query.upbilldetail）',

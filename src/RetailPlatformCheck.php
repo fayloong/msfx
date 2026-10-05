@@ -201,7 +201,7 @@ class RetailPlatformCheck
                 self::emit($report, $company, $djbh, self::OUTCOME_ABSENT, null);
             }
 
-            usleep(self::QUERY_INTERVAL_US);
+            usleep($intervalUs);
         }
 
         $stats['uploaded_by_company'] = $uploadedByCompany;

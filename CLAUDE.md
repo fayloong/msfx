@@ -247,7 +247,7 @@ root/
 │   │                             #   逐条隔离（被拒算失败、后续照跑）、子单 failed>0 的一单计失败。
 │   │                             #   辨别力：六处各自变红（dry-run 分支去掉 / 门店判据恒真 / 限量挪到分流之前 /
 │   │                             #   去掉 try/catch（PHP fatal，断言没跑完）/ SQL 丢掉状态条件 / 子单失败判成成功）
-│   ├── retail_platform_check_test.php # App\RetailPlatformCheck 自包含断言测试（2026-10-05，27 条）：分组跳过判据
+│   ├── retail_platform_check_test.php # App\RetailPlatformCheck 自包含断言测试（2026-10-05，25 条）：分组跳过判据
 │   │                             #   （未识别/待配凭据/未声明凭据位/混进来的批发主体）、**企业隔离**
 │   │                             #   （同名单号各判各的——一次喂全量集合就是跨门店串号）、
 │   │                             #   **dry-run 一次都不调平台**、三种结果的归类与收集（error 不冒充未上传）、

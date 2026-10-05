@@ -44,7 +44,7 @@
 - 按 `company` 分组；**`未识别` 与「取不到凭据」（待配凭据 / 不在配置中）的门店整组跳过并计数**——没有凭据就没有 ref_ent_id，这条判据对它们不成立（`未识别` 的任务行仍归源库闭环管，那条判据不需要凭据）
 - 每组造一套 `ApiClient::forCredential()`，逐条查平台（`usleep(500000)`，与批发查询同速），只把 `found=true` 的单号收进该企业的已上传集合
 - 查询异常（网络错误）**只跳过、不修改**（"不知道"不等于"没上传"——与闭环对源库查不通的态度一致）
-- 每条用返回的 `response` 写 JSONL（`type=retail_platform_check`）
+- **逐条查询不留 `upload_logs` 痕迹**（只有翻正才由 `applyActions()` 记一条 JSONL，`type=retail_platform_check`）。⚠️ **spec 初稿写的是"每条用返回的 response 写 JSONL"，实现时收窄到这个口径**——与批发的两个检查脚本一致（它们也只在状态变化时写，"查过但没传"只在脚本输出里）。理由：一趟 1,400 条会写 1,400 行噪音，而"这单被查过"这件事在 cron 日志/终端输出里逐条看得见
 - 落库走 `closureActions()` + `applyActions()`
 
 **脚本**：`scripts/check_bill_status_retail.php`，`--dry-run` 只列不查（不调平台、不写库、不写 JSONL）、`--limit=N` 小步走、`--company=名,名` 限定门店（取回之后过滤，口径本身不变），flock 防并发（`logs/check_bill_status_retail.lock`，dry-run 不取锁——它一个字节都不写）。
