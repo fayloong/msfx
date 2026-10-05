@@ -52,9 +52,9 @@ AND (last_checked_at IS NULL OR last_checked_at <= ?)
 
 重定向留在 root 那侧（`/var/log/msfx_cron.log` 仍是 root:root，不给 nginx 写权限）。
 
-**分钟点要避开已占用的**：`fetch_bills` 0/30、`fetch_bills_retail` 5/35、`check_bill_status` 8-20 点的 0/30。**建议 `20,50 * * * *`**——一趟约 12 分钟（20:00–20:12、20:50–21:02），与下一轮、与采集的写库窗口都不重叠。
+**分钟点要避开已占用的**：`fetch_bills` 0/30、`fetch_bills_retail` 5/35、`check_bill_status` 8-20 点的 0/30。**约定 `20,50 8-21 * * *`**——一趟约 12 分钟（8:20–8:32、8:50–9:02 …），与下一轮、与采集的写库窗口都不重叠。
 
-- **时段**：零售用**自己的 AppKey**，不受批发 8-20 点窗口约束 → 技术上可全天；只跑白天还是全天，**开工时问用户**（别自己定）
+- **时段：用户拍板「只跑白天」（2026-10-05）** → 上表那个 `8-21`。零售用**自己的 AppKey**、不受批发 8-20 点窗口约束，技术上本来可以全天——**刻意不跑夜间**：门店单据的流转发生在营业时间，夜里那几轮查到的多半是白天已查过的同一批（白烧调用还可能撞限流）；隔夜的新单由次日 8:20 那轮补上（门卫 30 分钟，隔了一夜早过期）。**要改时段就改这一处**（`8-21` 三段），别只改注释
 - **门卫 30 分钟 + cron 30 分钟 = 每轮清单基本全量**（批发就是这个组合，效果一样）；门卫真正防的是"手动跑过一次后 cron 又来"以及将来频率调密时的重复调用
 - 与 ADR 0011 的关系：**本脚本只查询、不申报**（`upbilldetail` 是只读接口），挂 cron **不**触碰"补传只能人工触发"那条决策——别去改那个 ADR
 
@@ -73,7 +73,9 @@ crontab <新文件> && crontab -l | grep check_bill_status_retail
 - [ ] 状态闭环**不受影响**：`fetch_bills_retail.php` 跑一轮，闭环仍处理全部待办（门卫不作用于它）
 - [ ] 批量 touch 的形状有自包含断言（`tests/retail_platform_check_test.php` 扩用例；门卫过滤是 SQL，靠副本实测）
 - [ ] 全部离线测试绿
-- [ ] crontab 装好并 `crontab -l` 核对；真跑一轮后 `find logs data -user root` 为空
+- [ ] crontab 装好并 `crontab -l` 核对——条目形如
+      `20,50 8-21 * * * su -s /bin/bash nginx -c '/usr/bin/php /usr/share/nginx/mashangfangxin/scripts/check_bill_status_retail.php' >> /var/log/msfx_cron.log 2>&1`；
+      真跑一轮后 `find logs data -user root` 为空
 - [ ] 文档：CLAUDE.md 的 cron 时间表加一行（含"已挂"注记）、票 01 那节与 spec 里"刻意不做门卫/touch"改口径并指向本票、常用命令补 cron 说明
 
 ## 前提与坑（开工先读）
