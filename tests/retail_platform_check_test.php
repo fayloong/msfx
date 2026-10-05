@@ -11,6 +11,9 @@
  *      而不是把全量集合一次喂进去）——这是平台判据相对源库状态表的**核心增益**
  *   ③ **`--dry-run` 一次平台调用都不发**：注入"被调用就记一笔"的假回调，断言它一次没被调
  *   ④ 逐条隔离、统计口径、限量
+ *   ⑤ **门卫账本**（票 02）：`checked_by_company` 收哪些键——平台给了答复的收（在／不在都算），
+ *      查异常的不收（"不知道"不算查过），`--limit` 没轮到的不收，dry-run 为空；
+ *      且必须**按 (company, djbh) 各记各的**（按裸单号记账会把没查过的门店一起刷成"刚查过"）
  *
  * **辨别力**（改一处跑一遍再还原，见票的验证记录）：
  *   - 把 `actionsByCompany` 改成"一次喂全量 uploadedByCompany"→ 用例 2 的乙店断言红
@@ -19,6 +22,7 @@
  *     用例 1 的批发主体/待配凭据断言红
  *   - 把 `error` 非空的分支并进 `absent`（或反过来并进 uploaded）→ 用例 4 红
  *   - 限量挪到分组之前（截原始清单）→ 用例 6 红（跳过的门店白占额度）
+ *   - `checked_by_company` 收进 error 那条 / 账本按裸单号收（丢掉企业维度）→ 用例 8 红
  *
  * 真平台调用与真实响应**不进本测试**（那是 ApiClient 与探测记录的事，见 spec.md）：
  * 本测试全程离线，`$query` 是假回调。
@@ -53,13 +57,17 @@ $structure = ['companies' => [
     ['key' => 's2', 'name' => '门店乙', 'type' => 'retail',
      'credentials' => ['main' => ['label' => '主授权']]],
     ['key' => 's3', 'name' => '门店丙', 'type' => 'retail', 'credentials' => []],
+    ['key' => 's4', 'name' => '门店丁', 'type' => 'retail',
+     'credentials' => ['main' => ['label' => '主授权']]],
 ]];
 $local = [
-    'ids' => ['ws' => ['WSREF', 'WSENT'], 's1' => ['REF1', 'ENT1'], 's2' => ['REF2'], 's3' => ['REF3']],
+    'ids' => ['ws' => ['WSREF', 'WSENT'], 's1' => ['REF1', 'ENT1'], 's2' => ['REF2'], 's3' => ['REF3'],
+              's4' => ['REF4', 'ENT4']],
     'credentials' => [
         'ws' => ['main' => ['appkey' => 'wsk', 'secretkey' => 'wss', 'ref_ent_id' => 'WSREF', 'ent_id' => 'WSENT']],
         's1' => ['main' => ['appkey' => 'k1', 'secretkey' => 's1', 'ref_ent_id' => 'REF1', 'ent_id' => 'ENT1']],
         // s2 故意不给凭据 → 待配凭据
+        's4' => ['main' => ['appkey' => 'k4', 'secretkey' => 's4', 'ref_ent_id' => 'REF4', 'ent_id' => 'ENT4']],
     ],
 ];
 Enterprise::reset();
@@ -208,6 +216,52 @@ RetailPlatformCheck::run(
 check('回调：企业/单号/结果都给全了',
     $events === [['门店甲', 'D001', RetailPlatformCheck::OUTCOME_UPLOADED, null]],
     json_encode($events, JSON_UNESCAPED_UNICODE));
+
+// ---------- 用例 8: 门卫账本——谁能进 checked_by_company（票 02）----------
+// 账本决定下一轮门卫挡谁：写宽了（把没查过的也记上）那张单会被白挡一整轮，写窄了门卫等于没有
+$calls = [];
+$stats = RetailPlatformCheck::run(
+    ['门店甲' => ['D001' => item(), 'D002' => item(), 'D003' => item(), 'D004' => item()]],
+    spyQuery($calls, [
+        'D001' => ['found' => true,  'response' => null, 'error' => ''],        // 已上传
+        'D002' => ['found' => false, 'response' => null, 'error' => ''],        // 未上传
+        'D003' => ['found' => false, 'response' => null, 'error' => '网络超时'], // 查询异常
+        'D004' => ['found' => true,  'response' => null, 'error' => ''],        // 被 --limit 挡在外面
+    ]),
+    false,
+    3,      // --limit=3 → D004 这轮压根没查
+    null,
+    0
+);
+check('账本：平台给了答复的键都进（已上传 + 未上传）',
+    array_keys($stats['checked_by_company']['门店甲'] ?? []) === ['D001', 'D002'],
+    json_encode($stats['checked_by_company'], JSON_UNESCAPED_UNICODE));
+check('账本：查询异常的键**不进**（"不知道"不算查过，下一轮必须重查）',
+    !isset($stats['checked_by_company']['门店甲']['D003']));
+check('账本：没轮到（--limit 截掉）的键不进', !isset($stats['checked_by_company']['门店甲']['D004']));
+check('账本：已上传的键两张账本里都有（翻正与门卫各取所需）',
+    isset($stats['uploaded_by_company']['门店甲']['D001'], $stats['checked_by_company']['门店甲']['D001']));
+
+$calls = [];
+$stats = RetailPlatformCheck::run(['门店甲' => ['D001' => item()]], spyQuery($calls), true, null, null, 0);
+check('账本：dry-run 时为空（一次都没查，脚本据此不 touch、不写库）',
+    $stats['checked_by_company'] === [], json_encode($stats['checked_by_company'], JSON_UNESCAPED_UNICODE));
+
+// 跨企业同名：**账本必须按 (company, djbh) 各记各的**。按裸单号记账的话，甲店查过就把乙店那格
+// 也写成"查过"——`touchChecked()` 会连乙店的行一起刷，那张单被门卫白挡一整轮（它压根没查过）
+$callsCross = [];
+$stats = RetailPlatformCheck::run(
+    ['门店甲' => ['DUP002' => item()], '门店丁' => ['DUP002' => item()]],
+    spyQuery($callsCross, ['DUP002' => ['found' => true, 'response' => null, 'error' => '']]),
+    false,
+    1,      // 甲店先入队，这一轮只轮到它
+    null,
+    0
+);
+check('账本：同名单号按企业各记各的（只有轮到的甲店在账本里）',
+    isset($stats['checked_by_company']['门店甲']['DUP002'])
+    && !isset($stats['checked_by_company']['门店丁']['DUP002']),
+    json_encode($stats['checked_by_company'], JSON_UNESCAPED_UNICODE));
 
 echo "\n" . ($failures === 0 ? '全部通过 ✓' : "{$failures} 条断言失败 ✗") . "\n";
 exit($failures === 0 ? 0 : 1);

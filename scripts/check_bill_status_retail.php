@@ -2,8 +2,10 @@
 /**
  * 门店单据在平台上再核查一次（零售版 check_bill_status）
  * 用法: php scripts/check_bill_status_retail.php [--dry-run] [--limit=N] [--company=名,名…]
- *   （无参数）   拿各门店自己的凭据调 `lsyd.query.upbilldetail`，逐条问平台"这单在不在"
+ *   （无参数）   拿各门店自己的凭据调 `lsyd.query.upbilldetail`，逐条问平台"这单在不在"；
+ *               30 分钟内查过的单本轮跳过（门卫），开头会打印被挡下多少条
  *   --dry-run   只列清单（企业/单号），**一次平台调用都不发、不写任何库**。数字是**计划数**
+ *               （列的是**过完门卫**的那份，与真跑一致）
  *   --limit=N   最多查 N 条（N ≥ 1），给试跑用；跳过的门店（取不到凭据）不占额度
  *   --company=  只查这些**企业名**（逗号分隔，写全名）的待办——取数口径仍是全部门店
  *               （`RetailExternalUploads::pendingItems()`），过滤在取回之后做
@@ -17,14 +19,24 @@
  *   - 信息不存在 → 未上传，一个字段都不改
  *   - 查询异常（网络/平台错误）→ 跳过不修改（"不知道"不等于"没上传"）
  *
- * ⚠️ **本脚本不进 crontab**（同 upload_pending_retail.php 的态度，见 spec）：一趟几千条
- *    @500ms 要十几分钟，且"翻正本地状态"这件事人应该看得见。默认（不带 --dry-run）就是真查、
- *    真翻正——先 `--dry-run` 看清单，再用 `--limit=N` 小步走。
- *    它**只发查询、不发申报**（不可逆的是申报，这个接口只读），但仍会往平台发真实调用。
+ * **已挂 crontab**（票 02，2026-10-05）：`20,50 8-21 * * *`——**只跑白天**（门店单据的流转发生在
+ * 营业时间，夜里那几轮查到的多半是白天已查过的同一批；隔夜的新单由次日 8:20 那轮补上，门卫
+ * 30 分钟早过期）。零售用的是各家门店自己的 AppKey，不受批发那个 8-20 点窗口约束。
+ *   - **逐单新鲜度门卫**（`CHECK_INTERVAL_MINUTES = 30`，与批发两个检查脚本同值——运维不该记两套
+ *     门卫语义）：`last_checked_at` 还在窗口内的单本轮直接跳过。定时跑会反复查同一批未上传单，
+ *     门卫就是为这个场景存在的。**被挡下多少条打印在开头**（与采集侧计数门卫同一个立场：日志要
+ *     分得清"真没待办"与"待办都在门卫窗口内"）
+ *   - **touch 由本脚本批量写**（`RetailExternalUploads::touchChecked()`）：平台给了答复的那些键
+ *     （在／不在都算）**两张表一起**刷 `last_checked_at`，整批**一次事务**；查异常的不刷
+ *     （下次 cron 自动重查）。门卫与记账都不进 `RetailPlatformCheck`——那个类保持"只查不写"，
+ *     离线测试才钉得住"`--dry-run` 一次平台调用都不发"这条
+ * 其余口径不变：默认（不带 --dry-run）就是真查、真翻正，先 `--dry-run` 看清单、再用 `--limit=N`
+ * 小步走；它**只发查询、不发申报**（不可逆的是申报，这个接口只读），但仍是真实调用。
  *
- * 与状态闭环的分工：闭环查**源库状态表**（免费、每 30 分钟一轮、按裸单号比对），本脚本查
- * **平台本身**（带 ref_ent_id、按企业隔离、要花调用）。两者谁先翻正都行——翻正过的行不再是
- * 「等待上传」，另一条路径自然不再管它。
+ * 与状态闭环的分工：闭环查**源库状态表**（免费、每 30 分钟一轮、按裸单号比对、**不受门卫约束**
+ * ——它抓的是"外部系统**后来**才传成"的跨日翻转，被门卫挡住就漏了，见票 03 的铁律），本脚本查
+ * **平台本身**（带 ref_ent_id、按企业隔离、要花调用、受门卫约束）。两者谁先翻正都行——翻正过的
+ * 行不再是「等待上传」，另一条路径自然不再管它。
  *
  * 属主注意：与别的写库脚本一样，以 nginx 身份跑（见 CLAUDE.md「文件权限」那条）。
  */
@@ -47,6 +59,10 @@ use App\RetailExternalUploads;
 use App\RetailPlatformCheck;
 
 Config::load();
+
+// 新鲜度门卫：距上次成功查询超过该分钟数的单据才重新调 API。与批发两个检查脚本同值——
+// 运维不该记两套门卫语义。
+const CHECK_INTERVAL_MINUTES = 30;
 
 // ── 参数：--dry-run / --limit=N / --company=名,名（顺序随意，可组合）──
 $dryRun = false;
@@ -108,22 +124,40 @@ if (!$dryRun) {
 echo '[check_bill_status_retail] ' . ($dryRun ? '预演（不发任何平台调用）' : '开始核查') . "\n";
 
 try {
-    // ── 待办清单：与状态闭环同一份取数口径 ──
-    $pending = RetailExternalUploads::pendingItems();
+    // ── 待办清单：与状态闭环同一份取数口径；门卫只在**本脚本**生效（闭环不传，它每轮跑全量）──
+    // 全量先数一遍：与"过了门卫的那份"的差就是本轮被挡下的条数。日志里要分得清"真没待办"与
+    // "待办都还在门卫窗口内"——与采集侧计数门卫同一个立场（脚本没跑 ≠ 今天没事）
+    $allPending = RetailExternalUploads::pendingItems();
+    $pending = RetailExternalUploads::pendingItems(CHECK_INTERVAL_MINUTES);
 
-    // --company：取回之后过滤（取数口径本身不变）；未知名在参数解析后已拦掉
+    // --company：取回之后过滤（取数口径本身不变）；未知名在参数解析后已拦掉。
+    // **两份都要过滤**——否则"挡下 N 条"里会混进别的门店的数
     if ($companies !== null) {
-        $pending = array_intersect_key($pending, array_flip($companies));
+        $keep = array_flip($companies);
+        $allPending = array_intersect_key($allPending, $keep);
+        $pending = array_intersect_key($pending, $keep);
     }
 
-    $total = 0;
-    foreach ($pending as $byDjbh) {
-        $total += count($byDjbh);
-    }
-    echo "[check_bill_status_retail] 本地待办 {$total} 条（涉及 " . count($pending) . " 家企业）\n";
+    $countItems = static function (array $pending): int {
+        $n = 0;
+        foreach ($pending as $byDjbh) {
+            $n += count($byDjbh);
+        }
+        return $n;
+    };
+    $allTotal = $countItems($allPending);
+    $total = $countItems($pending);
+    // 两次查询之间有别的写入（Web 端补传、采集）时差值可能偏小甚至为负——负数一律按 0 报
+    $gatedOut = max(0, $allTotal - $total);
+
+    echo "[check_bill_status_retail] 本地待办 {$allTotal} 条（涉及 " . count($allPending) . " 家企业）";
+    echo $gatedOut > 0
+        ? "；其中 {$gatedOut} 条在 " . CHECK_INTERVAL_MINUTES . " 分钟门卫窗口内已查过，本轮跳过\n"
+        : "\n";
 
     if ($total === 0) {
-        echo "[check_bill_status_retail] 没有需要核查的待办\n";
+        echo "[check_bill_status_retail] 没有需要核查的待办"
+            . ($gatedOut > 0 ? '（都在门卫窗口内，等下轮）' : '') . "\n";
         exit(0);
     }
 
@@ -195,7 +229,14 @@ try {
     if ($dryRun) {
         echo "[check_bill_status_retail] 预演结束：未发任何平台调用、未写任何库\n";
     } else {
+        // ── 门卫记账：平台给了答复的那些键（在／不在都算）刷 last_checked_at ──
+        // 放在翻正**之后**：翻正是有价值的动作，记账只是后续动作——顺序反过来的话，applyActions
+        // 万一抛异常，这批单会被门卫白挡 30 分钟（下轮重查即可，但何必）
+        $touched = RetailExternalUploads::touchChecked($stats['checked_by_company']);
+
         echo "[check_bill_status_retail] 翻正: 任务行 {$turned} 行、追加外部上传记录 {$recorded} 条\n";
+        echo "[check_bill_status_retail] 门卫记账: 刷新 last_checked_at {$touched} 行（这些单 "
+            . CHECK_INTERVAL_MINUTES . " 分钟内不再查）\n";
     }
 } catch (\Exception $e) {
     echo '[check_bill_status_retail] 错误: ' . $e->getMessage() . "\n";

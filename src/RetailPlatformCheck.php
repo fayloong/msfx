@@ -20,10 +20,10 @@
  *   - **取不到凭据的门店整组跳过**（`未识别` / 待配凭据 / 不在配置中）：没有 ref_ent_id 这条判据
  *     不成立。跳过不是放弃——`未识别` 的任务行仍归源库闭环管（那条判据不需要凭据）
  *   - **查询异常只跳过、不修改**："不知道"不等于"没上传"（与闭环对"源库查不通"的态度一致）
- *   - **不做 `last_checked_at` 门卫、也不 touch**：本脚本由人手动跑（不挂 cron，见 spec），
- *     一趟几千条、@500ms 自带限速；清单还会随翻正自然收敛（已上传的翻正后离开待办清单）。
- *     批发的 30 分钟门卫是给高频 cron 用的——这里没有那个场景，将来真要挂 cron 时再加
- *     （那时 touch 才有意义：现在不 touch，门卫就没有数据可用）
+ *   - **门卫与记账都不在本类**（票 02 起本脚本挂 cron）：本类只**收集**本轮平台给过答复的键
+ *     （`run()` 返回的 `checked_by_company`）。过滤下在取数侧（`pendingItems($freshnessMinutes)`）、
+ *     记账下在落库侧（`RetailExternalUploads::touchChecked()`）——`run()` 因此仍是"只查不写"，
+ *     离线测试才钉得住"`--dry-run` 一次平台调用都不发"这条
  *   - **主循环抽成收 `callable` 的纯函数**（与 `RetailBatchUpload::run()` 同款）：票面要一条
  *     自包含测试证明"`--dry-run` 一次平台调用都不发"，注入一个"被调用就记一笔"的假回调即可断言
  */
@@ -131,8 +131,10 @@ class RetailPlatformCheck
      *                              `$event` 形状见 `emit()`
      * @param int $intervalUs 每条之间的间隔（微秒）——**参数化是为了可测**：测试传 0 就不必等
      *                        （不传即生产口径 `QUERY_INTERVAL_US`）
-     * @return array{companies:int,skipped_companies:int,skipped_items:int,queued:int,uploaded:int,absent:int,error:int,remaining:int,uploaded_by_company:array<string,array<string,bool>>}
-     *         `queued` 这轮实际查（或计划查）的条数；`remaining` 被 `--limit` 挡在外面、这轮没碰的条数
+     * @return array{companies:int,skipped_companies:int,skipped_items:int,queued:int,uploaded:int,absent:int,error:int,remaining:int,uploaded_by_company:array<string,array<string,bool>>,checked_by_company:array<string,array<string,bool>>}
+     *         `queued` 这轮实际查（或计划查）的条数；`remaining` 被 `--limit` 挡在外面、这轮没碰的条数；
+     *         `checked_by_company` 本轮**平台给了答复**的键（已上传 ＋ 未上传，即新鲜度门卫的记账
+     *         范围）——`error` 的与没轮到的都不在里面，脚本据此调 `RetailExternalUploads::touchChecked()`
      */
     public static function run(
         array $pending,
@@ -155,6 +157,8 @@ class RetailPlatformCheck
             'remaining' => 0,
         ];
         $uploadedByCompany = [];
+        // 门卫账本：查失败的不进（"不知道"不等于"查过"——进了它，下一轮门卫会把这张单挡掉）
+        $checkedByCompany = [];
 
         // ── 展平成一条待查队列（企业, 单号），再限量：截断的是"能查的那批"，没碰上的报个数 ──
         $queue = [];
@@ -191,20 +195,26 @@ class RetailPlatformCheck
                 // 查询失败**不冒充"未上传"**：不动任何痕迹，下次再查（与闭环"源库查不通一条都不翻"同理）
                 $stats['error']++;
                 self::emit($report, $company, $djbh, self::OUTCOME_ERROR, $error);
-            } elseif (!empty($result['found'])) {
-                $stats['uploaded']++;
-                // 单号原样收下：与本地清单的大小写比对由 closureActions() 一处负责
-                $uploadedByCompany[$company][$djbh] = true;
-                self::emit($report, $company, $djbh, self::OUTCOME_UPLOADED, null);
             } else {
-                $stats['absent']++;
-                self::emit($report, $company, $djbh, self::OUTCOME_ABSENT, null);
+                // 平台给了答复（在／不在都算）→ 记进门卫账本，脚本据此刷 last_checked_at
+                $checkedByCompany[$company][$djbh] = true;
+
+                if (!empty($result['found'])) {
+                    $stats['uploaded']++;
+                    // 单号原样收下：与本地清单的大小写比对由 closureActions() 一处负责
+                    $uploadedByCompany[$company][$djbh] = true;
+                    self::emit($report, $company, $djbh, self::OUTCOME_UPLOADED, null);
+                } else {
+                    $stats['absent']++;
+                    self::emit($report, $company, $djbh, self::OUTCOME_ABSENT, null);
+                }
             }
 
             usleep($intervalUs);
         }
 
         $stats['uploaded_by_company'] = $uploadedByCompany;
+        $stats['checked_by_company'] = $checkedByCompany;
 
         return $stats;
     }

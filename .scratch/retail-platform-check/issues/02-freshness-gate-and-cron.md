@@ -4,7 +4,7 @@
 
 **Blocked by:** 01（已 done）
 
-**Status:** ready-for-agent（2026-10-05 开票，用户拍板要挂 cron）
+**Status:** done（2026-10-05）
 
 ---
 
@@ -68,15 +68,15 @@ crontab <新文件> && crontab -l | grep check_bill_status_retail
 
 ## 验收项
 
-- [ ] 门卫生效：连跑两次，第二次**一次 API 都不调**（输出里看得出被挡下多少条）
-- [ ] `last_checked_at` 真被写：跑完直查两张表，`ABSENT` 的行时间戳更新、**`ERROR` 的行没动**
-- [ ] 状态闭环**不受影响**：`fetch_bills_retail.php` 跑一轮，闭环仍处理全部待办（门卫不作用于它）
-- [ ] 批量 touch 的形状有自包含断言（`tests/retail_platform_check_test.php` 扩用例；门卫过滤是 SQL，靠副本实测）
-- [ ] 全部离线测试绿
-- [ ] crontab 装好并 `crontab -l` 核对——条目形如
+- [x] 门卫生效：连跑两次，第二次**一次 API 都不调**（输出里看得出被挡下多少条）
+- [x] `last_checked_at` 真被写：跑完直查两张表，`ABSENT` 的行时间戳更新、**`ERROR` 的行没动**
+- [x] 状态闭环**不受影响**：`fetch_bills_retail.php` 跑一轮，闭环仍处理全部待办（门卫不作用于它）
+- [x] 批量 touch 的形状有自包含断言（`tests/retail_platform_check_test.php` 扩用例；门卫过滤是 SQL，靠副本实测）
+- [x] 全部离线测试绿（14 个脚本逐个退出码 0）
+- [x] crontab 装好并 `crontab -l` 核对——条目形如
       `20,50 8-21 * * * su -s /bin/bash nginx -c '/usr/bin/php /usr/share/nginx/mashangfangxin/scripts/check_bill_status_retail.php' >> /var/log/msfx_cron.log 2>&1`；
       真跑一轮后 `find logs data -user root` 为空
-- [ ] 文档：CLAUDE.md 的 cron 时间表加一行（含"已挂"注记）、票 01 那节与 spec 里"刻意不做门卫/touch"改口径并指向本票、常用命令补 cron 说明
+- [x] 文档：CLAUDE.md 的 cron 时间表加一行（含"已挂"注记）、票 01 那节与 spec 里"刻意不做门卫/touch"改口径并指向本票、常用命令补 cron 说明
 
 ## 前提与坑（开工先读）
 
@@ -88,4 +88,67 @@ crontab <新文件> && crontab -l | grep check_bill_status_retail
 
 ## Comments
 
-（新会话把实现过程中的决策与证据追加在这里）
+### 实现（三处落点，与票面一致）
+
+| 落点 | 做法 |
+|---|---|
+| `RetailExternalUploads::pendingItems(?int $freshnessMinutes = null)` | 门卫条件下到 SQL，两张表**逐字共用同一句**（` AND (last_checked_at IS NULL OR last_checked_at <= ?)`）；`null` = 不过滤——**状态闭环不传**，平台核查传 30 |
+| `RetailExternalUploads::touchChecked(array $checkedByCompany)` | 按企业分块 `IN`（复用 `chunkedIn`，500/块 → 502 个参数，**避开了本机 SQLite 3.7.17 的 999 参数上限**——`(company,djbh)` 两两一对的话 500 块正好 1000 个参数，会撞上限）、整批包进**一次** `Database::transaction()` |
+| `RetailPlatformCheck::run()` | 新增 `checked_by_company`：本轮**平台给过答复**的键（已上传 ＋ 未上传都算） |
+
+脚本侧：`CHECK_INTERVAL_MINUTES = 30`；两次 `pendingItems()`（全量 − 过门卫的 = 被挡下的条数，`--company` **两份都过滤**，否则那个数里会混进别的门店）；跑完批量 touch 并打印行数。
+
+**一处与票面不同的取舍**：票面 touch 表里写「`OUTCOME_UPLOADED`（会翻正，`applyActions()` 里顺带写 `last_checked_at`）」，实现改成**统一走批量 touch**、`applyActions()` 一行没动——它是状态闭环**共用**的落库函数，往里塞门卫语义会把"闭环不设门卫"这条铁律搅浑，而且那样也覆盖不到失败记录那半边的行。票面自己那句"建议批量 touch"就是这个方向。
+
+### 验证（副本 `/tmp/verify-pc` 重建 + 本地离线桩；生产库全程只读）
+
+桩：`php -S 127.0.0.1:8197`，按单号回三种应答（`SUCCESS` / `FAIL_BIZ_NO_PAT_INFO` / 顶层错误信封），**逐次记调用**到 `calls.jsonl`——"第二次一次 API 都不调"靠数它。副本只改了 `ApiClient::forCredential()` 一处（读 `MSFX_TOP_GATEWAY` 设 `gatewayUrl`；仓库版是 `return new self(...)` 一行），跑完已还原。
+
+**场景 A（门卫 + touch）**：把全部待办行刷成"刚查过"，只留 3 个键过门卫。
+
+```
+第一轮  本地待办 4513 条（涉及 14 家企业）；其中 4510 条在 30 分钟门卫窗口内已查过，本轮跳过
+        将核查 3 条（1 家门店）→ 已上传 1 / 未上传 2 / 异常 0
+        翻正: 任务行 1 行、追加外部上传记录 1 条 | 门卫记账: 刷新 last_checked_at 5 行
+        桩：3 次调用（呼叫的 ref_ent_id 都是新江分店自己那套 61873868e4b032c2577ada38）
+第二轮  本地待办 4512 条（涉及 14 家企业）；其中 4512 条在 30 分钟门卫窗口内已查过，本轮跳过
+        没有需要核查的待办（都在门卫窗口内，等下轮）
+        桩：调用数**仍是 4**（含冒烟 1 次）——一个字节都没发 ✅ 验收项 1
+```
+
+（4513 → 4512 是上一轮把那张「已上传」的任务行翻成了「已处理」，它自然地离开了待办清单。）
+
+直查副本库（验收项 2）：
+
+| 键 | 场景 | 落点 |
+|---|---|---|
+| `XLSA0200100185757` | 任务行 / 桩答未上传 | 任务行 `last_checked_at = 16:54:23`，`task_status` 仍是「等待上传」 |
+| `XLSA0200100185881` | 任务行 / 桩答已上传 | 任务行翻「已处理」+「上传成功」、`request_status` **保持 NULL**；追加记录 `#97279`（`source=retail_external`、`task_id=0`、`request_status=NULL`）；两行都被刷 |
+| `XLSA0200100180956` | **只有失败记录**（无任务行）/ 未上传 | `upload_logs` 那行被刷——`upload_logs` 那半边的门卫确实在起作用 |
+| 大湖分店 / **同一个单号** `…185757`（造的） | 本轮被门卫挡下、压根没查 | `last_checked_at` **停在造它时的 `2026-10-05 16:49:13` 一字未动**——touch 的 SQL 带 `company = ?`，按裸单号刷就会把它一起改成"刚刚" ✅ |
+
+**场景 B（查询异常不 touch）**：桩对 `XLSA0200100185901` 回顶层错误信封 → 输出 `查询异常：App Call Limited`、`门卫记账: 刷新 last_checked_at 0 行`；直查那行**仍为 NULL**，**再跑一轮它又被查了一次**（桩计数 +1）——确实没被记账，下轮 cron 自动重查 ✅ 验收项 2 的后半条。
+
+**闭环不受影响**（验收项 3）：副本跑 `fetch_bills_retail.php` →
+`状态闭环: 核对 4512 条待办 → 翻正任务 8 行, 追加外部上传记录 8 条`——**全量**，不是门卫后的 4,511 ✅
+
+**括号是承重的（辨别力）**：`upload_logs` 那段原本是 `A OR B OR C` 三个条件，门卫条件拼上去必须给整个 OR 组加括号。去掉括号后副本 `--dry-run` 从「将核查 1 条」变成 **2 条**（多出的正是那条"`请求失败` 且刚查过"的行），还原后回到 1 条。
+⚠️ **第一次变异没测出来**：副本里 `request_status='请求失败'` 的日志行**全属批发主体**（河药），被 `pendingItems()` 的 `isRetail` 挡在清单外——SQL 层多出 13 个键、清单层一个不多。造一条零售的才暴露。这条记在这里是因为它说的是一件更大的事：**这类"条件拼错"的 bug 会被别的判据掩盖，验证要造出能暴露它的数据**。
+
+### 生产冒烟（按用户约束：先备份、nginx 身份、跑完复查属主）
+
+- `sqlite3 data/msfx.db ".backup '/root/msfx-backup-2026-10-05-1700.db'"`（225 MB）
+- 照 crontab 那条**逐字**跑、只多一个 `--limit=3` 压平台调用：
+  `已上传 0 / 未上传 3 / 异常 0 / 跳过 9 家门店 3090 条（共 3 条，另有 1418 条未查（--limit））`、`门卫记账: 刷新 last_checked_at 3 行`
+- 直查生产库：`source='retail'` 且 `last_checked_at >= 17:00` 的**恰好那 3 行**（徐洞分店 `WRKQG100024668/…4424/…4669`，都仍是「等待上传」——平台答的是未上传）；`upload_logs` 那一侧 **0 行**
+- `find logs data -user root` → **空**；`logs/api_2026-10-05.jsonl`、`logs/check_bill_status_retail.lock` 属主都是 nginx ✅ 验收项 6
+
+### 挂 cron 时踩到的一处坑（已修，已入档）
+
+`logs/check_bill_status_retail.lock` 是**票 01 期间以 root 跑出来的**（`root:root 0644`）。nginx 身份下 `fopen($file, 'w+')` 打不开 → 脚本走"已有实例在运行"那条分支**打印一句然后 `exit 0`**：表现为 **cron 装了、日志里天天有一行、却从没真跑过**。已 `chown nginx:nginx`，并把"挂 cron 前先看要写的文件（含锁、基线）的属主"写进 CLAUDE.md 的 cron 注。
+
+crontab 改动：先 `crontab -l > /tmp/crontab-backup-2026-10-05-1659.txt`，只在 `check_bill_status` 那条后面插了 3 行注释 + 1 行条目；`diff` 除新增外**逐行无差异**（其它项目那 20 来条一字未动），`crontab -l | grep check_bill_status_retail` 见第 34 行。
+
+### 测试
+
+`tests/retail_platform_check_test.php` **25 → 31 条**（新增门卫账本 6 条：答复过的进、异常的不进、没轮到的不进、dry-run 为空、已上传的两本账都有、同名单号按企业各记各的）。两处变异各自变红：账本收进 `error` 那条 → 2 条红；账本丢企业维度（`$checkedByCompany[$djbh]`）→ 3 条红。14 个离线测试脚本逐个退出码 0。

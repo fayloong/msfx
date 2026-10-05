@@ -50,7 +50,7 @@ root/
 │   ├── RetailRetransmit.php      # 零售单据上传的完整流程（三关 fail-closed → 拆单 → 调用 → 写日志 → 翻任务状态 → **全部子单成功后回写源库 update_state**）：单条补传（tasks_retry_retail）、批量重传里的零售那批（tasks_batch_retry 逐条调它，日志来源 retail_retry）、门店手工建单（App\RetailManualEntry，日志来源 manual）三处共用；装配仍走 RetailRequestAssembler；**限速 400ms/次**（`API_INTERVAL_US`，2026-10-02 由 330ms 放宽——330ms 的理论速率 3.03 单/秒正压在平台"1 秒 3 单"的限流边界上，见"业务编码映射 → API 限速"）
 │   ├── RetailBatchUpload.php     # 零售门店单据的**批量上传**（票 06；能力已备、暂不启用）：取数口径 `PENDING_SQL`（门店来源 + 等待上传；**刻意不把 `未识别` 筛进 SQL**——脚本末尾那句"跳过非门店企业（含未识别）N 条"要靠它数出来）+ 主循环 `run($tasks, $upload, $dryRun, $limit, $report)`（**先跳过非门店、后限量**，未识别因此不占 `--limit` 额度；逐条 try/catch 隔离；**`--dry-run` 时 `$upload` 一次都不调**——主循环抽成收 callable 正是为了这条能自包含地断言）。上传逻辑一行不重写：逐条交给 RetailRetransmit；脚本侧另有 `--company=k1,k2`（按企业 key 过滤**取回之后**的队列——`PENDING_SQL` 这个取数口径本身不变）
 │   ├── UpdateStateWriter.php     # 回写零售源库状态表（告诉外部系统"这单传过了"）：幂等靠 SQL 自身（`INSERT ... WHERE NOT EXISTS`——该表无主键、无唯一约束），写失败只记 JSONL 警告、不影响上传结果；**绝不能包本地事务**（写链接服务器起不了分布式事务，MSDTC 被禁），见 docs/adr/0016；表名取自 RetailExternalUploads::TABLE（**写侧不再自己写一遍表名**）
-│   ├── RetailExternalUploads.php # 「外部上传」：外部系统已上传的门店单据——`TABLE` 常量（源库状态表名，全仓唯一一处硬编码，采集/回写/门卫共用）、分流判定 `decide()`（已上传→写记录不建任务 / 未上传→建任务 / 本地已有→跳过，两条分支的幂等判据不同；**第四个参数 `buildTasks: false` 是 `--all` 快照**（票 05）——未上传 + 本地无痕 → `ACTION_COUNT_ONLY`"只计数不建任务"，日常不传、走默认 true）、记录形状 `buildRecord()`（source=retail_external、response_status=上传成功、task_id=0、request_status 留 NULL、response 写一段出处说明；**reason 与 judged_by 可传**——两条判据各自说清"凭什么判它已上传"）、统计累加 `tally()`（动作 → 计数；**只有 RECORD/TASK 的码数进 M**——`--dry-run` 那句"将写入 N 单 / M 码"就是它累出来的，未知动作抛异常）。即采集口径从「过滤」改「分流」那件事（票 02）；**状态闭环**（票 03）也归它：纯函数 `closureActions()`（待办 × 判据 → 翻任务/追加记录，**判据按 (company, djbh)**）＋编排 `closeLoop()`（读本地待办 → IN 查状态表 → 翻任务行 / 追加记录 / 记 JSONL；源库查不通时一条都不翻）。**2026-10-05 起判定与落库抽成三段供第二条判据（平台核查）共用**：`pendingItems()`（本地待办清单：等待上传的门店任务 + 零售企业的非成功记录——"哪些单还算待办"全仓只此一处）、`successKeys()`（本地已有成功记录，按 (company, djbh)）、`applyActions(动作, 待办, 出处)`（翻任务行 / 追加记录 / 记 JSONL，**出处信息参数化**——源库闭环与平台核查各传各的 reason/checker/log_type/judged_by）
+│   ├── RetailExternalUploads.php # 「外部上传」：外部系统已上传的门店单据——`TABLE` 常量（源库状态表名，全仓唯一一处硬编码，采集/回写/门卫共用）、分流判定 `decide()`（已上传→写记录不建任务 / 未上传→建任务 / 本地已有→跳过，两条分支的幂等判据不同；**第四个参数 `buildTasks: false` 是 `--all` 快照**（票 05）——未上传 + 本地无痕 → `ACTION_COUNT_ONLY`"只计数不建任务"，日常不传、走默认 true）、记录形状 `buildRecord()`（source=retail_external、response_status=上传成功、task_id=0、request_status 留 NULL、response 写一段出处说明；**reason 与 judged_by 可传**——两条判据各自说清"凭什么判它已上传"）、统计累加 `tally()`（动作 → 计数；**只有 RECORD/TASK 的码数进 M**——`--dry-run` 那句"将写入 N 单 / M 码"就是它累出来的，未知动作抛异常）。即采集口径从「过滤」改「分流」那件事（票 02）；**状态闭环**（票 03）也归它：纯函数 `closureActions()`（待办 × 判据 → 翻任务/追加记录，**判据按 (company, djbh)**）＋编排 `closeLoop()`（读本地待办 → IN 查状态表 → 翻任务行 / 追加记录 / 记 JSONL；源库查不通时一条都不翻）。**2026-10-05 起判定与落库抽成三段供第二条判据（平台核查）共用**：`pendingItems(?int $freshnessMinutes = null)`（本地待办清单：等待上传的门店任务 + 零售企业的非成功记录——"哪些单还算待办"全仓只此一处；**票 02 起带新鲜度门卫参数**——非 null 时 SQL 里只取 `last_checked_at` 为空或过期的行，**状态闭环不传**（它每轮要跑全量，被挡住就漏了跨日翻转）、**平台核查传 30**）、`successKeys()`（本地已有成功记录，按 (company, djbh)）、`applyActions(动作, 待办, 出处)`（翻任务行 / 追加记录 / 记 JSONL，**出处信息参数化**——源库闭环与平台核查各传各的 reason/checker/log_type/judged_by）、**`touchChecked(键)`**（票 02：平台核查把"给过答复的键"在两张表批量刷 `last_checked_at`——按企业分块 `IN`、**整批一次事务**，逐条写要等 1,400 次 fsync；键必须带企业维度，裸单号跨门店会串）
 │   ├── RetailPlatformCheck.php   # 门店单据在**平台上**再核查一次（2026-10-05 新建；`lsyd.query.upbilldetail`）：
 │   │                             #   给"是否已上传"补**第二条判据**——拿各门店自己的凭据问平台。
 │   │                             #   相对源库状态表的增益是**企业隔离**（带 ref_ent_id，甲店查到的单号
@@ -62,7 +62,12 @@ root/
 │   │                             #   ③ `run()` 收 callable（`--dry-run` 一次都不调它、测试注入假回调即可
 │   │                             #      断言，`$intervalUs` 参数化同理——测试传 0 不必等）。
 │   │                             #   查询异常只跳过不修改（"不知道"不等于"没上传"）；判定与落库
-│   │                             #   一行不重写，全在 `RetailExternalUploads`
+│   │                             #   一行不重写，全在 `RetailExternalUploads`。
+│   │                             #   **票 02 加 `checked_by_company`**：本轮**平台给过答复**的键
+│   │                             #   （已上传 ＋ 未上传都算；`error` 的与没轮到的**都不进**）——
+│   │                             #   它就是门卫的记账范围。门卫过滤与 touch 都**不在本类**
+│   │                             #   （取数侧 `pendingItems(30)`、落库侧 `touchChecked()`），
+│   │                             #   `run()` 才保得住"只查不写"、离线测试才钉得住 dry-run
 │   ├── RetailManualEntry.php     # 门店手工建单（在线新增 + xlsx 导入共用的唯一实现）：prepare() 校验/取凭据/查对手方（唯一一次平台往返，失败即拒建单）→ create() 落库 + 交 RetailRetransmit 上传；needsCounterparty/endpoints 是「哪两类要往来单位」「对手方落 from 还是 to」的纯规则，见 docs/adr/0015
 │   ├── BillSheetParser.php       # xlsx 导入表的解析：读表 → 按单号分组成「一单一条」（同单号多行合并、一行一个码也认）；批发与门店两个导入端点共用，只管「读成什么」、不管「合不合法」
 │   ├── RetailRetention.php       # 门店数据保留期（平台硬性规定 2 年，不接受 2 年前的单据）：YEARS + cutoffDate() 是采集下限与清理下限的**唯一来源**；两个调用点必须共用，各写各的会让超期数据滞留
@@ -168,15 +173,18 @@ root/
 │   │                             #  （注释写的是"暂不启用"）——眼下只能手动跑，别照文档以为它在定时跑
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
 │   ├── check_failed_logs.php     # 复查失败记录（来源 2：upload_logs 未上传成功记录，每天 20:40）
-│   ├── check_bill_status_retail.php # 【手动跑，**不进 crontab**】门店单据在平台上再核查一次
-│   │                             #   （2026-10-05 新建）：拿各门店自己的凭据调
+│   ├── check_bill_status_retail.php # 门店单据在平台上再核查一次（2026-10-05 建；**票 02 起已挂 crontab**：
+│   │                             #   `20,50 8-21 * * *`，只跑白天）：拿各门店自己的凭据调
 │   │                             #   `lsyd.query.upbilldetail` 逐条问平台"这单在不在"，在的翻正
 │   │                             #   （任务行翻「已处理」+「上传成功」、失败记录追加一条「外部上传」）。
 │   │                             #   两个来源合一（等待上传的门店任务 + 零售企业的补传失败记录）——
 │   │                             #   都要按门店分组取凭据、都要限速，拆两个脚本只会重复这套逻辑。
 │   │                             #   判定与落库复用状态闭环那一套；`--dry-run` 只列不查、`--limit=N`
-│   │                             #   小步走、`--company=名,名` 限定门店（取回后过滤）。flock 防并发，
-│   │                             #   **不做 last_checked_at 门卫、不 touch**（手动跑；清单随翻正收敛）
+│   │                             #   小步走、`--company=名,名` 限定门店（取回后过滤）。flock 防并发。
+│   │                             #   **逐单新鲜度门卫**（30 分钟，与批发同值）：`pendingItems(30)` 下到 SQL；
+│   │                             #   被挡下多少条打印在开头。**touch 批量写**（`touchChecked()`，一次事务）：
+│   │                             #   平台给了答复的键两张表一起刷 `last_checked_at`，查异常的**不刷**
+│   │                             #   （"不知道"不算查过）
 │   ├── check_quantity.php        # 数量对账两级流水线（第 1 级 shl 粗筛嫌疑单 → 第 2 级 singlerelation 码级精查，双差异才写"数量不符"）
 │   ├── cleanup_logs.php          # 清理 SQLite 历史数据，三条判据各不相同：日志按 created_at 清 3 个月前、已处理任务按
 │   │                             #  updated_at 清 3 个月前、**门店（零售）任务按 rq 单据日期清 2 年前**（平台不接受 2 年前的
@@ -247,13 +255,16 @@ root/
 │   │                             #   逐条隔离（被拒算失败、后续照跑）、子单 failed>0 的一单计失败。
 │   │                             #   辨别力：六处各自变红（dry-run 分支去掉 / 门店判据恒真 / 限量挪到分流之前 /
 │   │                             #   去掉 try/catch（PHP fatal，断言没跑完）/ SQL 丢掉状态条件 / 子单失败判成成功）
-│   ├── retail_platform_check_test.php # App\RetailPlatformCheck 自包含断言测试（2026-10-05，25 条）：分组跳过判据
+│   ├── retail_platform_check_test.php # App\RetailPlatformCheck 自包含断言测试（2026-10-05，31 条）：分组跳过判据
 │   │                             #   （未识别/待配凭据/未声明凭据位/混进来的批发主体）、**企业隔离**
 │   │                             #   （同名单号各判各的——一次喂全量集合就是跨门店串号）、
 │   │                             #   **dry-run 一次都不调平台**、三种结果的归类与收集（error 不冒充未上传）、
-│   │                             #   逐条隔离、限量（跳过的门店不占额度）。
-│   │                             #   辨别力：五处各自变红（喂全量集合 / 去掉 dry-run 分支 /
-│   │                             #   跳过判据去掉 isRetail / error 并进 absent / 去掉限量截断——已逐条实测）
+│   │                             #   逐条隔离、限量（跳过的门店不占额度）、**门卫账本 `checked_by_company`**
+│   │                             #   （票 02：答复过的进、异常/没轮到的不进、dry-run 为空、
+│   │                             #   同名单号按企业各记各的——按裸单号记会连带刷别的门店的门卫）。
+│   │                             #   辨别力：七处各自变红（喂全量集合 / 去掉 dry-run 分支 /
+│   │                             #   跳过判据去掉 isRetail / error 并进 absent / 去掉限量截断 /
+│   │                             #   账本收进 error 那条 / 账本丢企业维度——已逐条实测）
 │   ├── search_bill_test.php      # searchbill.detail 查询调试：传单号输出完整返回并另存 searchbill_<单号>.json（tests 目录内；退出码 0=全部成功，1=存在网络/业务错误）
 │   ├── singlerelation_test.php   # singlerelation 逐码查询调试（码级对账探针）：验证 Σ 折算系数 == min_pkg_count 核心等式（折算规则 is_smallest=Y→1 忽略 pkg_amount，2026-08-26 加固；设计见 .scratch/quantity-check/singlerelation-tier2.md；避开 8-20 点窗口运行）
 │   ├── searchbill_*.json         # search_bill_test.php 的查询结果存档
@@ -406,7 +417,7 @@ root/
 - **失败也算"已处理"**（与批发链路一致）：任务表是待处理队列，`上传失败`/`未确定`/网络请求失败都翻 `已处理`，`等待上传` 队列不会无限堆积；"补传没成功"的出口是失败记录页（该页第一条条件 `response_status NOT IN ('上传成功','单据重复')` 挡住 `单据重复` 自身，实测零售的 `上传失败` 记录确实可见）。因此补传失败后要再试，是在任务页按"已处理"筛出该行重传，不是等它回到 `等待上传`
 - **批量上传脚本备而不用（票 06，2026-10-02）**：`scripts/upload_pending_retail.php` 把「等待上传」的门店单**逐条**交给本链路（取数口径、`--limit` 与 `--dry-run` 的判据都在 `App\RetailBatchUpload`），**默认不挂 cron**、由人手手动跑——它一旦进 crontab，ADR 0011 那条"补传只能人工触发、没有自动重试"即被反转，故**启用与否留给人**（见该 ADR 的补注）。它只扩"一次能走多少条"，不放松任何一关：三关 fail-closed 照旧、逐条隔离（被拒的算失败并继续下一条，与上传任务页"批量重传"里零售那批同口径）、日志来源仍是 `retail_retry`、回写与任务翻转全在 `RetailRetransmit` 里，本脚本一行上传逻辑都不重写。另有 `--company=k1,k2`（2026-10-02 加）按**企业 key** 限定只传哪几家——**不给这个参数就是把队列里所有门店的待办都真传出去**；过滤在**取回之后**做（`PENDING_SQL` 那套取数口径本身不变），未知 key 直接退出 1（打错一个字母与"队列本来就是空的"在日志上长得一样）。**首次交付一次真申报都没发**：验证在项目副本 + 本地离线桩上做（生产库与生产源库零写入已实测），生产环境的首次启用是另一个决定——**2026-10-02 已首次真跑**（用户点名的 4 家门店，2,861 条待办逐条补传，结果见当日 JSONL 与失败记录页）
 
-### 零售单据平台核查（check_bill_status_retail.php，2026-10-05 建；**手动跑、不进 crontab**）
+### 零售单据平台核查（check_bill_status_retail.php，2026-10-05 建；**票 02 起挂 crontab：`20,50 8-21 * * *`**）
 
 **为什么要有它**：门店单"是否已上传"原本只有一条判据——源库状态表（状态闭环，每轮采集前跑）。那张表记的是**外部系统的行为**，不是平台的承诺：外部系统传了单却没写它，本系统永远不知道，任务一直挂在「等待上传」，人只能赌一次补传；而且它**没有企业列**，判据只能按裸单号比对（跨门店同号会串，ADR 0007 记的已知代价）。本脚本补第二条判据：**拿各门店自己的凭据直接问平台**。
 
@@ -416,11 +427,12 @@ root/
 - **翻正动作与状态闭环逐项一致**（判定与落库复用 `closureActions()` + `applyActions()`）：任务行翻「已处理」+「上传成功」（`request_status` 不动——本项目没发起过上传请求）；失败记录**追加**一条「外部上传」记录、不改写历史（失败页靠既有的同单号判重自动隐藏它）。出处的 `judged_by` 写平台接口名、`reason` 写"平台查询确认…"，与状态闭环那条在详情弹窗里分得清
 - **企业隔离的落点**：`RetailPlatformCheck::actionsByCompany()` **按企业分别调** `closureActions()`——一次喂全量集合就是跨门店串号（`$uploadedBills` 在闭环那边只能是扁平的裸单号，那是状态表的结构限制；平台判据这边不必继承它）
 - **查询异常只跳过、不修改**（"不知道"不等于"没上传"，与闭环"源库查不通一条都不翻"同理）；逐条 try/catch 隔离（各门店 AppKey 独立，某家出问题只该影响它自己）；`usleep(500000)` 每条（与批发查询同速）
-- **不做 `last_checked_at` 门卫、也不 touch**：手动跑的脚本，一趟几千条自带限速；清单还会**随翻正自然收敛**（已上传的翻正后不再是「等待上传」，失败记录那条因"已有成功记录"而判无动作）。批发的 30 分钟门卫是给高频 cron 用的——将来真要挂 cron 时再加（那时 touch 才有意义）
-- **不进 crontab**（同 `upload_pending_retail.php` 的态度）：一趟 5 家门店 1,410 条约 12 分钟，且"翻正本地状态"这件事人应该看得见。它**只发查询、不发申报**（这个接口是只读的），但仍会往平台发真实调用——先 `--dry-run` 看清单，再 `--limit=N` 小步走
-- **与状态闭环的分工**：闭环查源库状态表（免费、每 30 分钟一轮、按裸单号），本脚本查平台本身（带 ref_ent_id、按企业隔离、花调用）。谁先翻正都行——翻正过的行不再是「等待上传」，另一条路径自然不再管它
+- **逐单新鲜度门卫 30 分钟 + touch 批量写（票 02，2026-10-05）**：门卫的判据就是 `last_checked_at`，而票 01 一个字节都没写它（当时"不 touch"）——**两者必须同时补**，否则所有行的 `last_checked_at` 恒为 NULL、「NULL 或已过期」永远为真，门卫形同虚设。做法：过滤下在取数侧（`pendingItems(30)`，**状态闭环不传**——它每轮都要跑全量，被门卫挡住就漏了跨日翻转），记账下在落库侧（`RetailExternalUploads::touchChecked()`，**一次事务**批量刷两张表；逐条 UPDATE = 一次 fsync 21–28ms，一趟 1,400 条光等磁盘就要 30 秒往上）。touch 的范围是**平台给了答复的键**（已上传 ＋ 未上传都算）：查异常的**不刷**（"不知道"不算查过，下一轮 cron 自动重查）；`--dry-run` 为空（一次都没查，凭什么记账）。被门卫挡下多少条打印在开头——与采集侧计数门卫同一个立场：日志要分得清"真没待办"与"待办都在门卫窗口内"
+- **挂 crontab（票 02，用户拍板）**：`20,50 8-21 * * *`——**只跑白天**。门店单据的流转发生在营业时间，夜里那几轮查到的多半是白天已查过的同一批（白烧调用还可能撞限流）；隔夜新单由次日 8:20 那轮补上（门卫 30 分钟，隔了一夜早过期）。零售用**自己的 AppKey**、不受批发 8-20 点窗口约束，技术上本可全天——**"只跑白天"是刻意的**，要改时段就改这一处。分钟点 20/50 避开了 fetch_bills 的 0/30 与 fetch_bills_retail 的 5/35（一趟约 12 分钟，与下一轮、与采集的写库窗口都不重叠）。⚠️ **门卫 30 分钟 + cron 30 分钟 = 同一批未上传单约每小时被查一次**（批发就是这个组合，效果一样）；门卫真正防的是"手动跑过一次后 cron 又来"以及将来频率调密时的重复调用。**挂 cron 不触碰 ADR 0011**——本脚本只查询、不申报（`upbilldetail` 是只读接口）
+- **与状态闭环的分工**：闭环查源库状态表（免费、每 30 分钟一轮、按裸单号、**不受门卫约束**），本脚本查平台本身（带 ref_ent_id、按企业隔离、花调用、受门卫约束）。谁先翻正都行——翻正过的行不再是「等待上传」，另一条路径自然不再管它
+- **手动跑仍然可用**：`--dry-run` 看清单（列的是**过完门卫**的那份，与真跑一致）、`--limit=N` 小步走、`--company=名,名` 限定门店。它**只发查询、不发申报**，但仍是真实平台调用
 - **实测（2026-10-05，项目副本 + 生产源库只读；生产库零写入）**：`--dry-run` 全量 → 本地待办 **4,497 条 / 14 家企业**，可查 5 家 **1,410 条**、跳过 9 家 2,087 条（含 `未识别` 51 条——它没有凭据）。新江分店真跑 **47 条**（45 条真实待办 + 2 条自造场景）：**已上传 4 / 未上传 43 / 异常 0**，翻正任务行 2 行、追加记录 3 条。逐项核对：自造的两条（平台上确实存在）一条走"翻任务行+追加"、另一条（本地已有成功记录）**只翻任务行不追加**；**真实发现 2 条**"补传失败但平台已有"的单（`XLSA0200100180956` / `...183018`，正是本功能的价值场景）；两条任务行的 `request_status` 均保持 NULL、`resp.judged_by` 是平台接口名；追加记录的 `task_id=0`、`request_status=NULL`。**重跑** → 已上传 2 / 翻正 0 行 / 追加 0 条（幂等：那两条失败记录因"已有成功记录"被判无动作）
-- ⚠️ **已知代价**：被翻正的失败记录**仍留在待办清单里**（它的 `response_status` 还是失败，`pendingItems()` 照取），故每次跑都会重查它们——判无动作、不会重复追加，但白花一次调用。要根治得改写那条历史记录（本项目刻意不做：失败记录是"补传失败过"的事实）
+- ⚠️ **已知代价**：被翻正的失败记录**仍留在待办清单里**（它的 `response_status` 还是失败，`pendingItems()` 照取），故每轮过了门卫窗口又会被重查一次——判无动作、不会重复追加，但白花一次调用（票 02 的门卫把重查频率从"每次跑"压到"每 30 分钟一轮"，没有根治）。要根治得改写那条历史记录（本项目刻意不做：失败记录是"补传失败过"的事实）
 
 ### 批量查询上传状态（check_bill_status.php + check_failed_logs.php）
 
@@ -443,6 +455,7 @@ root/
 | fetch_bills（批发采集） | `0,30 0,1,2,3,8-23 * * *` | 写库与检查脚本的 SQLite 锁冲突由 busyTimeout(30s) 兜底 |
 | fetch_bills_retail（零售采集） | `5,35 0,1,2,3,8-23 * * *` | 与 fetch_bills 同频、**错开 5 分钟**（同为写 SQLite 的进程，同刻写会撞上 `Database::__construct` 里 `PRAGMA journal_mode=WAL` 那道无 busyTimeout 的既有竞态窗口 → Web 端 500 "database is locked"）。**不调平台 API，不受 8-20 点限流窗口约束**，故时段照抄 fetch_bills（含 8-20 点）。**每轮先跑状态闭环（票 03，不受门卫约束）再跑计数门卫（票 04）**——三个数没变就跳过整轮并打印原因，日志里因此分得清"真没新单"与"脚本没跑" |
 | check_bill_status（来源 1） | `*/30 8-20 * * *` | 高频确认新单（与门卫阈值 30 分钟一致） |
+| check_bill_status_retail（门店平台核查） | `20,50 8-21 * * *` | **2026-10-05 票 02 挂上**：只跑白天（门店流转在营业时间；隔夜新单由次日 8:20 那轮补上）。分钟点避开 0/30（fetch_bills）与 5/35（fetch_bills_retail），一趟约 12 分钟。**只发查询、不发申报**，挂它不触碰 ADR 0011；**逐单门卫 30 分钟**与批发同值 |
 | check_failed_logs（来源 2） | `40 20 * * *` | 20:40，fetch_bills 20:30 轮已结束、21:00 轮未到 |
 | check_quantity（数量对账） | `10 21 * * *` | **当前未调度**（手动运行）；下表值仅为恢复调度时的建议时间——21:10，fetch_bills 21:00/21:30 两轮之间；数量对比（shl vs min_pkg_count 求和），~650 单约 13 分钟 |
 | cleanup_logs | `0 3 * * *` | 三条清理判据不同：日志 3 个月前（`created_at`）、已处理任务 3 个月前（`updated_at`）、**门店超期单据 2 年前（`rq` 单据日期）**——后者是"今天合法的单据两年后就不合法了"的唯一出口，见 `App\RetailRetention` |
@@ -453,7 +466,9 @@ root/
 
 **注（票 06，2026-10-02）**：门店单据的批量上传脚本 `upload_pending_retail.php` **刻意不进本表**——它一旦进了 crontab，`docs/adr/0011` 那条"补传只能人工触发、没有自动重试"就被反转（申报不可逆，得有人在发起之前看得见清单）。**别把它加进去**：要用就手动跑，先 `--dry-run` 看清单、再 `--limit=N` 小步走。
 
-**注（2026-10-02 起：本项目所有 cron 条目以 nginx 身份跑）**：root crontab 里本项目的 9 条（5 条在跑 + 4 条注释着的）全部包成 `su -s /bin/bash nginx -c '/usr/bin/php …'`，重定向留在 root 那侧（`/var/log/msfx_cron.log` 仍 root:root）。**为什么**：root 与 nginx 双身份写 `logs/`、`data/` 会造出对方写不进去的文件（`logs/api_<日期>.jsonl` 一天一个文件，被 root 建出来当天就废；SDK 的 `top_*.log` 同理，见上方 TopLogger 一节）。**加新条目照此办理**；**手工跑脚本也必须同身份**（`su -s /bin/bash nginx -c 'php …'`），跑完用 `find logs data -user root` 复查——有输出就说明又造出了 root 属主文件，`chown nginx:nginx` 归位。
+**注（2026-10-02 起：本项目所有 cron 条目以 nginx 身份跑）**：root crontab 里本项目的 10 条（6 条在跑 + 4 条注释着的）全部包成 `su -s /bin/bash nginx -c '/usr/bin/php …'`，重定向留在 root 那侧（`/var/log/msfx_cron.log` 仍 root:root）。**为什么**：root 与 nginx 双身份写 `logs/`、`data/` 会造出对方写不进去的文件（`logs/api_<日期>.jsonl` 一天一个文件，被 root 建出来当天就废；SDK 的 `top_*.log` 同理，见上方 TopLogger 一节）。**加新条目照此办理**；**手工跑脚本也必须同身份**（`su -s /bin/bash nginx -c 'php …'`），跑完用 `find logs data -user root` 复查——有输出就说明又造出了 root 属主文件，`chown nginx:nginx` 归位。
+
+**注（票 02，2026-10-05：挂 cron 前先看锁文件的属主）**：这次要挂的脚本带 `flock`（`logs/check_bill_status_retail.lock`），而那个文件是**票 01 期间以 root 跑出来的**（`root:root 0644`）——nginx 身份下 `fopen($lockFile, 'w+')` **打不开**，脚本会走"已有实例在运行"那条分支**打印一句然后 exit 0**。表现是"cron 装了、日志里天天有一行、却从没真跑过"，比报错难查得多。挂条目时一并 `chown nginx:nginx`（本次已做）。同理适用于任何**新建的、将来要挂 cron 的**脚本：先确认它要写的文件（含锁、基线）在 nginx 名下。
 
 覆盖保证：任何单据最终都会被查到平台状态（等待上传 ≤30 分钟 / 失败记录 ≤24h / SQL Server 全量 ≤24h）。check_quantity 与 check_failed_logs 不得改到 8-20 点窗口内运行（与 check_bill_status 并发调同一 AppKey 立即触发平台限流）。
 
@@ -677,9 +692,11 @@ php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php \
 #    「外部上传」（判定与落库复用状态闭环那一套，见 src/RetailPlatformCheck.php）
 #    它补的是状态闭环的盲区：外部系统传了却没写源库状态表时，只有平台自己知道
 #    **只发查询、不发申报**（只读接口），但仍是真实平台调用——先 --dry-run，再 --limit 小步走
-#    ⚠️ **不进 crontab、由人手动跑**（一趟 5 家门店 1,410 条约 12 分钟）
-#    --dry-run 只列不查（一次调用都不发、一个字节都不写）；--limit=N 限量
-#    （跳过的门店不占额度）；--company=名,名 只查这几家门店（取回之后过滤）
+#    ⚠️ **2026-10-05 票 02 起已挂 crontab**：`20,50 8-21 * * *`（只跑白天；一趟约 12 分钟）。
+#    逐单门卫 30 分钟（与批发同值）：`last_checked_at` 在窗口内的单本轮跳过，被挡下多少条
+#    打印在开头；跑完**批量 touch** 平台给过答复的键（在／不在都算，查异常的不刷）
+#    --dry-run 只列不查（一次调用都不发、一个字节都不写；列的是**过完门卫**的那份）
+#    --limit=N 限量（跳过的门店不占额度）；--company=名,名 只查这几家门店（取回之后过滤）
 #    取不到凭据的门店（未识别/待配凭据）整组跳过并计数——没有 ref_ent_id 这条判据不成立
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status_retail.php --dry-run
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status_retail.php --limit=5

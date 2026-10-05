@@ -350,16 +350,33 @@ class RetailExternalUploads
      *
      * 两个判据（源库状态表的闭环、平台核查）都从这份清单出发——"哪些单还算待办"只在这一处回答。
      *
+     * **新鲜度门卫**（票 02）：`$freshnessMinutes` 非 null 时只取「`last_checked_at` 为空、或早于
+     * 该分钟数之前」的行（条件下到 SQL 里，两张表逐字同一句）。两个调用方对它的用法**刻意相反**：
+     *   - **状态闭环不传**（`null` = 不过滤）：它每轮都要看全量清单——抓的是"外部系统**后来**才传成"
+     *     的跨日翻转，被门卫挡住就漏了（票 03 的铁律：闭环不受门卫约束）
+     *   - **平台核查传 30**（与批发两个检查脚本同值）：它挂 cron 逐条调平台，门卫就是为它存在的
+     *
+     * 过滤是**逐行**的，不是逐键的：同一个 (company, djbh) 在两张表里各有若干行时，只要有一行
+     * 过期就仍会进清单。"多查一次"优于"漏查一次"；反向由 `touchChecked()` 按同一键刷**全部**行。
+     *
+     * @param int|null $freshnessMinutes 门卫窗口（分钟）；`null` = 不设门卫（状态闭环走这条）
      * @return array<string,array<string,array{task:bool,failure:bool,rq:string,trace_codes:string,credential:?string}>>
      */
-    public static function pendingItems(): array
+    public static function pendingItems(?int $freshnessMinutes = null): array
     {
         $db = Database::getInstance();
         $pending = [];
 
+        // 门卫条件两处共用一份：两张表的这两列同名同义，各写一遍就会有一边悄悄不设防
+        $gate = $freshnessMinutes === null ? '' : ' AND (last_checked_at IS NULL OR last_checked_at <= ?)';
+        $gateParams = $freshnessMinutes === null
+            ? []
+            : [date('Y-m-d H:i:s', time() - $freshnessMinutes * 60)];
+
         foreach ($db->query(
             "SELECT company, djbh, rq, trace_codes, credential FROM upload_tasks
-              WHERE source = 'retail' AND task_status = '等待上传'"
+              WHERE source = 'retail' AND task_status = '等待上传'{$gate}",
+            $gateParams
         ) as $row) {
             $company = (string)($row['company'] ?? '');
             $djbh = (string)($row['djbh'] ?? '');
@@ -372,8 +389,9 @@ class RetailExternalUploads
 
         foreach ($db->query(
             "SELECT company, djbh, rq, trace_codes, credential FROM upload_logs
-              WHERE request_status = '请求失败' OR response_status IS NULL
-                 OR response_status NOT IN ('上传成功', '单据重复')"
+              WHERE (request_status = '请求失败' OR response_status IS NULL
+                 OR response_status NOT IN ('上传成功', '单据重复')){$gate}",
+            $gateParams
         ) as $row) {
             $company = (string)($row['company'] ?? '');
             $djbh = (string)($row['djbh'] ?? '');
@@ -385,6 +403,52 @@ class RetailExternalUploads
         }
 
         return $pending;
+    }
+
+    /**
+     * 批量刷新 `last_checked_at`：本轮**平台给了答复**的那些键（`RetailPlatformCheck::run()` 的
+     * `checked_by_company`），两张表一起刷——下一轮 cron 的新鲜度门卫据此跳过它们。
+     *
+     * 为什么批量而不是逐条 UPDATE：本机 SQLite 单条 UPDATE = 一次 fsync（21–28 ms，见
+     * `Database::transaction()`），一趟 1,400 条逐条写光等磁盘就要 30 秒往上；这里按企业分块 `IN`、
+     * 整批包进**一次事务**。批发那两个检查脚本是逐条写的——它们一趟只有几十条，别照抄。
+     *
+     * 键必须带企业维度（`company = ? AND djbh IN (…)`）：裸单号跨门店会串——同一个单号在甲店查过、
+     * 乙店压根没查，却把乙店那行也刷成"刚查过"，那张单会被门卫白白挡掉一整轮。
+     *
+     * 写入范围**比"查过的那些待办键"略宽**：按 (company, djbh) 刷两张表的全部行，不筛
+     * `task_status`/`source`。门卫看的正是这两张表的 `last_checked_at`，把该键在两张表上的行一并
+     * 对齐，下一轮问"这个键查过没有"才只有一个答案；翻正过的任务行（已处理）顺带被刷也无害——
+     * 它本来就已离开待办清单。
+     *
+     * @param array<string,array<string,bool>> $checkedByCompany 企业 => 单号 => true
+     * @return int 被刷新的**行**数（两张表合计）；键不存在于表里时是 0，不算错误
+     */
+    public static function touchChecked(array $checkedByCompany): int
+    {
+        if ($checkedByCompany === []) {
+            // 没有要刷的键就别开事务（被门卫挡下整轮时走这条——空事务白拿一次写锁）
+            return 0;
+        }
+
+        $db = Database::getInstance();
+        $now = date('Y-m-d H:i:s');
+        $touched = 0;
+
+        $db->transaction(function () use ($db, $checkedByCompany, $now, &$touched): void {
+            foreach ($checkedByCompany as $company => $byDjbh) {
+                foreach (self::chunkedIn(array_keys($byDjbh)) as [$chunk, $placeholders]) {
+                    foreach (['upload_tasks', 'upload_logs'] as $table) {
+                        $touched += $db->execute(
+                            "UPDATE {$table} SET last_checked_at = ? WHERE company = ? AND djbh IN ({$placeholders})",
+                            array_merge([$now, (string)$company], $chunk)
+                        );
+                    }
+                }
+            }
+        });
+
+        return $touched;
     }
 
     /**
