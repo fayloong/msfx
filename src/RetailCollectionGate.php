@@ -190,15 +190,15 @@ class RetailCollectionGate
         }
         $decoded = json_decode($raw, true);
 
-        if (!is_array($decoded)) {
-            return ['baseline' => null, 'note' => '基线文件损坏或格式非法'];
-        }
-        if (isset($decoded['uploaded']) || isset($decoded['unuploaded'])) {
+        // 旧版形状（理由见 docblock）：这一条必须**排在下面那道通用校验之前**，否则它会先被
+        // 吞成一句含混的"格式非法"——运维看不出"文件没问题，是口径变了"
+        if (is_array($decoded) && (isset($decoded['uploaded']) || isset($decoded['unuploaded']))) {
             return ['baseline' => null, 'note' => '基线是旧版形状（含 uploaded/unuploaded，2026-10-05 之前写的）'];
         }
-        // 形状校验：日期 + 那个数一个都不能少。半份基线拿去比对，比出来的"没变化"是不可信的
-        // ——那正是"采集停摆"的来源，故宁可整份作废
-        if (!isset($decoded['date'], $decoded['total'])
+        // 形状校验：日期 + 那个数一个都不能少；JSON 不是对象、日期不是 YYYY-MM-DD 都算损坏。
+        // 半份基线拿去比对，比出来的"没变化"是不可信的——那正是"采集停摆"的来源，故宁可整份作废
+        if (!is_array($decoded)
+            || !isset($decoded['date'], $decoded['total'])
             || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$decoded['date'])) {
             return ['baseline' => null, 'note' => '基线文件损坏或格式非法'];
         }

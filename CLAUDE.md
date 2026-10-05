@@ -163,7 +163,8 @@ root/
 │   └── sql.php                   # SQL Server 原始查询（**调试残留，口径以脚本为准**；批发采集口径含 a.is_zx='是' 已执行单据过滤，2026-08-27；
 │                                 #  零售 `$get_up_task_retail` 已不适用——写死单一 bill_type='203'、类型不全，现行口径见
 │                                 #  scripts/fetch_bills_retail.php；它那句 NOT EXISTS(update_state) 的来龙去脉：ADR 0007 曾判为
-│                                 #  "去掉"（2026-09-29）→ 测试阶段临时加回（2026-09-30）→ **2026-10-02 票 02 改成分流**——
+│                                 #  "去掉"（2026-09-29）→ 测试阶段临时加回（2026-09-30）→ 2026-10-02 票 02 改成分流 →
+│                                 #  **2026-10-05 起连分流也停了**（采集整个不读那张表，见 ADR 0018）——
 │                                 #  **别照抄本文件，以脚本为准**）
 ├── public/
 │   ├── index.php                 # Web 单入口（page 参数分发路由）
@@ -596,7 +597,7 @@ root/
 | ent_name | TEXT | 往来单位名称 |
 | trace_codes | TEXT | 追溯码 |
 | rq | TEXT | 单据日期（回填自 upload_tasks 或 SQL Server） |
-| source | TEXT | cron/manual/batch_check/batch_retry/quantity_check/**retail_retry**（零售人工补传——检查脚本一律只查批发主体，写不出零售日志，见 ADR 0007）/**retail_external**（外部上传：采集分流出来的、外部系统已上传的门店单，`task_id=0`、`request_status` 为 NULL——**只写日志表、从不出现在任务表**，见票 02）；**历史行为空串**（`source` 列上线前的旧记录，实测 2,324 行） |
+| source | TEXT | cron/manual/batch_check/batch_retry/quantity_check/**retail_retry**（零售人工补传——检查脚本一律只查批发主体，写不出零售日志，见 ADR 0007）/**retail_external**（外部上传：**平台核查确认平台上已有**的门店单，2026-10-05 起这是它唯一的产地——采集分流那半已停用；`task_id=0`、`request_status` 为 NULL、`response.judged_by` 是平台接口名。**只写日志表、从不出现在任务表**；2026-10-02 快照按源库状态表写下的那 47,826 条的 `judged_by` 是表名，属旧口径）；**历史行为空串**（`source` 列上线前的旧记录，实测 2,324 行） |
 | company | TEXT | 所属企业中文全名（同 upload_tasks） |
 | credential | TEXT | 这次实际用了哪套凭据（采集时预填该门店那套；补传写回同一套）；只作审计 |
 | request_status | TEXT | 请求成功/请求失败 |

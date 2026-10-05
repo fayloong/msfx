@@ -116,6 +116,21 @@ Config::load();
 const RETAIL_BILL_TYPES = [104, 203, 321, 116];
 
 /**
+ * 三种运行模式（`$mode`）——**一个概念，别拆成三个同型 bool 往下传**：
+ * `flushRetailBatch()` 的调用点若按位置传一串 true/false，传反了没有任何东西会拦
+ * （`decide()` 那句注释记的就是同一件事）。
+ *
+ *   DAILY —— cron 的口径：建任务、落库
+ *   DRY   —— 预演：只统计，不落库、不写基线、不调平台
+ *   ALL   —— 两年窗口侦察：同样只统计（与预演行为完全相同，只是窗口是两年）
+ *
+ * `--all --dry-run` 归一到 ALL：两者行为一致，标签按 `--all` 走。
+ */
+const RETAIL_MODE_DAILY = 'daily';
+const RETAIL_MODE_DRY   = 'dry-run';
+const RETAIL_MODE_ALL   = 'all';
+
+/**
  * 一批攒多少张单据再落库（见头部"逐行消费"③）。
  *
  * 取值就是 `RetailExternalUploads::IN_CHUNK_SIZE`（**直接引用那个常量，不再写一遍 500**）：
@@ -158,9 +173,9 @@ if ($snapshotAll && $dateArg !== null) {
 // 这个 null 同时也是门卫的"不适用"信号（快照没有"当日"这个口径，见 App\RetailCollectionGate）
 $date = $snapshotAll ? null : ($dateArg ?? date('Y-m-d'));
 
-// --all 与 --dry-run 都**一个字节都不写**（--all 自 2026-10-05 起退成只统计，见头部）：
-// 落库、JSONL 告警、门卫基线都不动。两个标志分开只是为了打印时说得清是哪一种run
-$readOnly = $dryRun || $snapshotAll;
+// 运行模式（见 RETAIL_MODE_* 的说明）：预演与 --all 侦察都**一个字节都不写**（--all 自
+// 2026-10-05 起退成只统计，见头部）——落库、JSONL 告警、门卫基线都不动
+$mode = $snapshotAll ? RETAIL_MODE_ALL : ($dryRun ? RETAIL_MODE_DRY : RETAIL_MODE_DAILY);
 
 // 平台硬性规定不接受 2 年前的单据（见 App\RetailRetention）。显式指定一个超期日期时直接拒绝：
 // 静默采回 0 条会让人以为"那天真没单据"，而真相是那天即使有单也补传不出去。
@@ -188,21 +203,24 @@ if ($dryRun) {
  * 不经过本函数）。
  *
  * 批内**先全部判定完再落库**：这样"写"那一段能整批包进一次事务（见头部"逐行消费"③），
- * 而 `$readOnly` 时连事务都不开——只统计的 run 一个字节都不写（含逐条认领告警的 JSONL）。
+ * 而只统计的模式（DRY / ALL）连事务都不开——那种 run 一个字节都不写（含逐条认领告警的 JSONL）。
  *
  * @param array<string,array<string,mixed>> $bills 一批单据（单号 => 单据头字段 + codes）
- * @param bool $snapshotAll `--all` 口径：不建任务，本地无痕的单落 COUNT_ONLY 只计数（传给 decide）
- * @param bool $readOnly    `--dry-run` 或 `--all`：只统计不落库
- * @param bool $dryRun      命令行给的是 `--dry-run`（**只为进度行的标签**；落不落库看 `$readOnly`）
+ * @param string $mode  RETAIL_MODE_* 之一（**一个概念**，见那三个常量的说明）：
+ *                      DAILY 建任务并落库；DRY / ALL 只统计（ALL 还不建任务、本地无痕的落
+ *                      COUNT_ONLY 只计数——那一格传给 `decide()`）
  * @param array<string,int> $tally 本轮统计（累加）。动作那几个键由 `RetailExternalUploads::tally()`
  *                                 维护；`unidentified` / `claim_warned` 是**单据事实**的计数，
  *                                 由本函数维护（快照末尾那几句要它们）
  */
-function flushRetailBatch(array $bills, bool $snapshotAll, bool $readOnly, bool $dryRun, array &$tally): void
+function flushRetailBatch(array $bills, string $mode, array &$tally): void
 {
     if ($bills === []) {
         return;
     }
+
+    $snapshotAll = $mode === RETAIL_MODE_ALL;      // 不建任务（传 decide 的 buildTasks）
+    $readOnly = $mode !== RETAIL_MODE_DAILY;       // 只统计：一个字节都不写
 
     $db = Database::getInstance();
     $logWriter = new LogWriter();
@@ -277,7 +295,7 @@ function flushRetailBatch(array $bills, bool $snapshotAll, bool $readOnly, bool 
 
     // 只统计的 run（--dry-run / --all）到此为止：判定与统计都做完了，一个字节都不写
     if ($readOnly) {
-        printRetailProgress($tally, $snapshotAll, $dryRun);
+        printRetailProgress($tally, $mode);
         return;
     }
 
@@ -315,7 +333,7 @@ function flushRetailBatch(array $bills, bool $snapshotAll, bool $readOnly, bool 
         }
     });
 
-    printRetailProgress($tally, $snapshotAll, $dryRun);
+    printRetailProgress($tally, $mode);
 }
 
 /**
@@ -325,15 +343,16 @@ function flushRetailBatch(array $bills, bool $snapshotAll, bool $readOnly, bool 
  * ——否则那行"建任务 480"会被读成真写了。真跑时它在**这一批落库之后**打印，数字是既成事实。
  *
  * @param array<string,int> $tally 本轮累计（见 flushRetailBatch）
+ * @param string $mode RETAIL_MODE_* 之一；只有 ALL 打进度（日常一批就完事，多一行是噪音）
  */
-function printRetailProgress(array $tally, bool $snapshotAll, bool $dryRun): void
+function printRetailProgress(array $tally, string $mode): void
 {
-    if (!$snapshotAll) {
+    if ($mode !== RETAIL_MODE_ALL) {
         return;
     }
+    // 只在 ALL 下打，故标签不必再区分预演（`--all --dry-run` 归一到 ALL，见 RETAIL_MODE_*）
     printf(
-        "[fetch_bills_retail] %s%s 已处理 %d 单: 建任务 %d / 只计数 %d / 跳过 %d\n",
-        $dryRun ? '--dry-run ' : '',
+        "[fetch_bills_retail] %s 已处理 %d 单: 建任务 %d / 只计数 %d / 跳过 %d\n",
         date('H:i:s'),
         ($tally['tasks'] ?? 0) + ($tally['count_only'] ?? 0) + ($tally['skipped'] ?? 0),
         $tally['tasks'] ?? 0,
@@ -354,7 +373,7 @@ try {
     // 包成一个闭包是给门卫用的：闭包里抛出的任何异常都会穿过 guard() 且不写基线（源库读取失败、
     // 落库中途失败都算），而"写基线"那句只出现在闭包返回之后——"基线只在整轮采集成功之后才写"
     // 因此是**构造上的性质**，不是一句得靠人记住的话。别把它拆开写成"先采集、后手动写基线"。
-    $collect = static function () use ($source, $date, $retentionCutoff, $snapshotAll, $readOnly, $dryRun, &$tally): void {
+    $collect = static function () use ($source, $date, $retentionCutoff, $mode, &$tally): void {
         // ── 单条 SQL：单据头 LEFT JOIN 追溯码 ──
         // 必须 LEFT JOIN 而非内连接：没码的单也要采——它是补传队列里值得看见的一条。
         // physic_type 不在"顺手拷来的老 SQL"里，但补传装配要它（ADR 0010），故显式补上；
@@ -395,7 +414,7 @@ try {
         $startedAt = microtime(true);
 
         $ok = $source->queryEach($sql, $params, static function (array $row) use (
-            &$batch, &$openDjbh, &$openBill, &$rawRows, &$billCount, &$tally, $snapshotAll, $readOnly, $dryRun
+            &$batch, &$openDjbh, &$openBill, &$rawRows, &$billCount, &$tally, $mode
         ): void {
             $rawRows++;
             $billCode = trim((string)($row['bill_code'] ?? ''));
@@ -408,7 +427,7 @@ try {
                 if ($openDjbh !== null) {
                     $batch[$openDjbh] = $openBill;
                     if (count($batch) >= RETAIL_WRITE_BATCH) {
-                        flushRetailBatch($batch, $snapshotAll, $readOnly, $dryRun, $tally);
+                        flushRetailBatch($batch, $mode, $tally);
                         $batch = [];
                     }
                 }
@@ -443,7 +462,7 @@ try {
             $batch[$openDjbh] = $openBill;
         }
         if ($batch !== []) {
-            flushRetailBatch($batch, $snapshotAll, $readOnly, $dryRun, $tally);
+            flushRetailBatch($batch, $mode, $tally);
         }
 
         if ($billCount === 0) {
@@ -465,7 +484,7 @@ try {
         $elapsed = round(microtime(true) - $startedAt, 1);
         $memMb = round(memory_get_peak_usage(true) / 1048576, 1);
 
-        if ($snapshotAll) {
+        if ($mode === RETAIL_MODE_ALL) {
             // 两年窗口侦察：**只统计、不落库**（--dry-run 与否行为一致——它一个字节都不写，故两种
             // 调用走同一段输出，别让它们打印的东西不一样）。
             // 欠账必须是**可查的数**："本地无痕"才是真正在本系统里看不见的那批——本地已有任务行/
@@ -479,7 +498,7 @@ try {
             return;
         }
 
-        if ($dryRun) {
+        if ($mode === RETAIL_MODE_DRY) {
             echo "[fetch_bills_retail] --dry-run 预演（日期 {$date}）: 将新增任务 {$tasks} 条 / {$codes} 码；"
                 . "跳过 {$skipped} 单\n";
             echo "[fetch_bills_retail] 预演统计: 认领不到门店 {$unidentified} 单、源库机构名对不上 "
@@ -498,7 +517,7 @@ try {
     // **它不经过计数门卫**（票 04 留的接线欠账）：门卫的产物是基线，而预演"什么都不写"——
     // 写成"照常过门卫、只是采集空转"的话，预演会把基线写掉，下一轮 cron 据此判"总数没变"
     // 而少采一轮
-    if ($dryRun) {
+    if ($mode === RETAIL_MODE_DRY) {
         $collect();
         exit(0);
     }
