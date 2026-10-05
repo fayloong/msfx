@@ -4,7 +4,7 @@
 
 **Blocked by:** 02（已 done）
 
-**Status:** done（2026-10-05）
+**Status:** done——提交 `aeba984`、收口 `8e383bb`，gitee 与 origin 均已跟上（2026-10-05）
 
 ---
 
