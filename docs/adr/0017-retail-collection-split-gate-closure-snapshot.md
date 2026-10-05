@@ -1,6 +1,8 @@
 # 零售采集由「过滤」改「分流」：外部已上传可见、计数门卫、状态闭环、全量快照
 
-- 状态：已接受（2026-10-02）
+- 状态：已接受（2026-10-02）；**第 1、3 节与第 2 节里的两个数、第 4 节的落库口径已于 2026-10-05 暂停**
+  （[ADR 0018](0018-retail-platform-check-sole-judge.md)：源库状态表的读侧整体停用，判据统一到平台核查；
+  门卫只剩当日总数一个数，`--all` 退成只统计）。**本文其余部分（含三条已知代价里关于门卫的那条）仍有效**
 - 推翻：[ADR 0007](0007-retail-no-platform-reconciliation.md) 修订注一那条测试阶段临时口径（`NOT EXISTS` 整批过滤）——见该 ADR 修订注三
 - 相关：[ADR 0011](0011-retail-retransmit-metadata-and-manual-trigger.md) 补注（零售批量上传脚本：能力已备、暂不启用）、[ADR 0013](0013-retail-two-year-retention.md)（2 年下限，本文未改）、[ADR 0016](0016-retail-upload-state-writeback.md)（回写，读侧口径随之扩展）
 

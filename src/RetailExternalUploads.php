@@ -1,30 +1,25 @@
 <?php
 /**
- * 外部上传：外部系统已上传的门店单据——采集侧的**分流判据**、**记录形状**与**状态闭环**。
+ * 门店单据的落库判定与「外部上传」记录形状——**判据统一在平台核查**（2026-10-05 起）。
  *
- * 门店单据由外部系统负责上传，本项目只做「可见 + 人工补传」（见 docs/adr/0007）。2026-09-30
- * 的测试阶段临时口径曾用 `NOT EXISTS(update_state)` 把外部已上传的单整批挡在采集之外，
- * 代价是它们在页面上不可见——「这张单到底传没传」只能回源库查。本类把那条口径改成**分流**：
- * 单据全采进来，按源库状态表一分为二（见 .scratch/retail-collection-split/spec.md §1、§3、§4）：
+ * 门店单据由外部系统负责上传，本项目只做「可见 + 人工补传」（见 docs/adr/0007）。本类管两件事：
  *
- *   已上传 → 写一条「外部上传」记录进已上传记录页，**不建**补传任务；
- *   未上传 → 照旧建「等待上传」任务，由人在上传任务页补传。
+ *   ① **采集落库该怎么判**（`decide()`）：单据**一律建「等待上传」任务**（本地已有痕迹则跳过），
+ *      由人在上传任务页补传。**采集不再读源库状态表**——那张表记的是外部系统的行为，它写一条
+ *      假状态就会让单据静默消失（详见下"判据"一段）；
+ *   ② **已上传的单该怎么落**（`buildRecord()` / `closureActions()` / `applyActions()`）：
+ *      「外部上传」记录的形状，以及**平台核查**（`App\RetailPlatformCheck`）翻正本地痕迹的动作。
  *
- * **唯一的例外是 `--all` 全量快照**（票 05）：窗口内**未上传的历史单不建任务**，只留一个数
- * ——一次跑出成千上万条「等待上传」人工处理不现实，还会把待补传这份工作清单的信号淹没
- * （工作队列由日常采集按日累积；2026-10-02 首跑实测窗口内未上传 6,251 单，其中 6,245 单
- * 本地早有痕迹、真正没进过本系统的只有 6 单——决定与理由不变，量级以这次实测为准）。
- * 它在 `decide()` 上只多传一个 `buildTasks: false`，
- * 未上传 + 本地无痕那一格落到 ACTION_COUNT_ONLY；**日常口径一字不改**（默认参数）。
+ * **判据（2026-10-05 起，见 docs/adr/0018）**：门店单「是否已上传」只有一条判据——
+ * **拿该门店自己的凭据问平台**（`check_bill_status_retail.php` → `lsyd.query.upbilldetail`）。
+ * 它天然按企业隔离（带 ref_ent_id），且不依赖外部系统的行为。**暂时**停用的两条读侧判据
+ * （`closeLoop()` 与采集分流）都读源库 `dyt.bs_msfx.dbo.update_state`——外部系统不稳定期间，
+ * 它的痕迹不再是证据：信了它，单据会**不进补传队列**（分流）或**入了队又被翻掉**（闭环），
+ * 在本地凭空消失而平台上一片空白。恢复路径见 ADR 0018（`closeLoop()` 保留未删，只是没接线）。
+ * 该表**读侧停了、写侧没停**：补传成功后仍回写它告诉外部系统"别再传"（`App\UpdateStateWriter`）。
  *
- * 判据只有一处：源库 `dyt.bs_msfx.dbo.update_state` 里有该单号（`bill_state` 实测全为 '1'，
- * 判存在即判已上传）。采集侧对它**只读**，且必须是 `EXISTS` 子查询而非 JOIN——那张表无主键、
- * 无唯一约束，实测 67,856 行里有 82 个单号是多行，JOIN 会把结果集放大。
- *
- * **状态闭环**（`closeLoop()`，票 03）收拾的是分流管不到的那一半：一张单**先**以「等待上传」
- * 落进了本地、**后来**才被外部系统传成——采集侧只在写入新行时看判据，不回头改已有行（那是
- * 刻意的，见 `decide()`），于是那条任务行会永远挂在补传队列里。闭环每轮拿**本地待办清单**
- * （不是当次采集结果，故**跨日有效**）去状态表核对，命中后把痕迹翻正。
+ * **`--all` 全量快照**（票 05）现在只剩**只统计**这一个用途：全部单据落 `ACTION_COUNT_ONLY`
+ * 或 SKIP，**一个字节都不写**（见 scripts/fetch_bills_retail.php 头部）。
  */
 namespace App;
 
@@ -33,9 +28,10 @@ class RetailExternalUploads
     /**
      * 源库状态表（4 段式链接服务器名）——**全仓唯一一处硬编码**。
      *
-     * 采集（scripts/fetch_bills_retail.php）、回写（App\UpdateStateWriter）、计数门卫（票 04）
-     * 全部引用它：读侧与写侧各写一遍表名，改一处漏一处时两边会静默读写**不同的表**，
-     * 而那种错不会有任何报错——只会表现为"回写了却还是被采回来"这种没头绪的现象。
+     * 引用它的是**写侧**：回写（`App\UpdateStateWriter`，补传成功后告诉外部系统"这单传过了"）
+     * 与暂时停接的状态闭环（`closeLoop()`）。**采集与计数门卫 2026-10-05 起都不再读它**
+     * （见类注释与 ADR 0018）——读侧与写侧各写一遍表名，改一处漏一处时两边会静默读写**不同的表**，
+     * 而那种错不会有任何报错，只会表现为"回写了却还是被采回来"这种没头绪的现象。
      */
     public const TABLE = 'dyt.bs_msfx.dbo.update_state';
 
@@ -45,11 +41,10 @@ class RetailExternalUploads
     /** 记录写「上传成功」：与上传链路同一个成功口径（单据已在平台上） */
     public const RESPONSE_STATUS = '上传成功';
 
-    /** 分流决定（`decide()` 的返回值） */
-    public const ACTION_RECORD = 'record'; // 写一条外部上传记录，**不建任务行**
+    /** 落库决定（`decide()` 的返回值） */
     public const ACTION_TASK   = 'task';   // 建「等待上传」任务，由人补传
     public const ACTION_SKIP   = 'skip';   // 本地已有这条单的痕迹，整条跳过（幂等）
-    public const ACTION_COUNT_ONLY = 'count_only'; // 快照（`--all`）：未上传的历史单不建任务，只计数
+    public const ACTION_COUNT_ONLY = 'count_only'; // `--all` 只统计：本地无痕的单也不建任务，只计数
 
     /**
      * 单号 IN 列表分块大小（规避超长 SQL 与参数上限）。
@@ -60,40 +55,31 @@ class RetailExternalUploads
     public const IN_CHUNK_SIZE = 500;
 
     /**
-     * 分流决定：这一单该怎么落库。
+     * 落库决定：这一单该怎么落（真值表见下）。
      *
-     *   uploaded | hasTask | hasSuccess | buildTasks | 动作
-     *   ---------|---------|------------|------------|------------------------------------------
-     *   true     | 任意    | false      | 任意       | RECORD —— 写外部上传记录，**不建任务**
-     *   true     | 任意    | true       | 任意       | SKIP   —— 本地已有成功记录（不变量：同一 (company, djbh)
-     *                                                     最多一条成功记录），重跑同一日期不再写第二条
-     *   false    | 任意    | true       | 任意       | SKIP   —— 已传成过（本项目补传的或外部系统的），不再入队
-     *   false    | true    | false      | 任意       | SKIP   —— 任务行已在，重采集不重复建
-     *   false    | false   | false      | true       | TASK   —— 建「等待上传」任务，由人补传
-     *   false    | false   | false      | false      | COUNT_ONLY —— 快照：不建任务，只计数（见下）
+     *   hasTask | hasSuccess | buildTasks | 动作
+     *   --------|------------|------------|--------------------------------------------
+     *   true    | 任意       | 任意       | SKIP —— 任务行已在，重采集不重复建
+     *   false   | true       | 任意       | SKIP —— 已传成过（本项目补传的、或平台核查翻正的），不再入队
+     *   false   | false      | true       | TASK —— 建「等待上传」任务，由人补传
+     *   false   | false      | false      | COUNT_ONLY —— `--all` 只统计：不建任务，只计数
      *
      * 三处容易看漏的：
-     *   - **已上传 + 有任务行**走 RECORD 而不是"顺手把那条任务翻掉"：任务行是本地待办痕迹，
-     *     翻正是**状态闭环（票 03）**的事；采集只读源库、只按判据写新行，不回头改已有行
-     *   - **未上传 + 有任务行**走 SKIP 而不是 UPDATE：重采集不该碰已有任务行的任何字段
-     *   - **`$buildTasks = false` 只改最后一格**：不能建任务 ≠ 什么都不写——已上传的照样写记录
-     *     （快照的用途就是"页面上有历史可看"），本地已有痕迹的照样跳过（幂等判据一个字没变）。
-     *     落到 COUNT_ONLY 的只有"未上传 **且** 本地一条痕迹都没有"的那些单：它们在本系统里
-     *     **不可见**，快照给不出任务行，只能留一个数（这就是票面那句"窗口内未上传 N 张，未建任务"）。
-     *     本地已有任务行的未上传单**不算**这个数——它在补传队列里看得见，不是欠账
+     *   - **有任务行即 SKIP**，不看它是什么状态：重采集不该碰已有任务行的任何字段
+     *     （翻正是**平台核查**的事，见 `closureActions()`）
+     *   - **`$buildTasks = false` 只改最后一格**：本地已有痕迹的照样跳过（幂等判据一个字没变），
+     *     只有"本地一条痕迹都没有"的单才落到 COUNT_ONLY。`--all` 的用途因此只剩**只统计**
+     *     （它打印的"窗口内 N 单未建任务"就是这一格数出来的）
+     *   - **判据里没有"源库说传没传"这一维**（2026-10-05 起）：信它会让单据不进队列（见类注释）
      *
-     * @param bool $uploaded   源库状态表里有该单号（采集 SQL 的 EXISTS 子查询给的标志）
      * @param bool $hasTask    本地已有该 (company, djbh) 的任务行
      * @param bool $hasSuccess 本地已有该 (company, djbh) 的成功记录（上传成功/单据重复）
-     * @param bool $buildTasks 是否建「等待上传」任务；`false` 只该由 `--all` 快照传
-     *                         （日常采集、闭环、手工建单都不传，走默认值）
+     * @param bool $buildTasks 是否建「等待上传」任务；`false` 只该由 `--all` 传
+     *                         （日常采集不传，走默认值）
      * @return string ACTION_* 之一
      */
-    public static function decide(bool $uploaded, bool $hasTask, bool $hasSuccess, bool $buildTasks = true): string
+    public static function decide(bool $hasTask, bool $hasSuccess, bool $buildTasks = true): string
     {
-        if ($uploaded) {
-            return $hasSuccess ? self::ACTION_SKIP : self::ACTION_RECORD;
-        }
         if ($hasTask || $hasSuccess) {
             return self::ACTION_SKIP;
         }
@@ -103,29 +89,25 @@ class RetailExternalUploads
     /**
      * 一轮采集的统计累加（纯函数）：把「这一单的动作 + 它的码数」并进计数，返回新的计数。
      *
-     * `--dry-run` 打印的那句「**将写入 N 单 / M 码**」就是从这里来的，所以口径必须与"真跑写进去
-     * 的东西"逐字一致：
-     *   - `codes`（= M）**只累加真会落库的两种动作**（RECORD / TASK）的码数。被跳过与只计数的单据
+     * 脚本打印的那句「**将写入 N 单 / M 码**」就是从这里来的，所以口径必须与"真跑写进去的
+     * 东西"逐字一致：
+     *   - `codes`（= M）**只累加真会落库的那一种动作**（TASK）的码数。被跳过与只计数的单据
      *     一个码都不进 M——否则预演报出来的码数比真跑写进去的多，那份数字就不再是"将写入"了
-     *   - `records`（写记录）/ `tasks`（建任务）两者相加是 N；`count_only` 是快照里"未上传且本地
-     *     无痕"的张数（**不进 N**，它不写库）；`skipped` 是本地已有痕迹、这次一条都没写的单数
+     *   - `tasks` 是 N（唯一会写库的动作）；`count_only` 是 `--all` 里"本地无痕、也不建任务"
+     *     的张数（**不进 N**，它不写库）；`skipped` 是本地已有痕迹、这次一条都没写的单数
      *   - 未知动作**抛异常**而不是静默丢弃：加一个 ACTION_* 却忘了在这里归类，统计就会悄悄少一块
      *
      * @param array<string,int> $counts 上一轮的计数（起手传空数组；`+=` 补齐缺失的键，故调用方不必先初始化）
      * @param string $action ACTION_* 之一
      * @param int    $codes  这一单的追溯码个数（去重后的，即真正会写进 `trace_codes` 的那些）
-     * @return array{records:int,tasks:int,count_only:int,skipped:int,codes:int}
+     * @return array{tasks:int,count_only:int,skipped:int,codes:int}
      * @throws \InvalidArgumentException 动作不在 ACTION_* 里
      */
     public static function tally(array $counts, string $action, int $codes): array
     {
-        $counts += ['records' => 0, 'tasks' => 0, 'count_only' => 0, 'skipped' => 0, 'codes' => 0];
+        $counts += ['tasks' => 0, 'count_only' => 0, 'skipped' => 0, 'codes' => 0];
 
         switch ($action) {
-            case self::ACTION_RECORD:
-                $counts['records']++;
-                $counts['codes'] += $codes;
-                break;
             case self::ACTION_TASK:
                 $counts['tasks']++;
                 $counts['codes'] += $codes;
@@ -157,12 +139,13 @@ class RetailExternalUploads
      *     在这儿**，不至于让人以为本项目真调过一次平台
      *
      * @param array{djbh:string, rq:string, trace_codes:string, company:string, credential:?string} $bill
-     * @param string|null $reason 出处说明（写进 `response` 的 reason 字段）；`null` = 采集那条老话术
-     *                            （源库状态表判的），闭环与平台核查各自传自己的（见 `applyActions()`）
-     * @param string $judgedBy    `response` 里 `judged_by` 字段（判据出处）；默认源库状态表
+     * @param string $reason   出处说明（写进 `response` 的 reason 字段）——**不给默认值**：判据的
+     *                         出处是事实，得由调用方说清楚（平台核查传的是平台接口名，见
+     *                         `check_bill_status_retail.php` 里 `applyActions()` 那次调用）
+     * @param string $judgedBy `response` 里 `judged_by` 字段（判据出处），同上不给默认值
      * @return array 可直接交给 LogWriter::write() 的记录
      */
-    public static function buildRecord(array $bill, ?string $reason = null, string $judgedBy = self::TABLE): array
+    public static function buildRecord(array $bill, string $reason, string $judgedBy): array
     {
         return [
             'task_id'         => 0,
@@ -173,30 +156,12 @@ class RetailExternalUploads
             'rq'              => (string)($bill['rq'] ?? ''),
             'request_status'  => null,
             'response_status' => self::RESPONSE_STATUS,
-            'response'        => self::provenanceJson(
-                $reason ?? '外部系统已上传该单据（源库状态表里有该单号），本项目未发起任何平台请求',
-                $judgedBy
-            ),
+            'response'        => self::provenanceJson($reason, $judgedBy),
             'source'          => self::SOURCE,
             'company'         => (string)($bill['company'] ?? ''),
             // 认领不到门店时是 null（company 为「未识别」）——原样下传，由 LogWriter 落库
             'credential'      => $bill['credential'] ?? null,
         ];
-    }
-
-    /**
-     * 把一条已上传的单落成「外部上传」记录（JSONL + `upload_logs`）。
-     *
-     * **记录的"已有成功记录"这个判据由调用方给**（见 `decide()` 的 `$hasSuccess`）：采集按批
-     * 取本地痕迹时顺带就有了，在这里再查一次等于每条单据多一次往返。本方法不做去重查询。
-     *
-     * 与类里其余方法一样是静态的：这个类不带状态（判定与形状都是纯函数）——注入一个
-     * LogWriter 的构造参数曾经在这儿，但全仓无人传，纯属给将来准备的钩子，删了。
-     * 需要写入行为可替换时（真要 mock 它）再引入不迟。
-     */
-    public static function record(array $bill): void
-    {
-        (new LogWriter())->write(self::buildRecord($bill));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -208,25 +173,27 @@ class RetailExternalUploads
      *
      * 判据表（`$pending` 里的每个键，即每个 (company, djbh)）：
      *
-     *   源库已上传 | 有任务行 | 本地已有成功记录 | 动作
-     *   -----------|----------|------------------|------------------------------------------
-     *   否         | 任意     | 任意             | 不动（**不出现在返回值里**）
-     *   是         | 是       | 否               | 翻任务行 ＋ 追加一条外部上传记录
-     *   是         | 是       | 是               | 只翻任务行（不追加）
-     *   是         | 否       | 否               | 只追加记录（这键是补传失败记录那条痕迹）
-     *   是         | 否       | 是               | 不动（失败页那条已被同单号判重隐藏，没有待办）
+     *   平台说已上传 | 有任务行 | 本地已有成功记录 | 动作
+     *   -------------|----------|------------------|------------------------------------------
+     *   否           | 任意     | 任意             | 不动（**不出现在返回值里**）
+     *   是           | 是       | 否               | 翻任务行 ＋ 追加一条外部上传记录
+     *   是           | 是       | 是               | 只翻任务行（不追加）
+     *   是           | 否       | 否               | 只追加记录（这键是补传失败记录那条痕迹）
+     *   是           | 否       | 是               | 不动（失败页那条已被同单号判重隐藏，没有待办）
      *
      * 三处刻意之处：
      *   - **判据按 (company, djbh) 不按裸 djbh**：`$success` 用企业维度取键（生产库里裸单号
      *     并不唯一，乙店的成功记录会把甲店的待办判成"已追加过"而整条吞掉）
-     *   - **`$uploadedBills` 只能是裸单号**：源库状态表里没有企业列（该结构限制是已知代价，
-     *     见 docs/adr/0007），这一层的串号风险无法在本地消除，只能如实建模
+     *   - **`$uploadedBills` 是扁平的单号集合，调用方按企业**逐个**调用本方法**：平台核查
+     *     （`RetailPlatformCheck::actionsByCompany()`）每家喂一次，企业隔离因此是构造上的性质。
+     *     **别一次喂全量集合**——那正是当年 `closeLoop()` 被迫接受的形态（源库状态表没有企业列，
+     *     见 docs/adr/0007），同名单号跨门店会互相顶掉
      *   - **追加与翻任务是两条独立的判据**：已有成功记录时任务行仍要翻（那是两条痕迹，翻正
      *     任务行与"记录已存在"无关），反过来没有任务行时也仍要追加记录
      *
      * @param array<string,array<string,array{task:bool,failure:bool}>> $pending 本地待办（企业 => 单号 => 痕迹）
      * @param array<string,array<string,bool>>                         $success 本地已有成功记录（企业 => 单号 => true）
-     * @param array<string,bool>                                       $uploadedBills 源库状态表里有的单号
+     * @param array<string,bool>                                       $uploadedBills 平台说已上传的单号
      * @return array<string,array<string,array{turn_task:bool,append_record:bool}>> 无动作的键不出现
      */
     public static function closureActions(array $pending, array $success, array $uploadedBills): array
@@ -263,6 +230,13 @@ class RetailExternalUploads
 
     /**
      * 跑一轮状态闭环：拿**本地待办清单**去源库状态表核对，外部系统后来传成了的痕迹翻正。
+     *
+     * ⚠️ **2026-10-05 起暂时不接线**（本方法保留、调用点已摘，见 ADR 0018）：外部系统不稳定期间，
+     * 那张表写下的痕迹不再是证据——信了它，一条实际没传成的单会被翻成「已处理 + 上传成功」，
+     * 从补传队列里消失而平台上一片空白。判据统一到**平台核查**（`App\RetailPlatformCheck`，
+     * 走同一个 `closureActions()` + `applyActions()`，只是判据换成问平台）。
+     * **恢复 = 把 `scripts/fetch_bills_retail.php` 里那次调用接回采集之前**（顺序红线：闭环在前、
+     * 计数门卫在后）；外部系统恢复稳定是恢复的前提，ADR 0018 有完整清单。
      *
      * 为什么按清单查、不按日期扫源库：本地待办是**跨日**的——昨天的单今天才被外部系统传成，
      * 按当次采集的日期窗口永远覆盖不到（那张单不在今天的采集结果里）。清单通常几十到几百条，
@@ -345,18 +319,19 @@ class RetailExternalUploads
      * 判据取"一切非成功记录"（宽于失败记录页的口径）：多取到的行随后会被 `closureActions()`
      * 判成无动作，无害；**少取才是问题**——那会让失败页上看得见的行永远翻不掉。
      *
-     * 两个判据（源库状态表的闭环、平台核查）都从这份清单出发——"哪些单还算待办"只在这一处回答。
+     * 平台核查（与暂时停接的状态闭环）都从这份清单出发——"哪些单还算待办"只在这一处回答。
      *
      * **新鲜度门卫**（票 02）：`$freshnessMinutes` 非 null 时只取「`last_checked_at` 为空、或早于
      * 该分钟数之前」的行（条件下到 SQL 里，两张表逐字同一句）。两个调用方对它的用法**刻意相反**：
-     *   - **状态闭环不传**（`null` = 不过滤）：它每轮都要看全量清单——抓的是"外部系统**后来**才传成"
-     *     的跨日翻转，被门卫挡住就漏了（票 03 的铁律：闭环不受门卫约束）
      *   - **平台核查传 30**（与批发两个检查脚本同值）：它挂 cron 逐条调平台，门卫就是为它存在的
+     *   - **不传**（`null` = 不过滤）：给"每轮都要看全量清单"的调用方留的口子——暂时停接的状态
+     *     闭环当年走这条（票 03 的铁律：闭环不受门卫约束，被挡住就漏了跨日翻转）。眼下没有
+     *     调用方走它，`closeLoop()` 保留了这条用法（恢复路径见 ADR 0018）
      *
      * 过滤是**逐行**的，不是逐键的：同一个 (company, djbh) 在两张表里各有若干行时，只要有一行
      * 过期就仍会进清单。"多查一次"优于"漏查一次"；反向由 `touchChecked()` 按同一键刷**全部**行。
      *
-     * @param int|null $freshnessMinutes 门卫窗口（分钟）；`null` = 不设门卫（状态闭环走这条）
+     * @param int|null $freshnessMinutes 门卫窗口（分钟）；`null` = 不设门卫
      * @return array<string,array<string,array{task:bool,failure:bool,rq:string,trace_codes:string,credential:?string}>>
      */
     public static function pendingItems(?int $freshnessMinutes = null): array
@@ -654,10 +629,11 @@ class RetailExternalUploads
      * 两处都写它，是为了让「API 返回详情」弹窗里看得见这条痕迹**为什么**是这个状态——
      * 不至于让人以为本项目真调过一次平台。
      *
-     * `judged_by` 是**判据的出处**：默认源库状态表（采集与状态闭环），平台核查传平台接口名
-     * （`lsyd.query.upbilldetail`）——两条判据翻出来的痕迹在详情弹窗里因此分得清。
+     * `judged_by` 是**判据的出处**：平台核查传平台接口名（`lsyd.query.upbilldetail`）。
+     * 旧记录里可能还留着源库状态表那个值——那是 2026-10-05 之前写的（见 ADR 0018），
+     * 详情弹窗里因此分得清"这条是问平台问出来的"还是"那张表说的"。
      */
-    private static function provenanceJson(string $reason, string $judgedBy = self::TABLE): string
+    private static function provenanceJson(string $reason, string $judgedBy): string
     {
         return json_encode([
             'external_upload' => true,

@@ -1,5 +1,7 @@
 **Status:** done（票 01–06 已完成并各自双推；07 为文档收尾——四个决定合并记入 [ADR 0017](../../docs/adr/0017-retail-collection-split-gate-closure-snapshot.md)，全仓口径复核完毕）
 
+> ⚠️ **2026-10-05 起本文的四个决定有三个暂停**（外部系统不稳定，见 [ADR 0018](../../docs/adr/0018-retail-platform-check-sole-judge.md) 与 [票 03](../retail-platform-check/issues/03-platform-check-sole-judge.md)）：**分流**（已上传的不建任务）与**状态闭环**整条停用、**计数门卫**只剩当日总数一个数；`--all` 退成只统计。**留下的那个是判据的来源换了**——从源库状态表换成平台核查（`check_bill_status_retail.php`）。**保留接口、别的没变的**：`--dry-run` 的接线、2 年下限、逐行消费、认领与幂等、备而不用的上传脚本（ADR 0011 补注）。下面正文是当时的设计记录，**别照它实现**——现行口径看 CLAUDE.md 与 ADR 0018。
+
 # 零售采集由「过滤」改「分流」（外部已上传可见 + 计数门卫 + 状态闭环 + 备而不用的上传脚本）
 
 > 本文取代 [retail-chain/spec.md](../retail-chain/spec.md) 里与采集口径相关的表述：2026-09-30 的**测试阶段临时口径**（采集 SQL 用 `NOT EXISTS(update_state)` 把外部系统已上传的单整批挡在门外）**就此结束**。
