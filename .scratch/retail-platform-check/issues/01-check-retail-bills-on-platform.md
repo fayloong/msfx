@@ -4,7 +4,7 @@
 
 **Blocked by:** None（可立即开始）
 
-**Status:** done（2026-10-05）
+**Status:** done——提交 `19df751`、收口 `4386ad9`，gitee 与 origin 均已跟上
 
 - [x] 请求类 `AlibabaAlihealthDrugtraceTopLsydQueryUpbilldetailRequest` 逐类并入 `top_sdk/top/request/`，与 `top_sdk_retail.zip` 内**逐字一致**
   - `unzip -p … > …` 后 `diff` 两份为空（逐字一致）；`top/domain/` 的 DTO 不需要（本项目走 xml → SimpleXMLElement，见 ADR 0009）
