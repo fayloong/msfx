@@ -4,7 +4,7 @@
 
 **Blocked by:** 01（已 done）
 
-**Status:** done（2026-10-05）
+**Status:** done——提交 `29cf2f9`、收口 `aecf937`，gitee 与 origin 均已跟上（2026-10-05）
 
 ---
 
