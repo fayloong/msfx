@@ -138,15 +138,8 @@ try {
         $pending = array_intersect_key($pending, $keep);
     }
 
-    $countItems = static function (array $pending): int {
-        $n = 0;
-        foreach ($pending as $byDjbh) {
-            $n += count($byDjbh);
-        }
-        return $n;
-    };
-    $allTotal = $countItems($allPending);
-    $total = $countItems($pending);
+    $allTotal = RetailExternalUploads::pendingCount($allPending);
+    $total = RetailExternalUploads::pendingCount($pending);
     // 两次查询之间有别的写入（Web 端补传、采集）时差值可能偏小甚至为负——负数一律按 0 报
     $gatedOut = max(0, $allTotal - $total);
 

@@ -4,11 +4,14 @@
  *
  * 运行: php tests/retail_external_uploads_test.php
  *
- * 测试目标: 采集分流的两个纯逻辑 ＋ 状态闭环的动作分类 ＋ 快照口径与统计口径——
+ * 测试目标: 采集分流的两个纯逻辑 ＋ 状态闭环的动作分类 ＋ 快照口径与统计口径 ＋ 批量 touch 的语句形状——
  *   ① `decide()` 把「源库说已上传没有 × 本地已有哪种痕迹」翻译成落库动作；
  *   ② `buildRecord()` 把一条已上传的单落成什么形状的记录；
  *   ③ `closureActions()` 把「本地待办 × 源库判据 × 本地已有成功记录」翻译成翻正动作（票 03）；
- *   ④ `decide(..., buildTasks: false)` 的快照口径 ＋ `tally()` 的统计口径（票 05）。
+ *   ④ `decide(..., buildTasks: false)` 的快照口径 ＋ `tally()` 的统计口径（票 05）；
+ *   ⑤ `touchStatements()` 的语句形状（票 02）：每条都带 `company = ?`、两条表各一句、
+ *     分块后每句参数个数在 SQLite 999 上限内。**真落库不进本测试**（要真库），
+ *     由副本实测兜着——见 .scratch/retail-platform-check/issues/02 的验证记录。
  *
  *   本文件真正钉的是三条**漏了就会出事**的性质：
  *   - **幂等**（用例 3）：同一 `(company, djbh)` 已有成功记录时必须 SKIP——否则每跑一轮采集
@@ -33,6 +36,8 @@
  *   - 把 `$buildTasks` 的默认值改成 false（日常也不建任务）→ 用例 8 最后那条护栏红
  *   - 把 `tally()` 里 COUNT_ONLY/SKIP 也算进 codes（预演码数虚高）→ 用例 9 那两条红
  *   - 把 `tally()` 的 default 分支从抛异常改成静默 return → 用例 9 最后那条红
+ *   - 把 `touchStatements()` 的 SQL 丢掉 `company = ?`（按裸单号刷）→ 用例 10 的 4 条红
+ *   - 把 `IN_CHUNK_SIZE` 改成 1000（每句 1002 个参数）→ 用例 10 最后那条红（实测两种变异各跑过）
  *
  * **闭环的编排（`closeLoop()`）不进本测试**：它读本地库、查源库、写本地库，三样都是真环境，
  * 断言得起劲也只是在测"SQLite 能不能写"。可测的判据全在 `closureActions()` 里，编排只负责
@@ -298,6 +303,43 @@ try {
     $threw = true;
 }
 check('统计：未知动作 → 抛异常（不静默丢弃）', $threw);
+
+// ---------- 用例 10: 批量 touch 的语句形状（票 02） ----------
+// `touchChecked()` 要真库才跑得动，但它最容易错的两处是纯的：**键带不带企业维度**、
+// **分块与参数个数**（后者顶着本机 SQLite 3.7.17 的 999 参数上限）——故形状单独抽成
+// `touchStatements()` 供离线断言；真正落库由副本实测（票 02 的验证记录）。
+$st = RetailExternalUploads::touchStatements(
+    ['门店甲' => ['D1' => true, 'D2' => true], '门店乙' => ['D3' => true]],
+    '2026-10-05 17:00:00'
+);
+check('touch：两张表各一句（tasks 与 logs 都要刷）',
+    count($st) === 4 && array_column(array_column($st, 1), 0) === array_fill(0, 4, '2026-10-05 17:00:00'),
+    json_encode($st, JSON_UNESCAPED_UNICODE));
+check('touch：每句都带 company = ?（裸单号跨门店会串）',
+    count(array_filter($st, static fn(array $s): bool => strpos($s[0], 'WHERE company = ? AND djbh IN (') !== false)) === 4,
+    $st[0][0]);
+check('touch：甲店那两句的参数是 [时间, 门店甲, D1, D2]（企业名紧跟时间戳）',
+    $st[0][1] === ['2026-10-05 17:00:00', '门店甲', 'D1', 'D2'], json_encode($st[0][1], JSON_UNESCAPED_UNICODE));
+check('touch：乙店单独成句（不把两家合成一句）',
+    $st[2][1] === ['2026-10-05 17:00:00', '门店乙', 'D3'] && strpos($st[2][0], 'UPDATE upload_tasks') === 0,
+    json_encode($st[2], JSON_UNESCAPED_UNICODE));
+check('touch：两张表用的是同一份单号与同一家企业',
+    $st[1][1] === $st[0][1] && strpos($st[1][0], 'UPDATE upload_logs') === 0,
+    json_encode($st[1], JSON_UNESCAPED_UNICODE));
+check('touch：没有要刷的键 → 一句话都不生成（调用方据此不开事务）',
+    RetailExternalUploads::touchStatements([], '2026-10-05 17:00:00') === []);
+
+// 分块：超过 IN_CHUNK_SIZE 的单号切成多句，且**每句参数个数都在 SQLite 上限内**
+// （2 + 500 = 502；当初按 (company, djbh) 两两成对写 OR 条件的话，500 块正好 1000 个 → 直接报错）
+$many = [];
+for ($i = 0; $i < RetailExternalUploads::IN_CHUNK_SIZE + 1; $i++) {
+    $many['D' . $i] = true;
+}
+$st = RetailExternalUploads::touchStatements(['门店甲' => $many], '2026-10-05 17:00:00');
+$sizes = array_map(static fn(array $s): int => count($s[1]), $st);
+check('touch：501 个单号 → 每张表切成 2 句（4 句合计）', count($st) === 4, (string)count($st));
+check('touch：每句参数个数 ≤ 999（本机 SQLite 3.7.17 的变量上限），最大 ' . max($sizes) . ' 个',
+    max($sizes) === RetailExternalUploads::IN_CHUNK_SIZE + 2 && max($sizes) <= 999, json_encode($sizes));
 
 echo "\n";
 if ($failures === 0) {

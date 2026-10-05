@@ -282,10 +282,7 @@ class RetailExternalUploads
         // ── 1、2. 本地待办清单（与平台核查共用，见 pendingItems()）──
         $pending = self::pendingItems();
 
-        $pendingCount = 0;
-        foreach ($pending as $byDjbh) {
-            $pendingCount += count($byDjbh);
-        }
+        $pendingCount = self::pendingCount($pending);
         if ($pendingCount === 0) {
             return ['pending' => 0, 'turned' => 0, 'recorded' => 0, 'error' => null];
         }
@@ -406,6 +403,23 @@ class RetailExternalUploads
     }
 
     /**
+     * 待办清单里有多少**条**待办（企业下每个单号算一条，与清单的键数同义）。
+     *
+     * 三处要报这个数：`closeLoop()` 的"核对 N 条待办"、平台核查脚本的"本地待办 N 条 / 其中 N 条
+     * 被门卫挡下"。各写一遍 foreach 时改了一处另一处不会报错——只会有一边的数悄悄变味。
+     *
+     * @param array<string,array<string,mixed>> $pending 待办清单
+     */
+    public static function pendingCount(array $pending): int
+    {
+        $n = 0;
+        foreach ($pending as $byDjbh) {
+            $n += count($byDjbh);
+        }
+        return $n;
+    }
+
+    /**
      * 批量刷新 `last_checked_at`：本轮**平台给了答复**的那些键（`RetailPlatformCheck::run()` 的
      * `checked_by_company`），两张表一起刷——下一轮 cron 的新鲜度门卫据此跳过它们。
      *
@@ -421,34 +435,63 @@ class RetailExternalUploads
      * 对齐，下一轮问"这个键查过没有"才只有一个答案；翻正过的任务行（已处理）顺带被刷也无害——
      * 它本来就已离开待办清单。
      *
+     * **整轮一个事务**（`Database::transaction()` 的 docblock 说"批次别开太大"）：那条告诫针对的是
+     * 零售快照那种"几万条 INSERT 攒一个大事务"——那时事务期间长期持有写锁，cron 那边的采集会卡满
+     * `busyTimeout(30s)` 后失败。这里语句数是**企业数 × 分块数 × 2**（一趟 5 家门店、十几到几十条
+     * 语句），执行时间是亚秒级，与那个量级不是一回事。
+     *
      * @param array<string,array<string,bool>> $checkedByCompany 企业 => 单号 => true
+     * @param string|null $checkedAt 刷成什么时间（默认现在）——**参数化是为了让语句形状能被逐字断言**
      * @return int 被刷新的**行**数（两张表合计）；键不存在于表里时是 0，不算错误
      */
-    public static function touchChecked(array $checkedByCompany): int
+    public static function touchChecked(array $checkedByCompany, ?string $checkedAt = null): int
     {
-        if ($checkedByCompany === []) {
+        $statements = self::touchStatements($checkedByCompany, $checkedAt ?? date('Y-m-d H:i:s'));
+        if ($statements === []) {
             // 没有要刷的键就别开事务（被门卫挡下整轮时走这条——空事务白拿一次写锁）
             return 0;
         }
 
         $db = Database::getInstance();
-        $now = date('Y-m-d H:i:s');
         $touched = 0;
-
-        $db->transaction(function () use ($db, $checkedByCompany, $now, &$touched): void {
-            foreach ($checkedByCompany as $company => $byDjbh) {
-                foreach (self::chunkedIn(array_keys($byDjbh)) as [$chunk, $placeholders]) {
-                    foreach (['upload_tasks', 'upload_logs'] as $table) {
-                        $touched += $db->execute(
-                            "UPDATE {$table} SET last_checked_at = ? WHERE company = ? AND djbh IN ({$placeholders})",
-                            array_merge([$now, (string)$company], $chunk)
-                        );
-                    }
-                }
+        $db->transaction(function () use ($db, $statements, &$touched): void {
+            foreach ($statements as [$sql, $params]) {
+                $touched += $db->execute($sql, $params);
             }
         });
 
         return $touched;
+    }
+
+    /**
+     * 批量 touch 的**语句形状**（纯函数：不连库、不执行）：`[[sql, params], …]`。
+     *
+     * 单独抽出来是为了让"分块与归属"能被**离线断言**（见
+     * tests/retail_external_uploads_test.php 用例 10）——`touchChecked()` 本身要真库才跑得动，
+     * 而它最容易错的两处都是纯的：
+     *   - **每条语句都带 `company = ?`**：裸单号跨门店会串（甲店查过的单号把乙店没查过的行也刷成
+     *     "刚查过"，那张单会被门卫白挡一整轮）
+     *   - **每条语句最多 `IN_CHUNK_SIZE` 个单号** → 参数 2 + 500 = **502 个**，离本机 SQLite 3.7.17
+     *     的 **999 参数上限**还差一半。当初若按 `(company, djbh)` 两两成对写 `OR` 条件，500 块正好
+     *     1000 个参数，会**直接报错**——分块大小与键的形状是绑在一起的，改一处得重算另一处
+     *
+     * @param array<string,array<string,bool>> $checkedByCompany 企业 => 单号 => true
+     * @return array<int,array{0:string,1:array<int,string>}> 两张表各一条，按企业分块
+     */
+    public static function touchStatements(array $checkedByCompany, string $checkedAt): array
+    {
+        $statements = [];
+        foreach ($checkedByCompany as $company => $byDjbh) {
+            foreach (self::chunkedIn(array_keys($byDjbh)) as [$chunk, $placeholders]) {
+                foreach (['upload_tasks', 'upload_logs'] as $table) {
+                    $statements[] = [
+                        "UPDATE {$table} SET last_checked_at = ? WHERE company = ? AND djbh IN ({$placeholders})",
+                        array_merge([$checkedAt, (string)$company], $chunk),
+                    ];
+                }
+            }
+        }
+        return $statements;
     }
 
     /**
