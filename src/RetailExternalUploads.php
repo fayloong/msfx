@@ -157,9 +157,12 @@ class RetailExternalUploads
      *     在这儿**，不至于让人以为本项目真调过一次平台
      *
      * @param array{djbh:string, rq:string, trace_codes:string, company:string, credential:?string} $bill
+     * @param string|null $reason 出处说明（写进 `response` 的 reason 字段）；`null` = 采集那条老话术
+     *                            （源库状态表判的），闭环与平台核查各自传自己的（见 `applyActions()`）
+     * @param string $judgedBy    `response` 里 `judged_by` 字段（判据出处）；默认源库状态表
      * @return array 可直接交给 LogWriter::write() 的记录
      */
-    public static function buildRecord(array $bill): array
+    public static function buildRecord(array $bill, ?string $reason = null, string $judgedBy = self::TABLE): array
     {
         return [
             'task_id'         => 0,
@@ -170,7 +173,10 @@ class RetailExternalUploads
             'rq'              => (string)($bill['rq'] ?? ''),
             'request_status'  => null,
             'response_status' => self::RESPONSE_STATUS,
-            'response'        => self::provenanceJson('外部系统已上传该单据（源库状态表里有该单号），本项目未发起任何平台请求'),
+            'response'        => self::provenanceJson(
+                $reason ?? '外部系统已上传该单据（源库状态表里有该单号），本项目未发起任何平台请求',
+                $judgedBy
+            ),
             'source'          => self::SOURCE,
             'company'         => (string)($bill['company'] ?? ''),
             // 认领不到门店时是 null（company 为「未识别」）——原样下传，由 LogWriter 落库
@@ -273,44 +279,8 @@ class RetailExternalUploads
      */
     public static function closeLoop(\SqlSrvHelper $source): array
     {
-        $db = Database::getInstance();
-
-        // ── 1. 本地待办：还在「等待上传」的门店任务 ──
-        // 按 source='retail' 筛——批发行一个字段都不动。采集来的与手动上传页手工建的门店单
-        // 共用这一个 source，故两类都在清单里：它们都是"本地挂着待办痕迹的门店单"。
-        $pending = [];
-        foreach ($db->query(
-            "SELECT company, djbh, rq, trace_codes, credential FROM upload_tasks
-              WHERE source = 'retail' AND task_status = '等待上传'"
-        ) as $row) {
-            $company = (string)($row['company'] ?? '');
-            $djbh = (string)($row['djbh'] ?? '');
-            if ($djbh === '') {
-                continue;
-            }
-            $pending[$company][$djbh] ??= self::pendingItem($row);
-            $pending[$company][$djbh]['task'] = true;
-        }
-
-        // ── 2. 本地待办：零售企业的补传失败记录 ──
-        // 按**企业类型**筛（`Enterprise::isRetail`）：批发的失败记录不在清单里；`未识别` 也不是
-        // 零售企业（它压根不在配置里），且补传三关会把它拒在写日志之前——它留不下失败记录。
-        //
-        // 判据取"一切非成功记录"（宽于失败记录页的口径）：多取到的行随后会被 `closureActions()`
-        // 判成无动作，无害；**少取才是问题**——那会让失败页上看得见的行永远翻不掉。
-        foreach ($db->query(
-            "SELECT company, djbh, rq, trace_codes, credential FROM upload_logs
-              WHERE request_status = '请求失败' OR response_status IS NULL
-                 OR response_status NOT IN ('上传成功', '单据重复')"
-        ) as $row) {
-            $company = (string)($row['company'] ?? '');
-            $djbh = (string)($row['djbh'] ?? '');
-            if ($djbh === '' || !Enterprise::isRetail($company)) {
-                continue;
-            }
-            $pending[$company][$djbh] ??= self::pendingItem($row);
-            $pending[$company][$djbh]['failure'] = true;
-        }
+        // ── 1、2. 本地待办清单（与平台核查共用，见 pendingItems()）──
+        $pending = self::pendingItems();
 
         $pendingCount = 0;
         foreach ($pending as $byDjbh) {
@@ -354,9 +324,88 @@ class RetailExternalUploads
             }
         }
 
-        // ── 4. 本地已有成功记录（只查清单里出现过的单号，按 (company, djbh) 取键）──
+        // ── 4、5. 判定与落库（与平台核查共用，见 successKeys() / applyActions()）──
+        $success = self::successKeys(array_keys($djbhs));
+        $applied = self::applyActions(
+            self::closureActions($pending, $success, $uploadedBills),
+            $pending,
+            [
+                'reason' => '外部系统已上传该单据（源库状态表里有该单号）',
+                'checker' => '状态闭环',
+                'log_type' => 'retail_status_closure',
+                'judged_by' => self::TABLE,
+            ]
+        );
+
+        return ['pending' => $pendingCount, 'turned' => $applied['turned'], 'recorded' => $applied['recorded'], 'error' => null];
+    }
+
+    /**
+     * 本地待办清单：本地还挂着痕迹的门店单（企业 => 单号 => 痕迹与元数据）。
+     *
+     * 两类痕迹（同一个 (company, djbh) 可能两类都有，形状里两个标志各自为真）：
+     *   - 还在「等待上传」的门店任务行（按 `source='retail'` 筛——批发行一个字段都不动；
+     *     采集来的与手动上传页手工建的门店单共用这一个 source，故两类都在清单里）
+     *   - 零售企业的非成功日志记录（补传失败留下的那条痕迹）
+     *
+     * 第二类按**企业类型**筛（`Enterprise::isRetail`）：批发的失败记录不在清单里；`未识别` 也不是
+     * 零售企业（它压根不在配置里），且补传三关会把它拒在写日志之前——它留不下失败记录。
+     * 判据取"一切非成功记录"（宽于失败记录页的口径）：多取到的行随后会被 `closureActions()`
+     * 判成无动作，无害；**少取才是问题**——那会让失败页上看得见的行永远翻不掉。
+     *
+     * 两个判据（源库状态表的闭环、平台核查）都从这份清单出发——"哪些单还算待办"只在这一处回答。
+     *
+     * @return array<string,array<string,array{task:bool,failure:bool,rq:string,trace_codes:string,credential:?string}>>
+     */
+    public static function pendingItems(): array
+    {
+        $db = Database::getInstance();
+        $pending = [];
+
+        foreach ($db->query(
+            "SELECT company, djbh, rq, trace_codes, credential FROM upload_tasks
+              WHERE source = 'retail' AND task_status = '等待上传'"
+        ) as $row) {
+            $company = (string)($row['company'] ?? '');
+            $djbh = (string)($row['djbh'] ?? '');
+            if ($djbh === '') {
+                continue;
+            }
+            $pending[$company][$djbh] ??= self::pendingItem($row);
+            $pending[$company][$djbh]['task'] = true;
+        }
+
+        foreach ($db->query(
+            "SELECT company, djbh, rq, trace_codes, credential FROM upload_logs
+              WHERE request_status = '请求失败' OR response_status IS NULL
+                 OR response_status NOT IN ('上传成功', '单据重复')"
+        ) as $row) {
+            $company = (string)($row['company'] ?? '');
+            $djbh = (string)($row['djbh'] ?? '');
+            if ($djbh === '' || !Enterprise::isRetail($company)) {
+                continue;
+            }
+            $pending[$company][$djbh] ??= self::pendingItem($row);
+            $pending[$company][$djbh]['failure'] = true;
+        }
+
+        return $pending;
+    }
+
+    /**
+     * 本地已有的成功记录（企业 => 单号 => true），只查给定单号里的那些。
+     *
+     * 判据是 `(company, djbh)` 两维：生产库里裸单号并不唯一，乙店的成功记录会把甲店的待办
+     * 判成"已追加过"而整条吞掉。
+     *
+     * @param array<int,string> $djbhs 待查单号（通常来自待办清单）
+     * @return array<string,array<string,bool>>
+     */
+    public static function successKeys(array $djbhs): array
+    {
+        $db = Database::getInstance();
         $success = [];
-        foreach (self::chunkedIn(array_keys($djbhs)) as [$chunk, $placeholders]) {
+        foreach (self::chunkedIn($djbhs) as [$chunk, $placeholders]) {
             foreach ($db->query(
                 "SELECT DISTINCT company, djbh FROM upload_logs
                   WHERE djbh IN ({$placeholders}) AND response_status IN ('上传成功', '单据重复')",
@@ -365,16 +414,47 @@ class RetailExternalUploads
                 $success[(string)$row['company']][(string)$row['djbh']] = true;
             }
         }
+        return $success;
+    }
 
-        // ── 5. 判定与落库 ──
+    /**
+     * 落库一组闭环动作：翻任务行 / 追加「外部上传」记录 / 每次翻转记一条 JSONL。
+     *
+     * **动作怎么落库只在这一处**——两个判据（源库状态表的闭环、平台核查）的差异全在
+     * `$provenance` 里："凭什么判它已上传"与"谁翻的"都要如实写进痕迹，否则详情弹窗里那条
+     * 记录看起来就像本项目自己传的。
+     *
+     * 两处刻意的写法（与票 03 定下时一致）：
+     *   - 翻任务行时 `request_status` **不动**：本项目从没为这张单发起过上传请求，写「请求成功」
+     *     是失真——与 `buildRecord()` 那句 `request_status=null` 同理
+     *   - 追加记录而**不改写**那条补传失败记录：失败页靠既有的同单号判重自动隐藏它，
+     *     改它的 `response_status` 会造出"来源失真"的历史
+     *
+     * @param array<string,array<string,array{turn_task:bool,append_record:bool}>> $actions
+     *        `closureActions()` 的返回值
+     * @param array<string,array<string,array{task:bool,failure:bool,rq:string,trace_codes:string,credential:?string}>> $pending
+     *        同一轮的待办清单（取 `rq`/`trace_codes`/`credential` 用）
+     * @param array{reason:string,checker:string,log_type:string,judged_by:string} $provenance
+     *        `reason`=判据出处（如「源库状态表里有该单号」）；`checker`=翻正者（如「状态闭环」）；
+     *        `log_type`=每次翻转记的那条 JSONL 的 type；`judged_by`=出处结构的 `judged_by` 字段
+     * @return array{turned:int,recorded:int} `turned` 是任务**行**数（同一键可能不止一行）
+     */
+    public static function applyActions(array $actions, array $pending, array $provenance): array
+    {
+        $db = Database::getInstance();
         $logWriter = new LogWriter();
         $now = date('Y-m-d H:i:s');
         $turned = 0;
         $recorded = 0;
 
-        foreach (self::closureActions($pending, $success, $uploadedBills) as $company => $byDjbh) {
+        $reason = (string)($provenance['reason'] ?? '');
+        $checker = (string)($provenance['checker'] ?? '');
+        $logType = (string)($provenance['log_type'] ?? 'retail_status_closure');
+        $judgedBy = (string)($provenance['judged_by'] ?? self::TABLE);
+
+        foreach ($actions as $company => $byDjbh) {
             foreach ($byDjbh as $djbh => $action) {
-                $item = $pending[$company][$djbh];
+                $item = $pending[$company][$djbh] ?? self::pendingItem([]);
                 $traces = [];
                 if (!empty($item['task'])) {
                     $traces[] = 'task';
@@ -384,17 +464,15 @@ class RetailExternalUploads
                 }
                 $turnedRows = 0;
 
-                if ($action['turn_task']) {
-                    // 翻正任务行：**保留痕迹、不删行**（与"失败也算已处理"同一口径）。
-                    // request_status 刻意不动：本项目从没为这张单发起过上传请求，写「请求成功」是失真
-                    // ——与 buildRecord() 那句 request_status=null 同理。
+                if (!empty($action['turn_task'])) {
+                    // 翻正任务行：**保留痕迹、不删行**（与"失败也算已处理"同一口径）
                     $turnedRows = $db->execute(
                         "UPDATE upload_tasks
                             SET task_status = '已处理', response_status = ?, resp = ?, updated_at = ?
                           WHERE company = ? AND djbh = ? AND source = 'retail' AND task_status = '等待上传'",
                         [
                             self::RESPONSE_STATUS,
-                            self::provenanceJson('外部系统已上传该单据（源库状态表里有该单号），本行任务由状态闭环翻正；本项目未发起任何平台请求'),
+                            self::provenanceJson("{$reason}，本行任务由{$checker}翻正；本项目未发起任何平台请求", $judgedBy),
                             $now,
                             $company,
                             $djbh,
@@ -403,33 +481,31 @@ class RetailExternalUploads
                     $turned += $turnedRows;
                 }
 
-                if ($action['append_record']) {
-                    // **不改写历史**：那条补传失败记录原样留着，失败页靠既有的同单号判重自动隐藏它
-                    // （自己改它的 response_status 会造出"来源失真"的历史）
-                    self::record([
+                if (!empty($action['append_record'])) {
+                    $logWriter->write(self::buildRecord([
                         'djbh' => $djbh,
                         'rq' => $item['rq'],
                         'trace_codes' => $item['trace_codes'],
                         'company' => $company,
                         'credential' => $item['credential'],
-                    ]);
+                    ], "{$reason}，本项目未发起任何平台请求", $judgedBy));
                     $recorded++;
                 }
 
                 // 每次翻转记一条 JSONL（企业 / 单号 / 原痕迹类型）——**不进 upload_logs**：
                 // 上面追加的那条就是"上传结果"日志，再写一条说明会在已上传页冒出重复行
                 $logWriter->writeJsonlOnly([
-                    'type' => 'retail_status_closure',
+                    'type' => $logType,
                     'company' => $company,
                     'djbh' => $djbh,
                     'traces' => $traces,
                     'turned_rows' => $turnedRows,
-                    'recorded' => $action['append_record'],
+                    'recorded' => !empty($action['append_record']),
                 ]);
             }
         }
 
-        return ['pending' => $pendingCount, 'turned' => $turned, 'recorded' => $recorded, 'error' => null];
+        return ['turned' => $turned, 'recorded' => $recorded];
     }
 
     /**
@@ -453,12 +529,15 @@ class RetailExternalUploads
      *
      * 两处都写它，是为了让「API 返回详情」弹窗里看得见这条痕迹**为什么**是这个状态——
      * 不至于让人以为本项目真调过一次平台。
+     *
+     * `judged_by` 是**判据的出处**：默认源库状态表（采集与状态闭环），平台核查传平台接口名
+     * （`lsyd.query.upbilldetail`）——两条判据翻出来的痕迹在详情弹窗里因此分得清。
      */
-    private static function provenanceJson(string $reason): string
+    private static function provenanceJson(string $reason, string $judgedBy = self::TABLE): string
     {
         return json_encode([
             'external_upload' => true,
-            'judged_by' => self::TABLE,
+            'judged_by' => $judgedBy,
             'reason' => $reason,
         ], JSON_UNESCAPED_UNICODE);
     }

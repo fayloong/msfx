@@ -224,12 +224,51 @@ class ApiClient
     }
 
     /**
-     * 判定 searchbilldetail 响应是否表明单据在平台存在（数量对账/状态查询用）。
+     * 查单据在平台的上传详情（零售 `lsyd.query.upbilldetail`）。
+     *
+     * 与 `searchBillDetail()` 的差别只在接口与入参：这个是零售链路用的，且 **ref_ent_id 必传、
+     * 没有默认值**（照 `queryEntInfo` 的先例）——用错主体的 ref_ent_id 会把单据判到别人名下，
+     * 而"判在不在"这件事恰恰是按主体分的（同一个单号在甲店查到、在乙店查不到是两个独立问题）。
+     *
+     * 响应形状与判据与 searchbill.detail 同款（`isBillFound()` 两个接口共用；2026-10-05 用新江
+     * 分店凭据实测：已上传 `msg_code=SUCCESS` + `response_success=true` + `model` 有单据详情，
+     * 未上传 `msg_code=FAIL_BIZ_NO_PAT_INFO` + `msg_info=信息不存在`）。
+     *
+     * ⚠️ 调用方**必须先看 `error`**：查询失败时返回的是 `found=false` + 非空 error，
+     * 不看 error 就把它当"未上传"处理，会把网络故障记成平台事实。
+     *
+     * @param string $refEntId 本企业 ref_ent_id（门店自己的那套凭据里的）
+     * @return array{found: bool, response: mixed, error: string}
+     */
+    public function queryUpbillDetail(string $billCode, string $refEntId): array
+    {
+        $req = new \AlibabaAlihealthDrugtraceTopLsydQueryUpbilldetailRequest;
+        $req->setBillCode($billCode);
+        $req->setRefEntId($refEntId);
+
+        $result = $this->execute($req);
+
+        if (!$result['success']) {
+            return ['found' => false, 'response' => $result['data'], 'error' => $result['error']];
+        }
+
+        $respArray = json_decode(json_encode($result['data'], JSON_UNESCAPED_UNICODE), true);
+
+        return ['found' => self::isBillFound($respArray), 'response' => $respArray, 'error' => ''];
+    }
+
+    /**
+     * 判定响应是否表明单据在平台存在（数量对账/状态查询用）。
+     *
+     * **两个接口共用**：kyt 的 `searchbill.detail` 与零售的 `lsyd.query.upbilldetail`——
+     * 2026-10-05 实测两个接口的响应形状同款（未上传都是 `result.msg_code = FAIL_BIZ_NO_PAT_INFO`、
+     * `msg_info = 信息不存在`），故判据不另写一份。
      *
      * 仅 msg_code=FAIL_BIZ_NO_PAT_INFO（信息不存在）视为未上传，其余响应（含其他业务错误码）
      * 均视为单据存在——平台"信息不存在"是未上传的唯一判定依据。
      *
-     * @param array|null $respArray searchBillDetail() 返回的 response（已解码数组，异常时为 null）
+     * @param array|null $respArray searchBillDetail()/queryUpbillDetail() 返回的 response
+     *                               （已解码数组；查询失败时为 null，此时调用方应先看 error，见上）
      * @return bool true=单据在平台存在，false=信息不存在（未上传）
      */
     public static function isBillFound(?array $respArray): bool
