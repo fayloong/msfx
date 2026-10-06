@@ -104,7 +104,7 @@ Company（门店：中文全名 + 稳定 key + 类型）
 
 ### 1. 多企业模型：凭据是路由主体，门店 1:N 凭据
 
-**实测事实**：门店凭据文件（本地 `tests/company.txt`，未入仓）现含 **5 家门店**的 AppKey/SECRETKEY/refEntId/entId；用户确认连锁共 **15 家门店**，最终形态是**"每个门店的 appkey、SECRETKEY 都不相同"**。故**不按 AppKey 建模，也不假设门店与凭据 1:1**。
+**实测事实**：门店凭据文件（本地 `tests/company.txt`，未入仓）现含 **5 家门店**的 AppKey/SECRETKEY/refEntId/entId（**2026-10-06 补第 6 家**：新城分店——观测时点如此，后续随部署增长）；用户确认连锁共 **15 家门店**，最终形态是**"每个门店的 appkey、SECRETKEY 都不相同"**。故**不按 AppKey 建模，也不假设门店与凭据 1:1**。
 
 ```
 Credential = { key, label, primary?, appkey, secretkey, ref_ent_id, ent_id }
