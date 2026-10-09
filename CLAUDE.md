@@ -199,6 +199,10 @@ root/
 │   │                             #  空队列**不取锁**秒退，真跑取 logs/upload_pending_retail.lock、逐条隔离（被三关拒的算失败继续）。
 │   │                             #  **不进 crontab**——挂上去等于让不可逆的申报在人看不见的时候发出去（见 docs/adr/0011 补注）；
 │   │                             #  首次交付一次真申报都没发，验证走项目副本 + 本地离线桩（见票 06 的交付记录）
+│   │                             #  `--company=key,key` 限定企业（**一给就是该店全部待办**）；
+│   │                             #  `--djbh=单号,单号`（2026-10-09 加）只传指定单号——`--limit` 按 id 升序
+│   │                             #  取的是**最老**那批，够不到"刚被判伪/刚建出来的新单"，这是它的缺口。
+│   │                             #  过滤都在**取回之后**做（`PENDING_SQL` 那个取数口径常量不动）
 │   ├── upload_pending.php        # 批量上传队列中等待中的任务（只取批发主体的"等待上传"）；**crontab 里那三条条目当前全部注释着**
 │   │                             #  （注释写的是"暂不启用"）——眼下只能手动跑，别照文档以为它在定时跑
 │   ├── check_bill_status.php     # 批量查询单据上传状态（来源 1：等待上传任务，高频 8-20 点）
@@ -219,6 +223,20 @@ root/
 │   │                             #   被挡下多少条打印在开头。**touch 批量写**（`touchChecked()`，一次事务）：
 │   │                             #   平台给了答复的键两张表一起刷 `last_checked_at`，查异常的**不刷**
 │   │                             #   （"不知道"不算查过）
+│   │                             #   ⚠️ **看不见 104 的单**（2026-10-09 发现，见 docs/adr/0019）：外部系统上传的
+│   │                             #   104 在平台上单号是 **`RK` + 源单号**，而本脚本只查源单号（接口是精确匹配）
+│   │                             #   ——那批单永远翻不正（104 待办全站 474 条，抽样 10 条里 **4 条其实已在平台**），
+│   │                             #   而对它们批量补传只会得到「码重复流向」失败（2026-10-08 已有 34 次）。
+│   │                             #   修复见 .scratch/retail-platform-check/issues/04。**注意 321/116/203 是源单号原样**
+│   ├── check_uploaded_retail.php # 【手工跑，2026-10-09 建】核查**本地记着「上传成功」**的门店单在平台上到底
+│   │                             #   有没有——没有的（且来源是 `retail_external`）删掉那条假记录。补的是 ADR 0018
+│   │                             #   留的尾巴：2026-10-02 快照按源库状态表写下的那批记录从未经平台核实。
+│   │                             #   用法 `--company=名,名 --from=Y-m-d [--dry-run] [--limit=N]`；来源不是
+│   │                             #   `retail_external` 的（本项目自己传的）**只报警不删**——那是"平台丢单"级别
+│   │                             #   的异常。删除前把**整行**连同平台答复写进 JSONL 存档（type=
+│   │                             #   `retail_uploaded_disproved`）；删完必须**按日期重采**才会建出任务
+│   │                             #   （补传要的四列只有源库有）。**两步查单号**：源单号查不到时再试 `RK` +
+│   │                             #   源单号（ADR 0019）——少了这步就是 2026-10-09 那次误删 34 条真记录
 │   ├── check_quantity.php        # 数量对账两级流水线（第 1 级 shl 粗筛嫌疑单 → 第 2 级 singlerelation 码级精查，双差异才写"数量不符"）
 │   ├── cleanup_logs.php          # 清理 SQLite 历史数据，三条判据各不相同：日志按 created_at 清 3 个月前、已处理任务按
 │   │                             #  updated_at 清 3 个月前、**门店（零售）任务按 rq 单据日期清 2 年前**（平台不接受 2 年前的
@@ -313,7 +331,7 @@ root/
 │   ├── singlerelation_*.json     # singlerelation_test.php（码级对账探针）的查询结果存档
 │   └── company.txt               # 门店凭据草稿（**本地文件，不入 git**——.gitignore 里点名排除的明文凭据）
 ├── logs/                         # API 日志 JSONL 文件
-├── docs/                         # adr/（ADR 0001–0018）、agents/（issue-tracker / triage-labels / domain 约定）、
+├── docs/                         # adr/（ADR 0001–0019）、agents/（issue-tracker / triage-labels / domain 约定）、
 │                                 #   python-client/（桌面版工程提示词）、quantity-check 假阳性报告
 ├── .scratch/                     # 本地工单与 spec（issue tracker 的落点，见 docs/agents/issue-tracker.md）
 ├── CONTEXT.md                    # 领域词汇表（单上下文布局）
@@ -466,6 +484,8 @@ root/
 **为什么要有它**：门店单"是否已上传"原本只有一条判据——源库状态表（状态闭环，每轮采集前跑）。那张表记的是**外部系统的行为**，不是平台的承诺：外部系统传了单却没写它，本系统永远不知道，任务一直挂在「等待上传」，人只能赌一次补传；而且它**没有企业列**，判据只能按裸单号比对（跨门店同号会串，ADR 0007 记的已知代价）。本脚本补第二条判据：**拿各门店自己的凭据直接问平台**。
 
 > ⚠️ **2026-10-05 起它是唯一判据**（`docs/adr/0018`）：外面那条源库状态表判据（采集分流 + 状态闭环）因外部系统不稳定而停用，采集改成"一律建任务、由本脚本翻正"。**它的覆盖面就是系统的覆盖面**：取不到凭据的门店（9 家待配 + `未识别`）这条判据不成立，那批单会一直挂在「等待上传」——本脚本每轮开头那句"跳过 N 家门店 M 条"因此是运维要看的数。
+>
+> ⚠️ **2026-10-09 起还知道它另有一个盲区：看不见 104 的单**（`docs/adr/0019`）。外部系统上传的 **104（调拨入库）** 在平台上单号是 **`RK` + 源库单号**，而本脚本只查源库单号（接口是**精确匹配**）——那批单**永远翻不正、一直挂在队列里**（104 待办全站 474 条；2026-10-09 抽样 10 条：4 条其实已在平台、6 条确实没有），而**对它们批量补传只会失败**（平台回 `FAIL_BIZ_BILL_DUPLICATE_UPLOAD_BILLCODE_REPEAT_CODE`「码重复流向」，2026-10-08 已有 34 次这样的假失败）。**321/116/203 实测都是源单号原样**，故盲区只落在 104 上。修复是另一票（`.scratch/retail-platform-check/issues/04`），本文只记现状。
 
 - **接口**：`alibaba.alihealth.drugtrace.top.lsyd.query.upbilldetail`，参数 `bill_code` + `ref_ent_id`（请求类逐类并入，见上方 vendored 约定）。**带 ref_ent_id 意味着这条判据天然按企业隔离**——同一个单号在甲店查到、在乙店查不到是两个独立问题，这正是状态表做不到的那一格。响应形状与 kyt 的 searchbill.detail **同款**（2026-10-05 实测：已上传 `msg_code=SUCCESS`+`response_success=true`+`model` 有单据详情；未上传 `FAIL_BIZ_NO_PAT_INFO`+`信息不存在`），故判据复用 `ApiClient::isBillFound()`，不另写一份
 - **两个来源合一**（等待上传的门店任务 + 零售企业的非成功日志记录）：都要按门店分组取凭据、都要限速，拆成两个脚本只会把这套逻辑写两遍。取数走 `RetailExternalUploads::pendingItems()`——"哪些单还算待办"全仓只有一个答案
@@ -655,6 +675,12 @@ root/
 
 **部署后首轮（14:50–14:58，6 家门店 788 条）**：该店 759 条逐条问过平台——**已上传 3 / 未上传 785 / 异常 0**，翻正任务行 2 行、追加「外部上传」记录 2 条（`XLSA0100100165351`、`DTPA0100001799`）。第三条 `XLSA0100100186425` 是**人在页面上补传成功**的（14:50:45，来源 `retail_retry`）——平台核查查到它时本地已有成功记录，按"同一 `(company, djbh)` 最多一条成功记录"不追加；这也顺带说明该店的补传按钮确实通了。此后该店的痕迹在已上传页（来源「外部上传」或「零售补传」），「等待上传」剩 758 条待人处置
 
+**2026-10-09 部署记录（雅居乐 `dyt-yajule` + 灯塔中心 `dyt-dengtazhongxin`，第 7、8 家）**：`tests/company.txt` 新增两行 → 抄进 local。自检通过（**8 / 15**）。凭据有效性由这次核查本身验到（34 条逐条真调 `lsyd.query.upbilldetail`，**0 异常**——AppKey/SECRETKEY 抄错只会在这里以顶层错误码暴露）。雅居乐的凭据 `ref_ent_id` 与 `ent_id` 是**两个不同的值**（同新江分店那股情形，两个都在 `ids` 里）。
+
+同一轮做的核查（`check_uploaded_retail.php --from=2026-09-01`，34 条「上传成功」记录）：**34 条全部在平台上**，**没有一条需要补传**——但第一次判成了"全部不在"并误删，同日回滚（经过见 `docs/adr/0019`）。两个副产物：① 这 34 条的判据出处（`judged_by`）都是源库状态表，而状态表这次说的**是对的**——ADR 0018 停用它的理由没被推翻，出假阴性的是**平台判据的读法**（单号形态）；② 回滚时那 34 条任务行一并撤销，但按日期重采另建出 **7 条**本地毫无痕迹的单的任务（新江 2 / 灯塔 5，抽样确认平台两种形态都查不到=确实没传），留着
+
+> ⚠️ **雅居乐凭据的 `ent_id`（`65b85f74…`）平台答"该 refEntId 在系统中不存在"**——不咬人（所有请求路径只取 `ref_ent_id`），但它是脏值，换密钥时顺手核对。同一轮还查出 `ApiClient::isBillFound()` 会把 `FAIL_BIZ_ENT_NOT_EXIST`/`FAIL_BIZ_AUTH_ERROR` 判成"单据存在"，见下方工单 04
+
 ## 环境配置
 
 - **Web 服务器**: Nginx，`listen 8188`（server_name `192.168.2.189`），root `public/`；站点配置另有**访问白名单** `allow 192.168.2.0/24; allow 127.0.0.1; deny all;`（`/etc/nginx/conf.d/mashangfangxin.conf`）
@@ -744,6 +770,11 @@ php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --dry-run 
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php --limit=2          # 处理前 2 条（真传，真实申报）
 php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php \
     --company=dyt-baoyuan,dyt-puqianlixin,dyt-xinjiang,dyt-dahu   # 只传这 4 家门店的待办（其余门店一条不碰）
+#    --djbh=单号,单号 只传指定单号（2026-10-09 加）：--company 一给就是该店**全部**待办，而
+#    --limit 按 id 升序取的是**最老**那批——"只传刚建出来的那几张"两者都够不到。给的单号不在
+#    队列里**只警告不退出**（已被传掉是正常情形，与 --company 的未知 key 刻意不同）
+php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php \
+    --djbh=WRKC5700025977,WRKEM700025994 --dry-run               # 先看这 2 张会轮到什么
 
 # 门店单据在**平台上**再核查一次（2026-10-05）：拿各门店自己的凭据调 lsyd.query.upbilldetail
 #    逐条问平台"这单在不在"，在的翻正——任务行翻「已处理」+「上传成功」、失败记录追加一条
@@ -758,10 +789,24 @@ php /usr/share/nginx/mashangfangxin/scripts/upload_pending_retail.php \
 #    --dry-run 只列不查（一次调用都不发、一个字节都不写；列的是**过完门卫**的那份）
 #    --limit=N 限量（跳过的门店不占额度）；--company=名,名 只查这几家门店（取回之后过滤）
 #    取不到凭据的门店（未识别/待配凭据）整组跳过并计数——没有 ref_ent_id 这条判据不成立
+#    ⚠️ **看不见 104 的单**（2026-10-09，docs/adr/0019）：外部系统上传的 104 在平台上单号是
+#    `RK` + 源单号，本脚本只查源单号——那批单永远翻不正、对它们补传只会得到「码重复流向」失败
+#    （104 待办 474 条，抽样 10 条里 4 条其实已在平台）。修复见 .scratch/retail-platform-check/issues/04
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status_retail.php --dry-run
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status_retail.php --limit=5
 php /usr/share/nginx/mashangfangxin/scripts/check_bill_status_retail.php \
     --company="大源堂智慧药房（河源）有限公司新江分店"
+
+# 核查**本地记着「上传成功」**的门店单在平台上到底有没有（2026-10-09 建；手工跑，不进 crontab）
+#    补的是 ADR 0018 留的尾巴：2026-10-02 快照按源库状态表写下的那批「外部上传」记录从未经平台核实。
+#    **只发查询、不发申报**；平台说没有、且记录来源是 `retail_external` 的**删掉那条假记录**
+#    （整行连同平台答复先写 JSONL 存档）——删完要**按日期重采**（fetch_bills_retail.php <日期>）
+#    才会建出「等待上传」任务，脚本末尾会打出来。来源不是 retail_external 的（本项目自己传的）
+#    **只报警不删**：那是"平台丢单"级别的异常，值得人看
+#    ⚠️ **单号要试两种形态**（源单号 → `RK` + 源单号，见 docs/adr/0019）：少了第二步就是
+#    2026-10-09 那次误删 34 条真记录。判据是两步都查不到才算"没有"
+php /usr/share/nginx/mashangfangxin/scripts/check_uploaded_retail.php --dry-run \
+    --company="大源堂智慧药房（河源）有限公司雅居乐分店" --from=2026-09-01
 
 # 批量查询单据上传状态（来源 1：等待上传任务；新鲜度门卫：距上次查询不足 30 分钟的单据自动跳过）
 # 注：日期参数仅打印在日志中，查询范围不受日期限制（按门卫规则扫描全部待查单据）；只查批发主体

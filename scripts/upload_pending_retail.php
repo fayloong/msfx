@@ -1,7 +1,7 @@
 <?php
 /**
  * 零售门店单据的批量上传（票 06）——**能力已备、暂不启用**
- * 用法: php scripts/upload_pending_retail.php [--dry-run] [--limit=N] [--company=key,key…]
+ * 用法: php scripts/upload_pending_retail.php [--dry-run] [--limit=N] [--company=key,key…] [--djbh=单号,单号…]
  *   （无参数）  把「等待上传」的门店单据逐条交给现有补传链路
  *   --dry-run  只列出会轮到哪些单（单号/门店/码数），**一次平台调用都不发、不写任何库**。
  *              它是**上界**：预演不代跑三关，凭据未配齐的门店（会逐条标出来）真跑时会被拒
@@ -13,6 +13,14 @@
  *              未知 key 直接拒绝退出 1，不静默当成空集（打错一个字母就"跑了一遍什么都没传"，
  *              或者更糟——以为限定了范围、其实没限）。**这是"只传某几家"的唯一开关**：
  *              不加它就是把队列里**所有**门店的待办都真传出去
+ *   --djbh=    只处理这些**单号**的待办（逗号分隔；比对按大写，与 `closureActions()` 拉平
+ *              大小写的理由一致——源库的比较不区分大小写）。**这是"只传某几张单"的开关**：
+ *              `--company` 一给就是该店全部待办，而 `--limit` 按 id 升序取的是**最老**的那批，
+ *              两者都够不到"刚刚被核查判伪的那几张新单"（它们 id 最大、排在队尾）——2026-10-09
+ *              那次定向补传就是冲着这个缺口加它的。
+ *              给的单号**不在队列里只警告不退出**（与 `--company` 的未知 key 刻意不同）："不在
+ *              队列"有一个完全正常的原因——它已经被传掉了；把一次合法的定向补传整批拦下更糟。
+ *              可与 `--company` 组合（两个条件都满足才轮到）
  *
  * ⚠️ **这不是 cron 脚本，也不该变成 cron 脚本**（票面第 5 条）：每一条都是**向平台的真实申报、
  * 不可逆**——传错了要人去平台上收拾。本脚本把"补传"从"人在页面上逐条点"扩成"一次可以走一批"，
@@ -53,10 +61,12 @@ use App\RetailRetransmit;
 
 Config::load();
 
-// ── 参数：--dry-run / --limit=N / --company=k1,k2（顺序随意，可组合；正则只认 `=` 那一种形态）──
+// ── 参数：--dry-run / --limit=N / --company=k1,k2 / --djbh=单号,单号（顺序随意，可组合；
+//    正则只认 `=` 那一种形态）──
 $dryRun = false;
 $limit = null;
 $companyKeys = null;
+$djbhs = null;
 $badArg = null;
 foreach (array_slice($argv, 1) as $arg) {
     if ($arg === '--dry-run') {
@@ -78,6 +88,15 @@ foreach (array_slice($argv, 1) as $arg) {
             echo "[upload_pending_retail] 参数无效: {$arg}（--company 没有给出任何企业 key）\n";
             exit(1);
         }
+    } elseif (preg_match('/^--djbh=(.+)$/', $arg, $m)) {
+        $djbhs = array_values(array_filter(
+            array_map('trim', explode(',', $m[1])),
+            static fn(string $v): bool => $v !== ''
+        ));
+        if ($djbhs === []) {
+            echo "[upload_pending_retail] 参数无效: {$arg}（--djbh 没有给出任何单号）\n";
+            exit(1);
+        }
     } else {
         $badArg = $arg;
         break;
@@ -85,7 +104,7 @@ foreach (array_slice($argv, 1) as $arg) {
 }
 
 if ($badArg !== null) {
-    echo "[upload_pending_retail] 参数无效: {$badArg}，需要 --dry-run、--limit=N、--company=k1,k2（可组合）\n";
+    echo "[upload_pending_retail] 参数无效: {$badArg}，需要 --dry-run、--limit=N、--company=k1,k2、--djbh=单号,单号（可组合）\n";
     exit(1);
 }
 
@@ -118,6 +137,35 @@ try {
         ));
         echo "[upload_pending_retail] --company 限定 " . implode('、', $companyKeys)
             . "：队列取回后留下 " . count($tasks) . " 条\n";
+    }
+
+    // ── --djbh：只留这些单号的待办（定向补传，如"刚被平台核查判伪的那几张"）──
+    // 过滤同样放在**取回之后**（理由见上条）。比对按**大写**：单号是 ASCII，而源库（SQL Server）
+    // 的比较不区分大小写、回传的写法与本地未必逐字相同——不拉平会"给了单号却一条都没轮到"
+    if ($djbhs !== null) {
+        $wanted = [];
+        foreach ($djbhs as $d) {
+            $wanted[strtoupper($d)] = true;
+        }
+        $matched = [];
+        $tasks = array_values(array_filter($tasks, static function (array $t) use ($wanted, &$matched): bool {
+            $djbh = strtoupper(trim((string)($t['djbh'] ?? '')));
+            if ($djbh === '' || !isset($wanted[$djbh])) {
+                return false;
+            }
+            $matched[$djbh] = true;
+            return true;
+        }));
+        // 没轮到的那些单号**只警告不退出**：与 --company 的未知 key 刻意不同——"不在队列里"
+        // 有一个完全正常的原因（它已经被传掉了：平台核查翻正、或有人刚点过补传），
+        // 把一次合法的定向补传整批拦下，比打一行字让人自己看更糟
+        $missing = array_diff_key($wanted, $matched);
+        if ($missing !== []) {
+            echo '[upload_pending_retail] 注意: 这些单号不在「等待上传」队列里（已传过，或单号写错）: '
+                . implode(', ', array_keys($missing)) . "\n";
+        }
+        echo "[upload_pending_retail] --djbh 限定 " . count($djbhs) . " 个单号：队列取回后留下 "
+            . count($tasks) . " 条\n";
     }
 
     // 空队列**秒退，不取锁**（见头部 ①）
